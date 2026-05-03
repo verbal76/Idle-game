@@ -47,7 +47,6 @@ export class Game {
   private trunkMat!: StandardMaterial;
   private foliageMat!: StandardMaterial;
   private mountainMat!: StandardMaterial;
-  private cliffMat!: StandardMaterial;
 
   private trunkTemplate!: Mesh;
   private foliageTemplate!: Mesh;
@@ -75,7 +74,10 @@ export class Game {
 
   private heading = 0;
   private edgeAngle = 0;
-  private readonly SIDECUT = 12.0;
+  // Smaller sidecut → tighter R = C·cos(θ) → faster ω = V/R. Half the
+  // realistic value (12 m) so the carve feels game-snappy without
+  // breaking the PDF model.
+  private readonly SIDECUT = 6.0;
   private readonly G = 9.81;
 
   private state: RiderState = 'normal';
@@ -175,6 +177,7 @@ export class Game {
 
   private buildSharedMaterials(): void {
     this.snowMat     = mkMat(this.scene, 'snow',     new Color3(0.94, 0.96, 1.00));
+    this.snowMat.backFaceCulling = false; // visible from underneath during cliff falls
     this.rockMat     = mkMat(this.scene, 'rock',     new Color3(0.32, 0.35, 0.38));
     this.kickerMat   = mkMat(this.scene, 'kicker',   new Color3(0.28, 0.40, 0.62));
     this.coinMat     = mkMat(this.scene, 'coin',     new Color3(1.00, 0.82, 0.18));
@@ -182,7 +185,6 @@ export class Game {
     this.trunkMat    = mkMat(this.scene, 'trunk',    new Color3(0.34, 0.22, 0.13));
     this.foliageMat  = mkMat(this.scene, 'foliage',  new Color3(0.18, 0.46, 0.24));
     this.mountainMat = mkMat(this.scene, 'mountain', new Color3(0.55, 0.66, 0.82));
-    this.cliffMat    = mkMat(this.scene, 'cliff',    new Color3(0.22, 0.20, 0.20));
   }
 
   private buildTreeTemplates(): void {
@@ -242,8 +244,11 @@ export class Game {
     cam.heightOffset = 3.5;
     cam.radius = 9;
     cam.rotationOffset = 180;
-    cam.cameraAcceleration = 0.06;
-    cam.maxCameraSpeed = 40;
+    // Tighter than before so cliff falls don't leave the camera lagging
+    // above the lower surface (which then made the screen go white as
+    // it stared up through the underside of the upper plane).
+    cam.cameraAcceleration = 0.20;
+    cam.maxCameraSpeed = 100;
     this.scene.activeCamera = cam;
   }
 
@@ -345,18 +350,11 @@ export class Game {
     const ox = cx * this.chunkSize + half;
     const oz = cz * this.chunkSize + half;
 
-    let cliffFace: Mesh | null = null;
+    // Cliff registration only (no rock-face mesh — it was clipping the
+    // camera and producing the "white screen" through-the-snowbank effect).
     if (cz > 2 && cx === 0 && this.rng.next01() < 0.18 && !this.cliffs.has(cz)) {
       const drop = 8 + this.rng.next01() * 10;
       this.cliffs.set(cz, drop);
-      const cliffZ = cz * this.chunkSize;
-      const cliffTopY = -cliffZ * Math.tan(this.activeSlope) - this.cliffOffsetAt(cz - 1);
-      const face = MeshBuilder.CreateBox(`cliff-${cz}`, {
-        width: 600, height: drop + 4, depth: 1.0
-      }, this.scene);
-      face.material = this.cliffMat;
-      face.position.set(0, cliffTopY - (drop + 4) / 2 + 1.5, cliffZ + 0.2);
-      cliffFace = face;
     }
 
     const cy = this.surfaceY(oz);
@@ -368,7 +366,6 @@ export class Game {
     ground.rotation.x = -this.activeSlope;
 
     const features: AbstractMesh[] = [];
-    if (cliffFace) features.push(cliffFace);
     const rocks: ChunkData['rocks'] = [];
     const kickers: ChunkData['kickers'] = [];
     const coins: ChunkData['coins'] = [];
