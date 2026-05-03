@@ -58,7 +58,8 @@ export class Game {
   private readonly viewBehind = 1;
   private readonly viewSide = 2;
 
-  private readonly slopeRad = 0.21;
+  private readonly slopeRad = 0.21;     // ~12° downhill
+  private readonly halfPipeSlopeRad = 0.28; // 16° (Phillips, standard halfpipe)
   private cliffs = new Map<number, number>();
 
   private speed = 0;
@@ -70,18 +71,14 @@ export class Game {
   private coinsCollected = 0;
   private fellAlready = false;
 
-  // Carve model — directly from Michaud/Duncumb "Physics of a Snowboard
-  // Carved Turn":
-  //   sin(θ) = V² / (C·g)        — natural edge angle at speed V
-  //   R      = C·cos(θ)          — carve radius from sidecut C
-  //   ω      = V / R             — heading angular velocity (rad/s)
-  // C is the board's sidecut radius. Stick X scales between 0 and the
-  // physically-allowed θ at current speed (capped by the user-preferred
-  // 40° visual ceiling).
+  // Carve model — Michaud/Duncumb:
+  //   sin(θ) = V² / (C·g)
+  //   R      = C·cos(θ)
+  //   ω      = V / R
   private heading = 0;
   private edgeAngle = 0;
-  private readonly SIDECUT = 12.0;  // metres — typical 160-cm freestyle board
-  private readonly G = 9.81;
+  private readonly SIDECUT = 12.0;
+  private readonly G = 9.81;            // O'Shea: real-world gravity
 
   private state: RiderState = 'normal';
   private stateEndsAt = 0;
@@ -96,19 +93,28 @@ export class Game {
 
   private rng = new SeedRng(BigInt(Date.now()));
 
+  // Physics tunables. Jump impulses chosen so that v² = 2gh gives
+  // sensible heights at g = 9.81: jumpMin → ~0.8 m hop, jumpMax → ~3.2 m
+  // pop, kicker → ~1.3 m, mega-kicker → ~5 m (lots of air for flips).
   private readonly groundY = 0.85;
   private readonly accel = 5;
-  private readonly gravity = 24;
-  private readonly jumpMin = 6;
-  private readonly jumpMax = 13;
+  private readonly gravity = 9.81;
+  private readonly jumpMin = 4.0;
+  private readonly jumpMax = 8.0;
   private readonly chargeRate = 1.4;
-  private readonly flipRate = 7.0;
+  private readonly flipRate = 6.5;      // rad/s — gives ~1 flip per typical airtime
 
   // Carve feel
-  private readonly maxLean = 0.698;     // 40° hard cap on edge/lean
-  private readonly leanResponse = 6.0;  // smoothing of edge toward target
-  private readonly speedCatch = 4.0;    // smoothing of speed toward target
-  private readonly lateralBleed = 0.45; // sin(heading) × maxSpeed × this = sideways drift
+  private readonly maxLean = 0.698;
+  private readonly leanResponse = 6.0;
+  private readonly speedCatch = 4.0;
+  private readonly lateralBleed = 0.45;
+
+  // O'Shea landing model: average normal force = mg(1 + h/b·cosθ) where
+  // b is knee compression (~0.5m). We model it implicitly: rotation
+  // alignment alone decides clean vs bail. Impact-magnitude bailing is
+  // a future hook (would compare v_perp = |v·n_slope| against a tolerance).
+  private readonly KNEE_BEND = 0.5;     // metres — for future impact threshold
 
   private running = false;
 
@@ -166,6 +172,7 @@ export class Game {
   private get maxSpeed(): number { return 22 + this.upgrades.speed * 1.5; }
   private get jumpMaxScaled(): number { return this.jumpMax * (1 + this.upgrades.jump * 0.10); }
   private get magnetRadius(): number { return 1.4 + this.upgrades.magnet * 0.5; }
+  private get activeSlope(): number { return this.mode === 'half-pipe' ? this.halfPipeSlopeRad : this.slopeRad; }
 
   private cliffOffsetAt(cz: number): number {
     let drop = 0;
@@ -175,7 +182,7 @@ export class Game {
 
   private surfaceY(z: number): number {
     const cz = Math.floor(z / this.chunkSize);
-    return -z * Math.tan(this.slopeRad) - this.cliffOffsetAt(cz);
+    return -z * Math.tan(this.activeSlope) - this.cliffOffsetAt(cz);
   }
 
   private buildSharedMaterials(): void {
@@ -355,7 +362,7 @@ export class Game {
       const drop = 8 + this.rng.next01() * 10;
       this.cliffs.set(cz, drop);
       const cliffZ = cz * this.chunkSize;
-      const cliffTopY = -cliffZ * Math.tan(this.slopeRad) - this.cliffOffsetAt(cz - 1);
+      const cliffTopY = -cliffZ * Math.tan(this.activeSlope) - this.cliffOffsetAt(cz - 1);
       const face = MeshBuilder.CreateBox(`cliff-${cz}`, {
         width: 600, height: drop + 4, depth: 1.0
       }, this.scene);
@@ -370,7 +377,7 @@ export class Game {
     }, this.scene);
     ground.material = this.snowMat;
     ground.position.set(ox, cy, oz);
-    ground.rotation.x = -this.slopeRad;
+    ground.rotation.x = -this.activeSlope;
 
     const features: AbstractMesh[] = [];
     if (cliffFace) features.push(cliffFace);
@@ -428,9 +435,10 @@ export class Game {
         const kicker = MeshBuilder.CreateBox(`kicker-${cx}-${cz}`, { width: w, height: h, depth: d }, this.scene);
         kicker.material = this.kickerMat;
         kicker.position.set(lx, this.surfaceY(lz) + h / 2, lz);
-        kicker.rotation.x = -0.32 - this.slopeRad;
+        kicker.rotation.x = -0.32 - this.activeSlope;
         features.push(kicker);
-        kickers.push({ x: lx, z: lz, width: w, power: isMega ? 16 : 9.5 });
+        // Powers chosen for v² = 2gh, g=9.81: kicker→1.3m, mega→5m air.
+        kickers.push({ x: lx, z: lz, width: w, power: isMega ? 10.0 : 5.0 });
       }
 
       const coinCount = this.rng.rangeInt(2, 6);
@@ -459,7 +467,7 @@ export class Game {
     }, this.scene);
     floor.material = this.snowMat;
     floor.position.set(ox, cy - 0.1, oz);
-    floor.rotation.x = -this.slopeRad;
+    floor.rotation.x = -this.activeSlope;
 
     const features: AbstractMesh[] = [];
     for (const side of [-1, 1] as const) {
@@ -469,7 +477,7 @@ export class Game {
       wall.material = this.snowMat;
       wall.position.set(ox + side * 4.5, cy + 2.5, oz);
       wall.rotation.z = side * 0.45;
-      wall.rotation.x = -this.slopeRad;
+      wall.rotation.x = -this.activeSlope;
       features.push(wall);
     }
 
@@ -491,9 +499,9 @@ export class Game {
         const kicker = MeshBuilder.CreateBox(`hp-kicker-${cz}`, { width: 4, height: 0.8, depth: 4 }, this.scene);
         kicker.material = this.kickerMat;
         kicker.position.set(ox, this.surfaceY(lz) + 0.4, lz);
-        kicker.rotation.x = -0.40 - this.slopeRad;
+        kicker.rotation.x = -0.40 - this.activeSlope;
         features.push(kicker);
-        kickers.push({ x: ox, z: lz, width: 4, power: 12 });
+        kickers.push({ x: ox, z: lz, width: 4, power: 7.5 });
       }
     }
 
@@ -569,11 +577,6 @@ export class Game {
     // === Carve (Michaud/Duncumb) ===
     const stickX = this.input.leftStick().x;
     const v = Math.max(0.5, this.speed);
-
-    // Natural max edge angle at this speed: sin(θ) = V² / (C·g).
-    // sinTheta can mathematically exceed 1 above the "critical speed"
-    // V² > C·g — here we clamp to 0.99 so asin is well-defined; in
-    // practice the user-preferred 40° cap tames it well below that.
     const sinThetaMax = Math.min(0.99, (v * v) / (this.SIDECUT * this.G));
     const physThetaMax = Math.asin(sinThetaMax);
     const thetaMax = Math.min(this.maxLean, physThetaMax);
@@ -583,7 +586,6 @@ export class Game {
     const leanRate = isReturning ? this.leanResponse * 0.35 : this.leanResponse;
     this.edgeAngle += (targetEdge - this.edgeAngle) * Math.min(1, leanRate * dt);
 
-    // Heading rotates at ω = V / R, R = C·cos(θ). The board carves an arc.
     if (Math.abs(this.edgeAngle) > 0.005) {
       const R = this.SIDECUT * Math.cos(Math.abs(this.edgeAngle));
       const omega = v / R;
@@ -593,8 +595,6 @@ export class Game {
     this.rider.root.rotation.y = this.heading;
     this.rider.lean.rotation.z = -this.edgeAngle;
 
-    // Speed: cos²(heading) — full at 0° and 180° (riding switch), zero
-    // around 90° (board sideways = full edge bite into the snow).
     const cosH = Math.cos(this.heading);
     const sinH = Math.sin(this.heading);
     const targetSpeed = this.maxSpeed * Math.max(0.05, cosH * cosH);
@@ -639,8 +639,6 @@ export class Game {
       }
     }
 
-    // Forward motion: always +Z (slope/gravity). Lateral drift from board
-    // angle so a sideways board pulls the rider sideways.
     this.rider.root.position.z += this.speed * dt;
     this.rider.root.position.x += sinH * this.maxSpeed * this.lateralBleed * dt;
 
@@ -676,7 +674,7 @@ export class Game {
     const coinTag = `  •  ${this.coinsCollected} ❄`;
     this.callbacks.onScore?.(`${meters} m${coinTag}${flipTag}`);
 
-    void this.trail;
+    void this.trail; void this.KNEE_BEND;
     this.scene.render();
   }
 
