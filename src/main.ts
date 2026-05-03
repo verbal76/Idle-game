@@ -24,7 +24,7 @@ async function bootstrap(): Promise<void> {
       continue;
     }
 
-    await runSession(screen, canvas, choice);
+    await runSession(screen, canvas, choice, profiles);
     await profiles.save();
   }
 }
@@ -32,7 +32,8 @@ async function bootstrap(): Promise<void> {
 async function runSession(
   screen: HTMLElement,
   canvas: HTMLCanvasElement,
-  mode: Exclude<MenuChoice, 'switch-profile'>
+  mode: Exclude<MenuChoice, 'switch-profile'>,
+  profiles: ProfileService
 ): Promise<void> {
   return new Promise<void>((resolve) => {
     screen.innerHTML = '';
@@ -47,7 +48,15 @@ async function runSession(
     }, {
       onScore: (label) => { hud.score.textContent = label; },
       onFell: (stats) => {
-        hud.fellStats.textContent = `Distance: ${stats.distanceMeters} m  •  Flips: ${stats.flips}`;
+        const active = profiles.activeProfile;
+        if (active) {
+          active.currency += stats.coins;
+          if (stats.distanceMeters > active.longestDownhillMeters) {
+            active.longestDownhillMeters = stats.distanceMeters;
+          }
+        }
+        hud.fellStats.textContent =
+          `Distance: ${stats.distanceMeters} m  •  Coins: +${stats.coins}  •  Flips: ${stats.flips}`;
         hud.fellOverlay.style.display = 'flex';
       },
     });
