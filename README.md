@@ -24,20 +24,13 @@ falls; the summary banks currency and returns to the lobby.
 
 1. You prompt Claude in this conversation.
 2. Claude edits files via the GitHub MCP and pushes.
-3. GitHub Actions builds the site and deploys it to
-   `https://verbal76.github.io/Idle-game/`.
+3. GitHub Actions builds the site, **enables Pages on first run**, and
+   deploys to `https://verbal76.github.io/Idle-game/`.
 4. You open that URL on the phone and tap **Install app** — home-screen icon,
    fullscreen, landscape locked.
 
-No PC needed at any step.
-
-## One-time GitHub setup (you, in repo settings)
-
-1. **Settings → Pages → Source: GitHub Actions**.
-2. **Settings → Actions → General → Workflow permissions: Read and write**.
-
-After that the deploy workflow runs automatically on every push to `main` or
-`claude/android-snowboarding-game-UHUPI`.
+No PC needed, no clicks in repo settings. Every push to `main` or
+`claude/android-snowboarding-game-UHUPI` redeploys automatically.
 
 ## Project layout
 
@@ -59,7 +52,7 @@ src/
   world/
     SeedRng.ts             xorshift64 for deterministic procedural worlds.
 .github/workflows/
-  deploy-pages.yml         Build + deploy to GitHub Pages on every push.
+  deploy-pages.yml         Build + auto-enable Pages + deploy on every push.
 ```
 
 ## Status
