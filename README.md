@@ -1,80 +1,95 @@
 # Boarder
 
-Stylized snowboarding game for Android, built phone-only, distributed as a
-sideloaded APK from this private repo's GitHub Actions runs.
+Stylized snowboarding game for Android. Phone-only development. Distributed
+as a sideloaded APK; gameplay/code updates ship over-the-air via EAS Update
+so you don't reinstall for every change.
 
-- **Half-pipe** — active twin-stick gameplay. Left stick steers, right-stick
-  flick gestures execute spins / flips / grabs. The only on-screen button is
-  pause.
-- **Downhill** — idle / tap. The rider auto-descends a procedural mountain;
-  you only intervene to jump or flip until you fall.
+- **Half-pipe** — active twin-stick gameplay. Left stick steers, JUMP and
+  FLIP buttons drive the air game.
+- **Downhill** — idle / tap. Auto-runs a procedural mountain; you only
+  intervene to jump or flip until you hit something.
 
-Runs are continuous — there is no restart button. A run ends when the rider
-falls.
+Runs are continuous — there is no restart button.
 
 ## Stack
 
-- **Babylon.js + TypeScript** rendering to a fullscreen WebGL canvas.
-- **Capacitor 6** wraps the build into a native Android WebView app, so the
-  game ships as a real APK.
-- **Vite** bundles the web layer (and chunk-splits Babylon).
-- **IndexedDB** (via `idb`) for multiple local profiles, no cloud.
-- **GitHub Actions** builds the APK on every push and uploads it as a
-  workflow artifact.
+- **Babylon.js + TypeScript + Vite** is the entire game. Vite's single-file
+  build collapses the whole thing into one self-contained `dist/index.html`.
+- **Expo + react-native-webview** is a thin native shell. `App.tsx` loads
+  the bundled `dist/index.html` into a WebView. That's the entire native
+  surface.
+- **EAS Build** produces signed Android APKs in the cloud.
+- **EAS Update** pushes the JS+asset bundle (the new `dist/index.html`)
+  OTA on every push. Installed apps fetch the new bundle on next launch.
+- **IndexedDB** (via `idb`) for multiple local profiles inside the WebView.
 
-No hosting, no third-party services, no public repo. Everything lives inside
-the GitHub repo + your phone's APK install.
+No hosting, no GitHub Pages, no third-party host. The repo is private.
 
-## Phone-only dev workflow
+## One-time setup (you, mobile Chrome)
 
-1. You prompt Claude in this conversation.
-2. Claude edits files via the GitHub MCP and pushes.
-3. GitHub Actions runs **Build APK** (~5–10 minutes; first run is the
-   slowest because Gradle downloads the Android SDK).
-4. On your phone GitHub:
-   1. Open the **Actions** tab.
-   2. Tap the latest green run titled “Build APK”.
-   3. Scroll to the **Artifacts** section at the bottom.
-   4. Tap **boarder-debug-apk** to download the ZIP.
-   5. Open the ZIP (Files / Chrome downloads), extract
-      `boarder-debug.apk`, then tap it to install.
-5. **First install**: Android prompts you to enable “Install unknown apps”
-   for whichever app you opened the APK from (Chrome, Files, GitHub). Allow
-   it once, then install.
-6. **Subsequent updates**: just tap the new APK to upgrade in place.
+1. **expo.dev** → sign in → **Projects** → **Create a project** named
+   `boarder`. Copy the **project ID** (UUID).
+2. Tell Claude the project ID. Claude updates `app.json` to replace the
+   `REPLACE_WITH_EAS_PROJECT_ID` placeholders.
+3. expo.dev → **Account Settings → Access Tokens** → **Create token**.
+   Copy the token.
+4. **github.com/verbal76/Idle-game/settings/secrets/actions** →
+   **New repository secret** → name `EXPO_TOKEN`, value = the token.
 
-The app id is `com.verbal76.boarder`, name **Boarder**.
+After that, two GitHub Actions workflows handle everything:
+
+- **EAS Update (OTA)** runs on every push to `main` or the dev branch.
+  Builds `dist/index.html`, publishes a new bundle to your EAS Update
+  channel. Installed apps pick it up on next cold launch.
+- **EAS Build (Android APK)** is **manual** (workflow_dispatch). Run it
+  when you need a fresh APK to install for the first time or after
+  changing native deps.
+
+## Day-to-day flow
+
+- **Code/asset change**: I push → EAS Update workflow runs (~3–5 min) →
+  next time you launch the installed app, it fetches the new bundle and
+  reloads the game. No reinstall.
+- **Need a new APK** (first install or native dep change): you trigger
+  **EAS Build (Android APK)** manually from the Actions tab → wait for
+  EAS dashboard to show the build done (~10–15 min on EAS's runners) →
+  download APK from the EAS dashboard on your phone → install.
 
 ## Project layout
 
 ```
-src/                       Game source (TypeScript + Babylon).
+App.tsx                    Expo entry. Loads dist/index.html into WebView.
+index.js                   registerRootComponent shim.
+app.json                   Expo + Android config + EAS project link.
+eas.json                   EAS Build / Update profiles.
+babel.config.js            RN babel preset.
+metro.config.js            Adds .html to assetExts so dist/index.html is
+                           bundleable.
+vite.config.ts             Single-file Vite build (everything inlined into
+                           one HTML).
+tsconfig.json              Single tsconfig for both web and RN code.
+src/                       The actual game.
   main.ts                  Entry. Wires profiles → menu → run loop.
-  scene/Game.ts            Babylon engine, scene, rider, slope chunk stream.
+  scene/Game.ts            Babylon scene, rider physics, obstacles.
+  scene/Rider.ts           Code-built humanoid + snowboard rig.
   profiles/                IndexedDB profile store.
-  input/                   On-screen twin-stick (touch).
-  ui/                      DOM screens: ProfileSelect, MainMenu, HUD.
+  input/TwinStickInput.ts  On-screen left stick (steer).
+  input/ActionButtons.ts   On-screen JUMP / FLIP buttons.
+  ui/                      DOM screens (Profile select, Main menu, HUD).
   world/SeedRng.ts         Deterministic xorshift64 RNG.
-capacitor.config.ts        App id, name, webDir.
-vite.config.ts             Bundler + Babylon chunk-split.
 .github/workflows/
-  android.yml              CI: install → vite build → cap add android
-                           → gradle assembleDebug → upload APK artifact.
+  eas-update.yml           Auto OTA on every push.
+  eas-build.yml            Manual APK build trigger.
 ```
-
-The `android/` directory is regenerated each CI run from
-`capacitor.config.ts` and is gitignored — don't commit it.
 
 ## Status
 
-v0 skeleton: profile select → main menu → boots a Babylon scene where a
-capsule rider slides forward over streamed slope chunks, on-screen left stick
-steers laterally, pause overlay with Resume / Quit run. Real slope tilt,
-physics, half-pipe walls, flick-combo trick scoring, and the idle currency
-loop are next.
+v1 skeleton: humanoid rider with snowboard, on-screen left stick steers,
+twin action buttons (hold-to-charge JUMP, in-air FLIP), procedural rocks
+that end the run on collision, distance + flip counter HUD, profile-select
++ pause + fall overlay flow, IndexedDB-backed local profiles.
 
-The v1 plan lives at
-`/root/.claude/plans/i-want-to-start-smooth-fairy.md`. Earlier scaffolding
-(Unity at commit `beac810`, web/PWA pivot at `8737ea2`) is preserved in git
-history; the leftover `Assets/` directory is inert and will be removed
-incrementally.
+The v1 plan lives at `/root/.claude/plans/i-want-to-start-smooth-fairy.md`.
+Earlier scaffolding (Unity at `beac810`, web/PWA at `8737ea2`, Cloudflare
+at `c1b1a49`, Capacitor APK at `8ab0763`) is in git history. The leftover
+`Assets/` directory is inert and will be removed incrementally.

@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "Boarder",
+    "slug": "boarder",
+    "version": "0.0.1",
+    "orientation": "landscape",
+    "backgroundColor": "#0b1320",
+    "userInterfaceStyle": "dark",
+    "platforms": ["android"],
+    "android": {
+      "package": "com.verbal76.boarder",
+      "versionCode": 1,
+      "backgroundColor": "#0b1320"
+    },
+    "assetBundlePatterns": ["dist/**/*"],
+    "updates": {
+      "url": "https://u.expo.dev/REPLACE_WITH_EAS_PROJECT_ID",
+      "fallbackToCacheTimeout": 3000
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+      }
+    }
+  }
+}

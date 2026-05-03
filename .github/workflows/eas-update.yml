@@ -1,0 +1,31 @@
+name: EAS Update (OTA)
+
+on:
+  push:
+    branches:
+      - main
+      - 'claude/android-snowboarding-game-UHUPI'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eas-update-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install -g eas-cli
+      - run: npm install
+      - run: npm run web:build
+      - name: Publish OTA update
+        run: eas update --auto --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}

@@ -1,0 +1,25 @@
+name: EAS Build (Android APK)
+
+# Manual trigger only — full APK builds are slower and only needed for the
+# first install or when native deps change. Day-to-day code/asset changes
+# go out via EAS Update on every push (see eas-update.yml).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install -g eas-cli
+      - run: npm install
+      - name: Trigger EAS Build (preview / APK)
+        run: eas build --platform android --profile preview --non-interactive --no-wait
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
