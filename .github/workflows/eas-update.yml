@@ -26,8 +26,11 @@ jobs:
       - run: npm install
       - run: npm run web:build
       - name: Publish OTA update
-        run: eas update --auto --non-interactive
-        # Same flexibility as the build workflow: try EXPO_TOKEN first,
-        # then fall back to the existing SNOWBOARD / SNOW secret names.
+        # --platform android: app.json only declares android, but
+        # eas update --auto otherwise still asks expo-cli to export ios
+        # and fails (no ios entry in the bundler's platforms list).
+        run: eas update --auto --platform android --non-interactive
+        # Token name flexibility: prefer EXPO_TOKEN, fall back to the
+        # SNOWBOARD / SNOW secret names already in this repo.
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
