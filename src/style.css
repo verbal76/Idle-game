@@ -1,0 +1,65 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 100%; height: 100%;
+  background: #0b1320; color: #eef3ff;
+  overflow: hidden;
+  touch-action: none;
+  -webkit-user-select: none; user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  overscroll-behavior: none;
+}
+#renderCanvas { position: fixed; inset: 0; width: 100vw; height: 100vh; outline: none; display: block; }
+#screen { position: fixed; inset: 0; pointer-events: none; }
+#screen > * { pointer-events: auto; }
+
+.fullscreen-panel {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px;
+  background: rgba(11, 19, 32, 0.92);
+  backdrop-filter: blur(8px);
+  padding: env(safe-area-inset-top, 16px) env(safe-area-inset-right, 16px) env(safe-area-inset-bottom, 16px) env(safe-area-inset-left, 16px);
+}
+.fullscreen-panel h1 { font-size: 30px; letter-spacing: 0.08em; font-weight: 700; }
+.fullscreen-panel button {
+  background: #2a4f7f; color: #fff; border: 0;
+  padding: 12px 24px; border-radius: 12px; font-size: 16px;
+  min-width: 180px; cursor: pointer;
+  font: inherit;
+}
+.fullscreen-panel button.danger { background: #7a2a2a; }
+.list { display: flex; flex-direction: column; gap: 8px; min-width: 240px; }
+.row { display: flex; gap: 8px; align-items: center; }
+.muted { opacity: 0.65; font-size: 13px; }
+
+#hud { position: absolute; inset: 0; display: block; }
+#hud .top-bar {
+  position: absolute;
+  top: max(env(safe-area-inset-top, 12px), 12px);
+  left: 16px; right: 16px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+#hud .pause-btn {
+  background: rgba(255,255,255,0.18); color: #fff;
+  border: 0; padding: 10px 14px; border-radius: 10px; font-size: 14px; font: inherit;
+}
+#hud .score { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 22px; }
+
+.stick {
+  position: absolute;
+  bottom: max(env(safe-area-inset-bottom, 24px), 24px);
+  width: 130px; height: 130px; border-radius: 50%;
+  background: rgba(255,255,255,0.08);
+  border: 2px solid rgba(255,255,255,0.14);
+  touch-action: none;
+}
+.stick-left  { left: 24px; }
+.stick-right { right: 24px; }
+.stick .knob {
+  position: absolute; left: 50%; top: 50%;
+  width: 56px; height: 56px; border-radius: 50%;
+  background: rgba(255,255,255,0.38);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}

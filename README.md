@@ -1,58 +1,77 @@
-# Idle-game
+# Boarder
 
-Android stylized snowboarding game with two modes:
+Stylized snowboarding PWA, phone-first.
 
 - **Half-pipe** — active twin-stick gameplay. Left stick steers, right-stick
   flick gestures execute spins / flips / grabs. The only on-screen button is
   pause.
-- **Downhill** — idle/tap clicker. The rider auto-descends a procedural
-  mountain. Tap-jump and right-stick flips are the only interventions; the
-  run continues until you fall.
+- **Downhill** — idle / tap. The rider auto-descends a procedural mountain;
+  you only intervene to jump or flip until you fall.
 
 Runs are continuous — there is no restart button. A run ends when the rider
-falls; the summary shows banked currency and returns to the main menu.
+falls; the summary banks currency and returns to the lobby.
 
-## Tech
+## Stack
 
-- **Unity 6 LTS** with URP mobile renderer
-- Android phone, ARM64, IL2CPP, landscape locked
-- Local-only profiles (multiple) with JSON saves under `Application.persistentDataPath`
+- **Babylon.js + TypeScript** rendering to a fullscreen WebGL canvas.
+- **Vite** + **vite-plugin-pwa** for the build (installable PWA, landscape
+  locked, fullscreen on Android Chrome).
+- **IndexedDB** (via `idb`) for multiple local profiles, no cloud.
+- **GitHub Actions → GitHub Pages** for hosting. A future workflow uses
+  Bubblewrap to wrap the PWA into a Trusted Web Activity APK.
 
-## Getting started
+## Phone-only dev workflow
 
-1. Install **Unity 6 LTS (6000.0.x)** with the **Android Build Support** module
-   (NDK + JDK + SDK).
-2. Clone the repo. Make sure `git lfs` is installed before pulling.
-3. Open the project in Unity Hub. The first open will regenerate `.meta`
-   files and resolve packages — commit those changes back.
-4. **Edit › Project Settings › Player › Android**:
-   - Default Orientation: **Landscape Left**
-   - Use Animated Auto-Rotation: **off**, only Landscape Left + Right enabled
-   - Scripting Backend: **IL2CPP**
-   - Target Architectures: **ARM64** only
-   - Minimum API Level: **26 (Android 8.0)**
-5. **Edit › Project Settings › Quality**: tune mobile tier, disable MSAA,
-   enable sustained-performance mode.
-6. Switch platform to Android and **File › Build & Run** to a connected
-   device.
+1. You prompt Claude in this conversation.
+2. Claude edits files via the GitHub MCP and pushes.
+3. GitHub Actions builds the site and deploys it to
+   `https://verbal76.github.io/Idle-game/`.
+4. You open that URL on the phone and tap **Install app** — home-screen icon,
+   fullscreen, landscape locked.
 
-## Branch policy
+No PC needed at any step.
 
-All active development happens on `claude/android-snowboarding-game-UHUPI`
-until the v1 skeleton lands.
+## One-time GitHub setup (you, in repo settings)
+
+1. **Settings → Pages → Source: GitHub Actions**.
+2. **Settings → Actions → General → Workflow permissions: Read and write**.
+
+After that the deploy workflow runs automatically on every push to `main` or
+`claude/android-snowboarding-game-UHUPI`.
 
 ## Project layout
 
 ```
-Assets/_Project/Scripts/
-  Core/        bootstrap, scene routing, service locator
-  Profiles/    local profile system + JSON save store
-  Input/       twin-stick provider + right-stick flick recognizer
-  Player/      rider controller, physics, trick resolver, ragdoll
-  World/       chunk streamer + half-pipe / downhill generators
-  Modes/       run state machine + per-mode logic
-  Scoring/     score, combos, trick dictionary
-  Idle/        currency + unlock services
+src/
+  main.ts                  Entry. Wires profiles → menu → run → menu loop.
+  style.css                Fullscreen, landscape, no-zoom, on-screen sticks.
+  profiles/
+    IndexedDbStore.ts      idb wrapper with profiles + meta object stores.
+    ProfileService.ts      Active-profile orchestration on top of the store.
+  input/
+    TwinStickInput.ts      Pointer-events on-screen sticks (left + right).
+  scene/
+    Game.ts                Babylon engine, scene, rider, slope chunk stream.
+  ui/
+    ProfileSelect.ts       Pick / create local profile.
+    MainMenu.ts            Pick mode (downhill | half-pipe) or switch profile.
+    HUD.ts                 In-run sticks, score, pause overlay.
+  world/
+    SeedRng.ts             xorshift64 for deterministic procedural worlds.
+.github/workflows/
+  deploy-pages.yml         Build + deploy to GitHub Pages on every push.
 ```
 
-See `/root/.claude/plans/i-want-to-start-smooth-fairy.md` for the full v1 plan.
+## Status
+
+v0 skeleton: profile select → main menu → boots a Babylon scene where a
+capsule rider slides forward over streamed slope chunks, on-screen left stick
+steers laterally, pause overlay with Resume / Quit run. Real slope tilt,
+physics, half-pipe walls, flick-combo trick scoring, and the idle currency
+loop are next.
+
+The v1 plan lives at
+`/root/.claude/plans/i-want-to-start-smooth-fairy.md`. The earlier Unity
+scaffold (commit `beac810`) is preserved in git history; the leftover
+`Assets/` directory in the working tree is inert and will be removed
+incrementally.

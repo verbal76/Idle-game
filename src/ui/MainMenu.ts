@@ -1,0 +1,29 @@
+import { ProfileService } from '../profiles/ProfileService';
+
+export type MenuChoice = 'half-pipe' | 'downhill' | 'switch-profile';
+
+export function showMainMenu(root: HTMLElement, profiles: ProfileService): Promise<MenuChoice> {
+  return new Promise<MenuChoice>((resolve) => {
+    const p = profiles.activeProfile!;
+    root.innerHTML = `
+      <div class="fullscreen-panel">
+        <h1>BOARDER</h1>
+        <p class="muted">Welcome back, ${escapeHtml(p.name)} — ${p.currency} ❄</p>
+        <div class="list">
+          <button id="downhill">Downhill (idle)</button>
+          <button id="half-pipe">Half-pipe</button>
+          <button id="switch">Switch profile</button>
+        </div>
+      </div>
+    `;
+    root.querySelector<HTMLButtonElement>('#downhill')!.addEventListener('click', () => resolve('downhill'));
+    root.querySelector<HTMLButtonElement>('#half-pipe')!.addEventListener('click', () => resolve('half-pipe'));
+    root.querySelector<HTMLButtonElement>('#switch')!.addEventListener('click', () => resolve('switch-profile'));
+  });
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, ch => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>
+  )[ch]!);
+}
