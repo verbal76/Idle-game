@@ -61,7 +61,6 @@ export class Game {
   private readonly halfPipeSlopeRad = 0.28;
   private cliffs = new Map<number, number>();
 
-  // Half-pipe geometry (Phillips: 18 m wide × 5.4 m, 16° slope).
   private readonly HP_PIPE_WIDTH = 18.0;
   private readonly HP_PIPE_HALF = 9.0;
   private readonly HP_WALL_HEIGHT = 7.5;
@@ -80,7 +79,9 @@ export class Game {
 
   private heading = 0;
   private edgeAngle = 0;
-  private readonly SIDECUT = 6.0;
+  // Smaller sidecut → tighter R = C·cos θ → faster ω = V/R. With C=3,
+  // V=22, θ=40°: R≈2.3 m, ω≈9.6 rad/s — a 90° turn in ~0.16 s.
+  private readonly SIDECUT = 3.0;
   private readonly G = 9.81;
 
   private state: RiderState = 'normal';
@@ -105,9 +106,10 @@ export class Game {
   private readonly airSpinRate = 5.0;
 
   private readonly maxLean = 0.698;
-  private readonly leanResponse = 6.0;
+  private readonly leanResponse = 12.0; // edge catches stick in ~80 ms
   private readonly speedCatch = 4.0;
-  private readonly lateralBleed = 0.45;
+  private readonly lateralBleed = 0.20; // less side drift so sharp turns
+                                        // don't push the rider off the loaded chunks
 
   private running = false;
 
@@ -438,13 +440,6 @@ export class Game {
     this.chunks.set(this.chunkKey(cx, cz), { ground, features, rocks, kickers, coins, cx, cz });
   }
 
-  /**
-   * Half-pipe layout: a wide flat snowfield "deck" for context, with an
-   * 18m-wide flat pipe floor centered on x=0 and two tall outward-tilted
-   * walls at the pipe edges. Lateral clamp keeps the rider on the floor;
-   * lateralBleed is disabled per-mode in tick() so the rider doesn't
-   * drift sideways into the wall while carving across.
-   */
   private spawnHalfPipeChunk(cx: number, cz: number): void {
     const half = this.chunkSize / 2;
     const ox = 0;
