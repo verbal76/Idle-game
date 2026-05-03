@@ -305,7 +305,7 @@ export class Game {
   private buildSnowTrail(): void {
     const anchor = new TransformNode('trail-anchor', this.scene);
     anchor.parent = this.rider.root;
-    anchor.position.set(0, -this.groundY + 0.02, -0.75);
+    anchor.position.set(0, -this.groundY + 0.02, 0);
     const trail = new TrailMesh('snow-trail', anchor, this.scene, 0.32, 80, true);
     const trailMat = mkMat(this.scene, 'trail', new Color3(0.74, 0.81, 0.92));
     trailMat.emissiveColor = new Color3(0.20, 0.24, 0.30);
@@ -602,9 +602,11 @@ export class Game {
     }
 
     const stickX = this.input.leftStick().x;
-    const v = Math.max(0.5, this.speed);
+    // Carve uses a minimum reference speed so the rider can pivot back out
+    // of a side-slip / brake — at v=0 omega=v/R would be 0 (stuck).
+    const carveV = Math.max(8.0, this.speed);
 
-    const sinThetaMax = Math.min(0.99, (v * v) / (this.SIDECUT * this.G));
+    const sinThetaMax = Math.min(0.99, (carveV * carveV) / (this.SIDECUT * this.G));
     const physThetaMax = Math.asin(sinThetaMax);
     const thetaMax = Math.min(this.maxLean, physThetaMax);
     const targetEdge = stickX * thetaMax;
@@ -615,7 +617,7 @@ export class Game {
     if (this.grounded) {
       if (Math.abs(this.edgeAngle) > 0.005) {
         const R = this.SIDECUT * Math.cos(Math.abs(this.edgeAngle));
-        const omega = v / R;
+        const omega = carveV / R;
         this.heading += Math.sign(this.edgeAngle) * omega * dt;
       }
     } else {
@@ -629,8 +631,16 @@ export class Game {
 
     const cosH = Math.cos(this.heading);
     const sinH = Math.sin(this.heading);
-    const targetSpeed = this.maxSpeed * Math.max(0.05, cosH * cosH);
-    this.speed += (targetSpeed - this.speed) * Math.min(1, this.speedCatch * dt);
+    // Board perpendicular to fall line == brakes: cos² → 0 at 90°.
+    // Active brake decay scales with how sideways the board is.
+    const targetSpeed = this.maxSpeed * cosH * cosH;
+    if (this.grounded) {
+      const brake = Math.abs(sinH);
+      const brakeRate = this.speedCatch + brake * brake * 6.0;
+      this.speed += (targetSpeed - this.speed) * Math.min(1, brakeRate * dt);
+    } else {
+      this.speed += (targetSpeed - this.speed) * Math.min(1, this.speedCatch * 0.3 * dt);
+    }
 
     if (this.grounded) {
       if (this.input.jumpHeld()) {
@@ -704,6 +714,19 @@ export class Game {
     }
 
     this.checkInteractions();
+
+    // Safety net: if the rider somehow ends up below the surface
+    // (chunk-spawn race, cliff edge, etc.), snap them back to it.
+    {
+      const groundLevel = this.groundY
+        + this.surfaceY(this.rider.root.position.z)
+        + this.pipeOffsetY(this.rider.root.position.x);
+      if (this.rider.root.position.y < groundLevel - 1.5) {
+        this.rider.root.position.y = groundLevel;
+        this.verticalVelocity = 0;
+        this.grounded = true;
+      }
+    }
 
     const carveIntensity = Math.min(1, Math.abs(sinH));
     this.dustParticles.emitRate = this.grounded ? (8 + carveIntensity * 70) : 0;
