@@ -15,6 +15,19 @@ declare global {
   }
 }
 
+// Visible error overlay — anything thrown anywhere in the app gets dumped on
+// screen. Useful when the WebView's only debug surface is what we render.
+function showError(prefix: string, err: unknown): void {
+  const msg = (err && (err as { stack?: string }).stack) || String(err);
+  const safe = String(msg).replace(/[&<>"']/g, ch =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[ch]!);
+  document.body.innerHTML =
+    `<pre style="color:#ffd1cc;background:#3a0d0d;padding:16px;white-space:pre-wrap;font:14px/1.4 monospace;height:100%;overflow:auto;margin:0">[${prefix}]\n${safe}</pre>`;
+}
+
+window.addEventListener('error', (e) => showError('window.error', e.error ?? e.message));
+window.addEventListener('unhandledrejection', (e) => showError('unhandledrejection', e.reason));
+
 function setOrientation(mode: 'landscape' | 'default'): void {
   window.ReactNativeWebView?.postMessage(`orientation:${mode}`);
 }
@@ -62,7 +75,7 @@ async function runSession(
     const hud = buildHUD(screen);
     const sticks = new TwinStickInput(hud.leftStick);
     const buttons = new ActionButtons(hud.jumpBtn, hud.flipBtn);
-    const upgrades = profiles.activeProfile!.upgrades;
+    const upgrades = profiles.activeProfile!.upgrades ?? { speed: 0, jump: 0, magnet: 0 };
 
     const game = new Game(canvas, mode, {
       leftStick: () => sticks.left,
@@ -105,6 +118,4 @@ async function runSession(
   });
 }
 
-bootstrap().catch((err) => {
-  document.body.innerHTML = `<pre style="color:#fff;padding:16px;white-space:pre-wrap">${(err && err.stack) || err}</pre>`;
-});
+bootstrap().catch((err) => showError('bootstrap', err));
