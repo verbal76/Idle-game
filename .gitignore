@@ -9,5 +9,10 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Capacitor regenerates these per CI run from capacitor.config.ts.
+# Don't commit them.
+android/
+ios/
+
 # Legacy Unity scaffold (commit beac810). Tracked but inert.
 # Will be cleaned up incrementally; do not delete from history.

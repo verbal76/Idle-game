@@ -1,6 +1,7 @@
 # Boarder
 
-Stylized snowboarding PWA, phone-first, hosted on Cloudflare Pages.
+Stylized snowboarding game for Android, built phone-only, distributed as a
+sideloaded APK from this private repo's GitHub Actions runs.
 
 - **Half-pipe** — active twin-stick gameplay. Left stick steers, right-stick
   flick gestures execute spins / flips / grabs. The only on-screen button is
@@ -9,72 +10,60 @@ Stylized snowboarding PWA, phone-first, hosted on Cloudflare Pages.
   you only intervene to jump or flip until you fall.
 
 Runs are continuous — there is no restart button. A run ends when the rider
-falls; the summary banks currency and returns to the lobby.
+falls.
 
 ## Stack
 
 - **Babylon.js + TypeScript** rendering to a fullscreen WebGL canvas.
-- **Vite** + **vite-plugin-pwa** for the build (installable PWA, landscape
-  locked, fullscreen on Android Chrome).
+- **Capacitor 6** wraps the build into a native Android WebView app, so the
+  game ships as a real APK.
+- **Vite** bundles the web layer (and chunk-splits Babylon).
 - **IndexedDB** (via `idb`) for multiple local profiles, no cloud.
-- **Cloudflare Pages** for hosting — free, works with private GitHub repos,
-  auto-deploys on every push.
+- **GitHub Actions** builds the APK on every push and uploads it as a
+  workflow artifact.
+
+No hosting, no third-party services, no public repo. Everything lives inside
+the GitHub repo + your phone's APK install.
 
 ## Phone-only dev workflow
 
 1. You prompt Claude in this conversation.
 2. Claude edits files via the GitHub MCP and pushes.
-3. Cloudflare Pages detects the push, runs `npm run build`, and deploys to
-   `https://idle-game.pages.dev/` (and a per-branch preview URL for the dev
-   branch).
-4. You open that URL on the phone and tap **Install app** in Chrome —
-   home-screen icon, fullscreen, landscape locked.
+3. GitHub Actions runs **Build APK** (~5–10 minutes; first run is the
+   slowest because Gradle downloads the Android SDK).
+4. On your phone GitHub:
+   1. Open the **Actions** tab.
+   2. Tap the latest green run titled “Build APK”.
+   3. Scroll to the **Artifacts** section at the bottom.
+   4. Tap **boarder-debug-apk** to download the ZIP.
+   5. Open the ZIP (Files / Chrome downloads), extract
+      `boarder-debug.apk`, then tap it to install.
+5. **First install**: Android prompts you to enable “Install unknown apps”
+   for whichever app you opened the APK from (Chrome, Files, GitHub). Allow
+   it once, then install.
+6. **Subsequent updates**: just tap the new APK to upgrade in place.
 
-No PC, no GitHub Pages, no public repo.
-
-## One-time Cloudflare setup (you, in mobile Chrome)
-
-1. Sign up at `cloudflare.com` (email + password, no card needed).
-2. **Workers & Pages → Create → Pages → Connect to Git**.
-3. Authorize Cloudflare for your GitHub account; scope access to just
-   `verbal76/Idle-game`.
-4. Pick the repo, then:
-   - **Production branch**: `main` (or `claude/android-snowboarding-game-UHUPI`
-     while we're working on the dev branch).
-   - **Framework preset**: Vite (auto-detected).
-   - **Build command**: `npm run build`
-   - **Build output directory**: `dist`
-5. **Save and Deploy**. First build takes ~2–3 minutes. After that every
-   push redeploys automatically.
-
-You'll get two kinds of URLs:
-- `https://idle-game.pages.dev/` — the production deployment.
-- `https://<commit-sha>.idle-game.pages.dev/` — a unique preview URL per
-  push, so you can test changes without affecting production.
+The app id is `com.verbal76.boarder`, name **Boarder**.
 
 ## Project layout
 
 ```
-src/
-  main.ts                  Entry. Wires profiles → menu → run → menu loop.
-  style.css                Fullscreen, landscape, no-zoom, on-screen sticks.
-  profiles/
-    IndexedDbStore.ts      idb wrapper with profiles + meta object stores.
-    ProfileService.ts      Active-profile orchestration on top of the store.
-  input/
-    TwinStickInput.ts      Pointer-events on-screen sticks (left + right).
-  scene/
-    Game.ts                Babylon engine, scene, rider, slope chunk stream.
-  ui/
-    ProfileSelect.ts       Pick / create local profile.
-    MainMenu.ts            Pick mode (downhill | half-pipe) or switch profile.
-    HUD.ts                 In-run sticks, score, pause overlay.
-  world/
-    SeedRng.ts             xorshift64 for deterministic procedural worlds.
+src/                       Game source (TypeScript + Babylon).
+  main.ts                  Entry. Wires profiles → menu → run loop.
+  scene/Game.ts            Babylon engine, scene, rider, slope chunk stream.
+  profiles/                IndexedDB profile store.
+  input/                   On-screen twin-stick (touch).
+  ui/                      DOM screens: ProfileSelect, MainMenu, HUD.
+  world/SeedRng.ts         Deterministic xorshift64 RNG.
+capacitor.config.ts        App id, name, webDir.
+vite.config.ts             Bundler + Babylon chunk-split.
+.github/workflows/
+  android.yml              CI: install → vite build → cap add android
+                           → gradle assembleDebug → upload APK artifact.
 ```
 
-The earlier GitHub Pages deploy workflow has been removed — Cloudflare
-handles builds end-to-end now.
+The `android/` directory is regenerated each CI run from
+`capacitor.config.ts` and is gitignored — don't commit it.
 
 ## Status
 
@@ -85,7 +74,7 @@ physics, half-pipe walls, flick-combo trick scoring, and the idle currency
 loop are next.
 
 The v1 plan lives at
-`/root/.claude/plans/i-want-to-start-smooth-fairy.md`. The earlier Unity
-scaffold (commit `beac810`) is preserved in git history; the leftover
-`Assets/` directory in the working tree is inert and will be removed
+`/root/.claude/plans/i-want-to-start-smooth-fairy.md`. Earlier scaffolding
+(Unity at commit `beac810`, web/PWA pivot at `8737ea2`) is preserved in git
+history; the leftover `Assets/` directory is inert and will be removed
 incrementally.
