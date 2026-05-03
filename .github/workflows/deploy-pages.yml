@@ -1,3 +1,5 @@
+# Requires repo Settings -> Actions -> Workflow permissions: Read and write
+# (one-time toggle so configure-pages can call POST /repos/.../pages).
 name: Deploy to Pages
 
 on:
