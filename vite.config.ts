@@ -2,7 +2,10 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
-  base: '/Idle-game/',
+  // Relative paths so the build works on any host (Cloudflare Pages,
+  // GitHub Pages, sideloaded TWA). Cloudflare serves at idle-game.pages.dev/
+  // root, not under a /Idle-game/ subpath.
+  base: './',
   build: {
     rollupOptions: {
       output: {
@@ -31,8 +34,8 @@ export default defineConfig({
         theme_color: '#0b1320',
         display: 'fullscreen',
         orientation: 'landscape',
-        scope: '/Idle-game/',
-        start_url: '/Idle-game/',
+        scope: '/',
+        start_url: '/',
         icons: [
           { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }
         ]

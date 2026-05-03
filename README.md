@@ -1,6 +1,6 @@
 # Boarder
 
-Stylized snowboarding PWA, phone-first.
+Stylized snowboarding PWA, phone-first, hosted on Cloudflare Pages.
 
 - **Half-pipe** — active twin-stick gameplay. Left stick steers, right-stick
   flick gestures execute spins / flips / grabs. The only on-screen button is
@@ -17,20 +17,40 @@ falls; the summary banks currency and returns to the lobby.
 - **Vite** + **vite-plugin-pwa** for the build (installable PWA, landscape
   locked, fullscreen on Android Chrome).
 - **IndexedDB** (via `idb`) for multiple local profiles, no cloud.
-- **GitHub Actions → GitHub Pages** for hosting. A future workflow uses
-  Bubblewrap to wrap the PWA into a Trusted Web Activity APK.
+- **Cloudflare Pages** for hosting — free, works with private GitHub repos,
+  auto-deploys on every push.
 
 ## Phone-only dev workflow
 
 1. You prompt Claude in this conversation.
 2. Claude edits files via the GitHub MCP and pushes.
-3. GitHub Actions builds the site, **enables Pages on first run**, and
-   deploys to `https://verbal76.github.io/Idle-game/`.
-4. You open that URL on the phone and tap **Install app** — home-screen icon,
-   fullscreen, landscape locked.
+3. Cloudflare Pages detects the push, runs `npm run build`, and deploys to
+   `https://idle-game.pages.dev/` (and a per-branch preview URL for the dev
+   branch).
+4. You open that URL on the phone and tap **Install app** in Chrome —
+   home-screen icon, fullscreen, landscape locked.
 
-No PC needed, no clicks in repo settings. Every push to `main` or
-`claude/android-snowboarding-game-UHUPI` redeploys automatically.
+No PC, no GitHub Pages, no public repo.
+
+## One-time Cloudflare setup (you, in mobile Chrome)
+
+1. Sign up at `cloudflare.com` (email + password, no card needed).
+2. **Workers & Pages → Create → Pages → Connect to Git**.
+3. Authorize Cloudflare for your GitHub account; scope access to just
+   `verbal76/Idle-game`.
+4. Pick the repo, then:
+   - **Production branch**: `main` (or `claude/android-snowboarding-game-UHUPI`
+     while we're working on the dev branch).
+   - **Framework preset**: Vite (auto-detected).
+   - **Build command**: `npm run build`
+   - **Build output directory**: `dist`
+5. **Save and Deploy**. First build takes ~2–3 minutes. After that every
+   push redeploys automatically.
+
+You'll get two kinds of URLs:
+- `https://idle-game.pages.dev/` — the production deployment.
+- `https://<commit-sha>.idle-game.pages.dev/` — a unique preview URL per
+  push, so you can test changes without affecting production.
 
 ## Project layout
 
@@ -51,9 +71,10 @@ src/
     HUD.ts                 In-run sticks, score, pause overlay.
   world/
     SeedRng.ts             xorshift64 for deterministic procedural worlds.
-.github/workflows/
-  deploy-pages.yml         Build + auto-enable Pages + deploy on every push.
 ```
+
+The earlier GitHub Pages deploy workflow has been removed — Cloudflare
+handles builds end-to-end now.
 
 ## Status
 
