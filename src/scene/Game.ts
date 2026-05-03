@@ -61,6 +61,12 @@ export class Game {
   private readonly halfPipeSlopeRad = 0.28;
   private cliffs = new Map<number, number>();
 
+  // Half-pipe geometry (Phillips: 18 m wide × 5.4 m, 16° slope).
+  private readonly HP_PIPE_WIDTH = 18.0;
+  private readonly HP_PIPE_HALF = 9.0;
+  private readonly HP_WALL_HEIGHT = 7.5;
+  private readonly HP_CONTEXT_WIDTH = 220;
+
   private speed = 0;
   private verticalVelocity = 0;
   private grounded = true;
@@ -74,9 +80,6 @@ export class Game {
 
   private heading = 0;
   private edgeAngle = 0;
-  // Smaller sidecut → tighter R = C·cos(θ) → faster ω = V/R. Half the
-  // realistic value (12 m) so the carve feels game-snappy without
-  // breaking the PDF model.
   private readonly SIDECUT = 6.0;
   private readonly G = 9.81;
 
@@ -177,7 +180,7 @@ export class Game {
 
   private buildSharedMaterials(): void {
     this.snowMat     = mkMat(this.scene, 'snow',     new Color3(0.94, 0.96, 1.00));
-    this.snowMat.backFaceCulling = false; // visible from underneath during cliff falls
+    this.snowMat.backFaceCulling = false;
     this.rockMat     = mkMat(this.scene, 'rock',     new Color3(0.32, 0.35, 0.38));
     this.kickerMat   = mkMat(this.scene, 'kicker',   new Color3(0.28, 0.40, 0.62));
     this.coinMat     = mkMat(this.scene, 'coin',     new Color3(1.00, 0.82, 0.18));
@@ -244,9 +247,6 @@ export class Game {
     cam.heightOffset = 3.5;
     cam.radius = 9;
     cam.rotationOffset = 180;
-    // Tighter than before so cliff falls don't leave the camera lagging
-    // above the lower surface (which then made the screen go white as
-    // it stared up through the underside of the upper plane).
     cam.cameraAcceleration = 0.20;
     cam.maxCameraSpeed = 100;
     this.scene.activeCamera = cam;
@@ -350,8 +350,6 @@ export class Game {
     const ox = cx * this.chunkSize + half;
     const oz = cz * this.chunkSize + half;
 
-    // Cliff registration only (no rock-face mesh — it was clipping the
-    // camera and producing the "white screen" through-the-snowbank effect).
     if (cz > 2 && cx === 0 && this.rng.next01() < 0.18 && !this.cliffs.has(cz)) {
       const drop = 8 + this.rng.next01() * 10;
       this.cliffs.set(cz, drop);
@@ -440,27 +438,41 @@ export class Game {
     this.chunks.set(this.chunkKey(cx, cz), { ground, features, rocks, kickers, coins, cx, cz });
   }
 
+  /**
+   * Half-pipe layout: a wide flat snowfield "deck" for context, with an
+   * 18m-wide flat pipe floor centered on x=0 and two tall outward-tilted
+   * walls at the pipe edges. Lateral clamp keeps the rider on the floor;
+   * lateralBleed is disabled per-mode in tick() so the rider doesn't
+   * drift sideways into the wall while carving across.
+   */
   private spawnHalfPipeChunk(cx: number, cz: number): void {
     const half = this.chunkSize / 2;
     const ox = 0;
     const oz = cz * this.chunkSize + half;
     const cy = this.surfaceY(oz);
 
+    const context = MeshBuilder.CreateGround(`hp-ctx-${cz}`, {
+      width: this.HP_CONTEXT_WIDTH, height: this.chunkSize, subdivisions: 1
+    }, this.scene);
+    context.material = this.snowMat;
+    context.position.set(ox, cy, oz);
+    context.rotation.x = -this.activeSlope;
+
     const floor = MeshBuilder.CreateBox(`hp-floor-${cz}`, {
-      width: 8, height: 0.2, depth: this.chunkSize
+      width: this.HP_PIPE_WIDTH, height: 0.2, depth: this.chunkSize
     }, this.scene);
     floor.material = this.snowMat;
-    floor.position.set(ox, cy - 0.1, oz);
+    floor.position.set(ox, cy - 0.05, oz);
     floor.rotation.x = -this.activeSlope;
 
-    const features: AbstractMesh[] = [];
+    const features: AbstractMesh[] = [floor];
     for (const side of [-1, 1] as const) {
       const wall = MeshBuilder.CreateBox(`hp-wall-${side}-${cz}`, {
-        width: 0.4, height: 6, depth: this.chunkSize
+        width: 0.5, height: this.HP_WALL_HEIGHT, depth: this.chunkSize
       }, this.scene);
       wall.material = this.snowMat;
-      wall.position.set(ox + side * 4.5, cy + 2.5, oz);
-      wall.rotation.z = side * 0.45;
+      wall.position.set(ox + side * (this.HP_PIPE_HALF + 0.2), cy + this.HP_WALL_HEIGHT / 2, oz);
+      wall.rotation.z = side * 0.40;
       wall.rotation.x = -this.activeSlope;
       features.push(wall);
     }
@@ -490,7 +502,7 @@ export class Game {
     }
 
     this.chunks.set(this.chunkKey(cx, cz), {
-      ground: floor as Mesh, features, rocks: [], kickers, coins, cx, cz
+      ground: context, features, rocks: [], kickers, coins, cx, cz
     });
   }
 
@@ -635,10 +647,12 @@ export class Game {
     }
 
     this.rider.root.position.z += this.speed * dt;
-    this.rider.root.position.x += sinH * this.maxSpeed * this.lateralBleed * dt;
+    if (this.mode !== 'half-pipe') {
+      this.rider.root.position.x += sinH * this.maxSpeed * this.lateralBleed * dt;
+    }
 
     if (this.mode === 'half-pipe') {
-      const limit = 3.5;
+      const limit = this.HP_PIPE_HALF - 1.0;
       if (this.rider.root.position.x > limit)  this.rider.root.position.x = limit;
       if (this.rider.root.position.x < -limit) this.rider.root.position.x = -limit;
     }
