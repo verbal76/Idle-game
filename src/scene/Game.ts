@@ -70,12 +70,18 @@ export class Game {
   private coinsCollected = 0;
   private fellAlready = false;
 
-  // Carve model — heading drives the turn (board direction), lean is a
-  // capped visual response. See Michaud/Duncumb "Physics of a Snowboard
-  // Carved Turn" — the board's edge-and-direction does the cutting; lean
-  // is just the body balancing centrifugal force.
+  // Carve model — directly from Michaud/Duncumb "Physics of a Snowboard
+  // Carved Turn":
+  //   sin(θ) = V² / (C·g)        — natural edge angle at speed V
+  //   R      = C·cos(θ)          — carve radius from sidecut C
+  //   ω      = V / R             — heading angular velocity (rad/s)
+  // C is the board's sidecut radius. Stick X scales between 0 and the
+  // physically-allowed θ at current speed (capped by the user-preferred
+  // 40° visual ceiling).
   private heading = 0;
-  private leanAngle = 0;
+  private edgeAngle = 0;
+  private readonly SIDECUT = 12.0;  // metres — typical 160-cm freestyle board
+  private readonly G = 9.81;
 
   private state: RiderState = 'normal';
   private stateEndsAt = 0;
@@ -99,11 +105,10 @@ export class Game {
   private readonly flipRate = 7.0;
 
   // Carve feel
-  private readonly maxLean = 0.698;     // 40° hard cap on visual lean
-  private readonly leanResponse = 6.0;  // smoothing of lean toward target
-  private readonly turnRate = 1.6;      // rad/s heading change at full stick
-  private readonly lateralBleed = 0.45; // fraction of maxSpeed that drifts sideways at sin(heading)=1
-  private readonly speedCatch = 4.0;    // smoothing of speed toward heading-derived target
+  private readonly maxLean = 0.698;     // 40° hard cap on edge/lean
+  private readonly leanResponse = 6.0;  // smoothing of edge toward target
+  private readonly speedCatch = 4.0;    // smoothing of speed toward target
+  private readonly lateralBleed = 0.45; // sin(heading) × maxSpeed × this = sideways drift
 
   private running = false;
 
@@ -235,9 +240,6 @@ export class Game {
   }
 
   private buildCamera(): void {
-    // Follow target tracks the rider's WORLD position only — its parent is
-    // null and we copy position each tick. This way the camera doesn't
-    // spin with rider.root.rotation.y when the board turns.
     const follow = MeshBuilder.CreateBox('follow-target', { size: 0.001 }, this.scene);
     follow.isVisible = false;
     this.followTarget = follow;
@@ -518,7 +520,7 @@ export class Game {
     this.rider.body.rotation.z = Math.PI / 2;
     this.rider.lean.rotation.z = 0;
     this.flipRotation = 0;
-    this.leanAngle = 0;
+    this.edgeAngle = 0;
   }
 
   private startRecovery(): void {
@@ -527,8 +529,8 @@ export class Game {
     this.rider.body.rotation.x = 0;
     this.rider.body.rotation.z = 0;
     this.rider.lean.rotation.z = 0;
-    this.leanAngle = 0;
-    this.heading = 0; // straighten back out
+    this.edgeAngle = 0;
+    this.heading = 0;
     this.rider.root.rotation.y = 0;
     this.speed = this.maxSpeed * 0.4;
   }
@@ -551,7 +553,6 @@ export class Game {
       this.setRiderVisible(phase === 0);
     }
 
-    // Camera + mountain anchors track world position only.
     this.followTarget.position.copyFrom(this.rider.root.position);
     this.mountainAnchor.position.copyFrom(this.rider.root.position);
 
@@ -565,29 +566,40 @@ export class Game {
       return;
     }
 
-    // === Carve: heading-driven turn, lean as visual response ===
+    // === Carve (Michaud/Duncumb) ===
     const stickX = this.input.leftStick().x;
+    const v = Math.max(0.5, this.speed);
 
-    // Heading is the board's facing direction. Stick X turns the board.
-    this.heading += stickX * this.turnRate * dt;
+    // Natural max edge angle at this speed: sin(θ) = V² / (C·g).
+    // sinTheta can mathematically exceed 1 above the "critical speed"
+    // V² > C·g — here we clamp to 0.99 so asin is well-defined; in
+    // practice the user-preferred 40° cap tames it well below that.
+    const sinThetaMax = Math.min(0.99, (v * v) / (this.SIDECUT * this.G));
+    const physThetaMax = Math.asin(sinThetaMax);
+    const thetaMax = Math.min(this.maxLean, physThetaMax);
 
-    // Visual lean smoothly chases stick, capped at ±maxLean (40°).
-    const targetLean = stickX * this.maxLean;
+    const targetEdge = stickX * thetaMax;
     const isReturning = Math.abs(stickX) < 0.05;
     const leanRate = isReturning ? this.leanResponse * 0.35 : this.leanResponse;
-    this.leanAngle += (targetLean - this.leanAngle) * Math.min(1, leanRate * dt);
+    this.edgeAngle += (targetEdge - this.edgeAngle) * Math.min(1, leanRate * dt);
+
+    // Heading rotates at ω = V / R, R = C·cos(θ). The board carves an arc.
+    if (Math.abs(this.edgeAngle) > 0.005) {
+      const R = this.SIDECUT * Math.cos(Math.abs(this.edgeAngle));
+      const omega = v / R;
+      this.heading += Math.sign(this.edgeAngle) * omega * dt;
+    }
 
     this.rider.root.rotation.y = this.heading;
-    this.rider.lean.rotation.z = -this.leanAngle;
+    this.rider.lean.rotation.z = -this.edgeAngle;
 
-    // Speed: cos²(heading) — full at 0° and 180°, zero around 90°.
+    // Speed: cos²(heading) — full at 0° and 180° (riding switch), zero
+    // around 90° (board sideways = full edge bite into the snow).
     const cosH = Math.cos(this.heading);
     const sinH = Math.sin(this.heading);
-    const headingAlignment = cosH * cosH;
-    const targetSpeed = this.maxSpeed * Math.max(0.05, headingAlignment);
+    const targetSpeed = this.maxSpeed * Math.max(0.05, cosH * cosH);
     this.speed += (targetSpeed - this.speed) * Math.min(1, this.speedCatch * dt);
 
-    // === Jump charge / release ===
     if (this.grounded) {
       if (this.input.jumpHeld()) {
         this.jumpCharge = Math.min(1, this.jumpCharge + dt * this.chargeRate);
@@ -598,7 +610,6 @@ export class Game {
       }
     }
 
-    // === Air physics + flip ===
     if (!this.grounded) {
       this.verticalVelocity -= this.gravity * dt;
       this.rider.root.position.y += this.verticalVelocity * dt;
@@ -628,20 +639,17 @@ export class Game {
       }
     }
 
-    // Forward motion: always +Z (gravity-dominant fall line). Lateral drift
-    // proportional to sin(heading) so the rider does carve sideways while
-    // the board points across the slope.
+    // Forward motion: always +Z (slope/gravity). Lateral drift from board
+    // angle so a sideways board pulls the rider sideways.
     this.rider.root.position.z += this.speed * dt;
     this.rider.root.position.x += sinH * this.maxSpeed * this.lateralBleed * dt;
 
-    // Half-pipe lateral clamp.
     if (this.mode === 'half-pipe') {
       const limit = 3.5;
       if (this.rider.root.position.x > limit)  this.rider.root.position.x = limit;
       if (this.rider.root.position.x < -limit) this.rider.root.position.x = -limit;
     }
 
-    // Stick to surface or pop airborne if surface drops away (cliffs).
     if (this.grounded) {
       const groundLevel = this.groundY + this.surfaceY(this.rider.root.position.z);
       if (this.rider.root.position.y - groundLevel > 0.4) {
@@ -658,8 +666,7 @@ export class Game {
 
     this.checkInteractions();
 
-    // Snow dust intensity: rises with how off-axis the board is (carving hard).
-    const carveIntensity = Math.min(1, Math.abs(sinH) * 1.0);
+    const carveIntensity = Math.min(1, Math.abs(sinH));
     this.dustParticles.emitRate = this.grounded ? (8 + carveIntensity * 70) : 0;
 
     this.updateChunkStreaming();
