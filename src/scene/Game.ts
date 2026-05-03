@@ -1,7 +1,7 @@
 import {
   Engine, Scene, FollowCamera, HemisphericLight, DirectionalLight,
   Vector3, Color3, Color4, MeshBuilder, StandardMaterial, Mesh,
-  ParticleSystem, DynamicTexture, TrailMesh, TransformNode
+  AbstractMesh, ParticleSystem, DynamicTexture, TrailMesh, TransformNode
 } from '@babylonjs/core';
 import type { StickValue } from '../input/TwinStickInput';
 import { buildRider, RiderRig } from './Rider';
@@ -22,7 +22,7 @@ export interface GameCallbacks {
 
 interface ChunkData {
   ground: Mesh;
-  features: Mesh[];
+  features: AbstractMesh[];
   rocks: Array<{ x: number; z: number }>;
   kickers: Array<{ x: number; z: number; width: number }>;
   coins: Array<{ mesh: Mesh; x: number; z: number; collected: boolean }>;
@@ -35,20 +35,24 @@ export class Game {
   private scene: Scene;
   private rider!: RiderRig;
 
-  // Shared materials so meshes can batch.
   private snowMat!: StandardMaterial;
   private rockMat!: StandardMaterial;
   private kickerMat!: StandardMaterial;
   private coinMat!: StandardMaterial;
+  private trunkMat!: StandardMaterial;
+  private foliageMat!: StandardMaterial;
+  private mountainMat!: StandardMaterial;
 
-  // 2D chunk streaming — the world is unbounded in X and Z.
+  // Tree instance templates (geometry shared, instances are cheap).
+  private trunkTemplate!: Mesh;
+  private foliageTemplate!: Mesh;
+
   private chunks = new Map<string, ChunkData>();
   private readonly chunkSize = 80;
   private readonly viewAhead = 4;
   private readonly viewBehind = 1;
   private readonly viewSide = 2;
 
-  // Player state
   private speed = 0;
   private verticalVelocity = 0;
   private grounded = true;
@@ -58,7 +62,6 @@ export class Game {
   private coinsCollected = 0;
   private fellAlready = false;
 
-  // Carve physics
   private leanAngle = 0;
   private lateralVelocity = 0;
 
@@ -67,7 +70,6 @@ export class Game {
 
   private rng = new SeedRng(BigInt(Date.now()));
 
-  // Tunables
   private readonly maxSpeed = 22;
   private readonly accel = 5;
   private readonly groundY = 0.85;
@@ -76,10 +78,13 @@ export class Game {
   private readonly jumpMax = 13;
   private readonly chargeRate = 1.4;
   private readonly flipRate = 7.0;
-  // Carve feel
-  private readonly maxLean = 0.40;        // ~23° of body roll at full stick
-  private readonly leanResponse = 7.0;    // input-pressed snappiness
-  private readonly autoCenterRate = 1.5;  // slow drift back to neutral when stick released
+
+  // Carve: full deflection rolls to ~80°. Forward speed multiplies by
+  // cos(leanAngle), so a hard 90° carve crawls forward (clamped at 0.15
+  // so you never fully stop).
+  private readonly maxLean = 1.4;          // ~80° at full stick
+  private readonly leanResponse = 7.0;
+  private readonly autoCenterRate = 1.5;
   private readonly carveStrength = 14.0;
   private readonly lateralDrag = 1.6;
 
@@ -96,7 +101,7 @@ export class Game {
     this.scene.clearColor = new Color4(0.62, 0.78, 0.95, 1);
     this.scene.fogEnabled = true;
     this.scene.fogMode = Scene.FOGMODE_EXP2;
-    this.scene.fogDensity = 0.011;
+    this.scene.fogDensity = 0.008;
     this.scene.fogColor = new Color3(0.62, 0.78, 0.95);
 
     new HemisphericLight('hemi', new Vector3(0, 1, 0), this.scene).intensity = 0.7;
@@ -107,6 +112,8 @@ export class Game {
     this.rider = buildRider(this.scene);
     this.rider.root.position.set(0, this.groundY, 0);
 
+    this.buildTreeTemplates();
+    this.buildBackgroundMountains();
     this.buildCamera();
     this.buildSnowDust();
     this.buildSnowTrail();
@@ -131,11 +138,61 @@ export class Game {
   private onResize(): void { this.engine.resize(); }
 
   private buildSharedMaterials(): void {
-    this.snowMat = mkMat(this.scene, 'snow', new Color3(0.94, 0.96, 1.0));
-    this.rockMat = mkMat(this.scene, 'rock', new Color3(0.32, 0.35, 0.38));
+    this.snowMat = mkMat(this.scene, 'snow',     new Color3(0.94, 0.96, 1.00));
+    this.rockMat = mkMat(this.scene, 'rock',     new Color3(0.32, 0.35, 0.38));
     this.kickerMat = mkMat(this.scene, 'kicker', new Color3(0.28, 0.40, 0.62));
-    this.coinMat = mkMat(this.scene, 'coin', new Color3(1.00, 0.82, 0.18));
+    this.coinMat = mkMat(this.scene, 'coin',     new Color3(1.00, 0.82, 0.18));
     this.coinMat.emissiveColor = new Color3(0.45, 0.32, 0.0);
+    this.trunkMat = mkMat(this.scene, 'trunk',   new Color3(0.34, 0.22, 0.13));
+    this.foliageMat = mkMat(this.scene, 'foliage', new Color3(0.18, 0.46, 0.24));
+    this.mountainMat = mkMat(this.scene, 'mountain', new Color3(0.55, 0.66, 0.82));
+  }
+
+  private buildTreeTemplates(): void {
+    const trunk = MeshBuilder.CreateCylinder('trunk-template', {
+      diameterTop: 0.22, diameterBottom: 0.34, height: 1.4, tessellation: 6
+    }, this.scene);
+    trunk.material = this.trunkMat;
+    trunk.setEnabled(false);
+    this.trunkTemplate = trunk;
+
+    const foliage = MeshBuilder.CreateCylinder('foliage-template', {
+      diameterTop: 0.05, diameterBottom: 1.7, height: 2.6, tessellation: 6
+    }, this.scene);
+    foliage.material = this.foliageMat;
+    foliage.setEnabled(false);
+    this.foliageTemplate = foliage;
+  }
+
+  /** Distant cone "mountains" parented to the rider so they always feel far. */
+  private buildBackgroundMountains(): void {
+    const count = 22;
+    const radius = 360;
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2 + Math.sin(i * 7.91) * 0.18;
+      const dist = radius + Math.sin(i * 3.7) * 60;
+      const x = Math.cos(angle) * dist;
+      const z = Math.sin(angle) * dist;
+      const h = 90 + Math.sin(i * 2.3) * 60;
+      const w = 60 + Math.cos(i * 1.9) * 30;
+      const m = MeshBuilder.CreateCylinder(`mountain-${i}`, {
+        diameterTop: 0, diameterBottom: w, height: h, tessellation: 6
+      }, this.scene);
+      m.material = this.mountainMat;
+      m.position.set(x, h / 2 - 18, z);
+      m.parent = this.rider.root;
+    }
+  }
+
+  private spawnTree(x: number, z: number, scale: number, name: string): AbstractMesh[] {
+    const trunkH = 1.4 * scale;
+    const trunk = this.trunkTemplate.createInstance(`trunk-${name}`);
+    trunk.scaling.setAll(scale);
+    trunk.position.set(x, trunkH / 2, z);
+    const foliage = this.foliageTemplate.createInstance(`foliage-${name}`);
+    foliage.scaling.setAll(scale);
+    foliage.position.set(x, trunkH + 1.0 * scale, z);
+    return [trunk, foliage];
   }
 
   private buildCamera(): void {
@@ -185,10 +242,13 @@ export class Game {
     this.dustParticles = ps;
   }
 
+  /** Trail anchor sits at the back end of the snowboard, on the snow. */
   private buildSnowTrail(): void {
     const anchor = new TransformNode('trail-anchor', this.scene);
     anchor.parent = this.rider.root;
-    anchor.position.set(0, -this.groundY + 0.02, -0.4);
+    // Board is 1.5 long centered at body local z=0 → back end at z=-0.75.
+    // Y at world ground level (root is at groundY): local y = -groundY + 0.02.
+    anchor.position.set(0, -this.groundY + 0.02, -0.75);
     const trail = new TrailMesh('snow-trail', anchor, this.scene, 0.32, 80, true);
     const trailMat = mkMat(this.scene, 'trail', new Color3(0.74, 0.81, 0.92));
     trailMat.emissiveColor = new Color3(0.20, 0.24, 0.30);
@@ -237,18 +297,16 @@ export class Game {
     ground.material = this.snowMat;
     ground.position.set(ox, 0, oz);
 
-    const features: Mesh[] = [];
+    const features: AbstractMesh[] = [];
     const rocks: ChunkData['rocks'] = [];
     const kickers: ChunkData['kickers'] = [];
     const coins: ChunkData['coins'] = [];
 
-    // Don't spawn hazards in the starting chunk so the rider isn't murdered
-    // immediately on launch.
     const isGraceZone = (cx === 0 && cz === 0);
 
     if (!isGraceZone) {
-      // Rocks (hazards)
-      const rockCount = this.rng.rangeInt(2, 6);
+      // Rocks
+      const rockCount = this.rng.rangeInt(1, 4);
       for (let i = 0; i < rockCount; i++) {
         const lx = ox + this.rng.rangeFloat(-half + 2, half - 2);
         const lz = oz + this.rng.rangeFloat(-half + 2, half - 2);
@@ -261,7 +319,34 @@ export class Game {
         rocks.push({ x: lx, z: lz });
       }
 
-      // Kickers (ramps for big air — "little hits you can slide to")
+      // Trees in the playfield (collidable)
+      const treeCount = this.rng.rangeInt(2, 5);
+      for (let i = 0; i < treeCount; i++) {
+        const lx = ox + this.rng.rangeFloat(-half + 3, half - 3);
+        const lz = oz + this.rng.rangeFloat(-half + 3, half - 3);
+        const scale = 0.9 + this.rng.next01() * 0.7;
+        const meshes = this.spawnTree(lx, lz, scale, `${cx}-${cz}-pf-${i}`);
+        features.push(...meshes);
+        rocks.push({ x: lx, z: lz }); // tree trunk = collision hazard
+      }
+
+      // Edge tree clusters (decorative, no collision — parallax silhouettes)
+      const clusters = this.rng.rangeInt(2, 5);
+      for (let i = 0; i < clusters; i++) {
+        const side = this.rng.next01() < 0.5 ? -1 : 1;
+        const baseX = ox + side * (half - this.rng.rangeFloat(0, 2));
+        const baseZ = oz + this.rng.rangeFloat(-half, half);
+        const inCluster = this.rng.rangeInt(2, 5);
+        for (let t = 0; t < inCluster; t++) {
+          const tx = baseX + this.rng.rangeFloat(-3, 3);
+          const tz = baseZ + this.rng.rangeFloat(-3, 3);
+          const scale = 1.0 + this.rng.next01() * 0.9;
+          const meshes = this.spawnTree(tx, tz, scale, `${cx}-${cz}-edge-${i}-${t}`);
+          features.push(...meshes);
+        }
+      }
+
+      // Kickers
       if (this.rng.next01() < 0.55) {
         const lx = ox + this.rng.rangeFloat(-half + 4, half - 4);
         const lz = oz + this.rng.rangeFloat(-half + 4, half - 4);
@@ -270,12 +355,12 @@ export class Game {
         }, this.scene);
         kicker.material = this.kickerMat;
         kicker.position.set(lx, 0.3, lz);
-        kicker.rotation.x = -0.32; // tilt up toward forward
+        kicker.rotation.x = -0.32;
         features.push(kicker);
         kickers.push({ x: lx, z: lz, width: 4.5 });
       }
 
-      // Coin pickups (currency banked to the active profile on fall)
+      // Coins
       const coinCount = this.rng.rangeInt(2, 6);
       for (let i = 0; i < coinCount; i++) {
         const lx = ox + this.rng.rangeFloat(-half + 1, half - 1);
@@ -301,8 +386,7 @@ export class Game {
 
     this.speed = Math.min(this.maxSpeed, this.speed + this.accel * dt);
 
-    // === Carve steering with auto-center ===
-    // Snappy when input is held; slow drift when released, like a real turn.
+    // Carve steering with auto-center.
     const stickX = this.input.leftStick().x;
     const targetLean = stickX * this.maxLean;
     const isReturning = Math.abs(stickX) < 0.05;
@@ -317,10 +401,8 @@ export class Game {
       this.lateralVelocity += carveAccel * dt;
     }
     this.lateralVelocity *= Math.max(0, 1 - this.lateralDrag * dt);
-    // Open world: no boundary clamp — chunks stream around the rider.
     this.rider.root.position.x += this.lateralVelocity * dt;
 
-    // === Jump charge / release ===
     if (this.grounded) {
       if (this.input.jumpHeld()) {
         this.jumpCharge = Math.min(1, this.jumpCharge + dt * this.chargeRate);
@@ -331,7 +413,6 @@ export class Game {
       }
     }
 
-    // === Air physics + flip ===
     if (!this.grounded) {
       this.verticalVelocity -= this.gravity * dt;
       this.rider.root.position.y += this.verticalVelocity * dt;
@@ -353,17 +434,17 @@ export class Game {
       }
     }
 
-    // Forward.
-    this.rider.root.position.z += this.speed * dt;
+    // Forward speed scales by cos(leanAngle): hard 90° carve → ~15% forward
+    // (clamped so you never fully stop). Straight = 100%.
+    const forwardFactor = Math.max(0.15, Math.cos(this.leanAngle));
+    this.rider.root.position.z += this.speed * forwardFactor * dt;
 
-    // Coin spin animation.
     for (const chunk of this.chunks.values()) {
       for (const c of chunk.coins) if (!c.collected) c.mesh.rotation.y += dt * 2;
     }
 
     this.checkInteractions();
 
-    // Snow dust intensity scales with carve effort + groundedness.
     const carveIntensity = Math.min(1,
       (Math.abs(this.lateralVelocity) / 6) +
       Math.abs(this.leanAngle) / this.maxLean * 0.5);
@@ -385,7 +466,6 @@ export class Game {
     const r = this.rider.root.position;
 
     for (const chunk of this.chunks.values()) {
-      // Coins
       for (const c of chunk.coins) {
         if (c.collected) continue;
         const dx = c.x - r.x;
@@ -396,7 +476,6 @@ export class Game {
           this.coinsCollected += 1;
         }
       }
-      // Kickers (forced launch when grounded and within bounding box)
       if (this.grounded) {
         for (const k of chunk.kickers) {
           const dx = Math.abs(k.x - r.x);
@@ -407,7 +486,6 @@ export class Game {
           }
         }
       }
-      // Rocks (fall)
       for (const o of chunk.rocks) {
         const dx = Math.abs(o.x - r.x);
         const dz = Math.abs(o.z - r.z);
