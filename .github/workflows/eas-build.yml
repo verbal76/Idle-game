@@ -1,9 +1,17 @@
 name: EAS Build (Android APK)
 
-# Manual trigger only — full APK builds are slower and only needed for the
-# first install or when native deps change. Day-to-day code/asset changes
-# go out via EAS Update on every push (see eas-update.yml).
+# Two ways to trigger an APK build:
+#   1. Manually via the Actions tab "Run workflow" button (workflow_dispatch).
+#   2. Via a commit message marker: include the literal string "[build]"
+#      anywhere in the commit message (e.g. "Bump RN version [build]").
+#      Plain pushes only run the OTA workflow; the build job below is
+#      skipped unless one of those triggers fires, so day-to-day pushes
+#      never burn an EAS build credit.
 on:
+  push:
+    branches:
+      - main
+      - 'claude/android-snowboarding-game-UHUPI'
   workflow_dispatch:
 
 permissions:
@@ -12,6 +20,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || contains(github.event.head_commit.message, '[build]')
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
