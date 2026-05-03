@@ -32,5 +32,9 @@ jobs:
       - run: npm install
       - name: Trigger EAS Build (preview / APK)
         run: eas build --platform android --profile preview --non-interactive --no-wait
+        # Token name flexibility: prefers EXPO_TOKEN, then falls back to
+        # SNOWBOARD or SNOW (the names already in this repo's secret store).
+        # GitHub Actions expression || returns the first truthy (non-empty)
+        # value, so whichever secret exists gets passed to eas-cli.
         env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}

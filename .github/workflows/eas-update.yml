@@ -27,5 +27,7 @@ jobs:
       - run: npm run web:build
       - name: Publish OTA update
         run: eas update --auto --non-interactive
+        # Same flexibility as the build workflow: try EXPO_TOKEN first,
+        # then fall back to the existing SNOWBOARD / SNOW secret names.
         env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
