@@ -131,7 +131,7 @@ export class Game {
     this.scene.clearColor = new Color4(0.62, 0.78, 0.95, 1);
     this.scene.fogEnabled = true;
     this.scene.fogMode = Scene.FOGMODE_EXP2;
-    this.scene.fogDensity = 0.008;
+    this.scene.fogDensity = 0.0035;
     this.scene.fogColor = new Color3(0.62, 0.78, 0.95);
 
     new HemisphericLight('hemi', new Vector3(0, 1, 0), this.scene).intensity = 0.7;
@@ -195,7 +195,7 @@ export class Game {
   }
 
   private buildSharedMaterials(): void {
-    this.snowMat     = mkMat(this.scene, 'snow',     new Color3(0.94, 0.96, 1.00));
+    this.snowMat     = mkMat(this.scene, 'snow',     new Color3(0.82, 0.88, 0.96));
     this.snowMat.backFaceCulling = false;
     this.rockMat     = mkMat(this.scene, 'rock',     new Color3(0.32, 0.35, 0.38));
     this.kickerMat   = mkMat(this.scene, 'kicker',   new Color3(0.28, 0.40, 0.62));
@@ -316,6 +316,17 @@ export class Game {
 
   private chunkKey(cx: number, cz: number): string { return `${cx}:${cz}`; }
 
+  private cliffRolledFor = new Set<number>();
+  private maybeRollCliff(cz: number): void {
+    if (this.mode === 'half-pipe') return;
+    if (this.cliffRolledFor.has(cz)) return;
+    this.cliffRolledFor.add(cz);
+    if (cz > 2 && this.rng.next01() < 0.18 && !this.cliffs.has(cz)) {
+      const drop = 8 + this.rng.next01() * 10;
+      this.cliffs.set(cz, drop);
+    }
+  }
+
   private updateChunkStreaming(): void {
     if (this.mode === 'half-pipe') return this.updateHalfPipeStreaming();
 
@@ -323,8 +334,10 @@ export class Game {
     const rz = Math.floor(this.rider.root.position.z / this.chunkSize);
 
     for (let dz = -this.viewBehind; dz <= this.viewAhead; dz++) {
+      const cz = rz + dz;
+      this.maybeRollCliff(cz);
       for (let dx = -this.viewSide; dx <= this.viewSide; dx++) {
-        const cx = rx + dx, cz = rz + dz;
+        const cx = rx + dx;
         const key = this.chunkKey(cx, cz);
         if (!this.chunks.has(key)) this.spawnDownhillChunk(cx, cz);
       }
@@ -365,11 +378,6 @@ export class Game {
     const half = this.chunkSize / 2;
     const ox = cx * this.chunkSize + half;
     const oz = cz * this.chunkSize + half;
-
-    if (cz > 2 && cx === 0 && this.rng.next01() < 0.18 && !this.cliffs.has(cz)) {
-      const drop = 8 + this.rng.next01() * 10;
-      this.cliffs.set(cz, drop);
-    }
 
     const cy = this.surfaceY(oz);
     const ground = MeshBuilder.CreateGround(`chunk-${cx}-${cz}`, {
