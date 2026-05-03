@@ -62,8 +62,10 @@ export class Game {
   private cliffs = new Map<number, number>();
 
   private readonly HP_PIPE_WIDTH = 18.0;
-  private readonly HP_PIPE_HALF = 9.0;
-  private readonly HP_WALL_HEIGHT = 7.5;
+  private readonly HP_PIPE_HALF = 9.0;          // distance from centerline to lip
+  private readonly HP_FLAT_HALF = 5.0;          // flat floor zone before transition
+  private readonly HP_PIPE_RADIUS = 4.0;        // = HP_PIPE_HALF - HP_FLAT_HALF
+  private readonly HP_LIP_HEIGHT = 0.6;         // small vertical lip at the top
   private readonly HP_CONTEXT_WIDTH = 220;
 
   private speed = 0;
@@ -179,6 +181,17 @@ export class Game {
   private surfaceY(z: number): number {
     const cz = Math.floor(z / this.chunkSize);
     return -z * Math.tan(this.activeSlope) - this.cliffOffsetAt(cz);
+  }
+
+  // U-shaped half-pipe cross-section: flat in the middle, quarter-arc up each side.
+  private pipeOffsetY(x: number): number {
+    if (this.mode !== 'half-pipe') return 0;
+    const ax = Math.abs(x);
+    if (ax <= this.HP_FLAT_HALF) return 0;
+    if (ax >= this.HP_PIPE_HALF) return this.HP_PIPE_RADIUS;
+    const d = ax - this.HP_FLAT_HALF;
+    const r = this.HP_PIPE_RADIUS;
+    return r - Math.sqrt(r * r - d * d);
   }
 
   private buildSharedMaterials(): void {
@@ -454,24 +467,35 @@ export class Game {
     context.position.set(ox, cy, oz);
     context.rotation.x = -this.activeSlope;
 
-    const floor = MeshBuilder.CreateBox(`hp-floor-${cz}`, {
-      width: this.HP_PIPE_WIDTH, height: 0.2, depth: this.chunkSize
-    }, this.scene);
-    floor.material = this.snowMat;
-    floor.position.set(ox, cy - 0.05, oz);
-    floor.rotation.x = -this.activeSlope;
+    const FLAT = this.HP_FLAT_HALF;
+    const R = this.HP_PIPE_RADIUS;
+    const HALF = this.HP_PIPE_HALF;
+    const LIP = this.HP_LIP_HEIGHT;
+    const arcSegs = 12;
 
-    const features: AbstractMesh[] = [floor];
-    for (const side of [-1, 1] as const) {
-      const wall = MeshBuilder.CreateBox(`hp-wall-${side}-${cz}`, {
-        width: 0.5, height: this.HP_WALL_HEIGHT, depth: this.chunkSize
-      }, this.scene);
-      wall.material = this.snowMat;
-      wall.position.set(ox + side * (this.HP_PIPE_HALF + 0.2), cy + this.HP_WALL_HEIGHT / 2, oz);
-      wall.rotation.z = side * 0.40;
-      wall.rotation.x = -this.activeSlope;
-      features.push(wall);
+    const cross: Vector3[] = [];
+    cross.push(new Vector3(-HALF, R + LIP, 0));
+    for (let i = 0; i <= arcSegs; i++) {
+      const a = Math.PI + (Math.PI / 2) * (i / arcSegs);
+      cross.push(new Vector3(-FLAT + R * Math.cos(a), R + R * Math.sin(a), 0));
     }
+    for (let i = 1; i <= arcSegs; i++) {
+      const a = (3 * Math.PI / 2) + (Math.PI / 2) * (i / arcSegs);
+      cross.push(new Vector3(FLAT + R * Math.cos(a), R + R * Math.sin(a), 0));
+    }
+    cross.push(new Vector3(HALF, R + LIP, 0));
+
+    const halfDepth = this.chunkSize / 2;
+    const path1 = cross.map(v => new Vector3(v.x, v.y, -halfDepth));
+    const path2 = cross.map(v => new Vector3(v.x, v.y,  halfDepth));
+    const pipe = MeshBuilder.CreateRibbon(`hp-pipe-${cz}`, {
+      pathArray: [path1, path2], sideOrientation: Mesh.DOUBLESIDE
+    }, this.scene);
+    pipe.material = this.snowMat;
+    pipe.position.set(ox, cy, oz);
+    pipe.rotation.x = -this.activeSlope;
+
+    const features: AbstractMesh[] = [pipe];
 
     const kickers: ChunkData['kickers'] = [];
     const coins: ChunkData['coins'] = [];
@@ -560,7 +584,9 @@ export class Game {
     if (this.state === 'bailing') {
       this.speed *= Math.max(0, 1 - 1.2 * dt);
       this.rider.root.position.z += this.speed * dt;
-      this.rider.root.position.y = this.groundY + this.surfaceY(this.rider.root.position.z);
+      this.rider.root.position.y = this.groundY
+        + this.surfaceY(this.rider.root.position.z)
+        + this.pipeOffsetY(this.rider.root.position.x);
       this.dustParticles.emitRate = 100;
       this.updateChunkStreaming();
       this.scene.render();
@@ -617,7 +643,9 @@ export class Game {
         this.rider.body.rotation.x = this.flipRotation;
       }
 
-      const groundLevel = this.groundY + this.surfaceY(this.rider.root.position.z);
+      const groundLevel = this.groundY
+        + this.surfaceY(this.rider.root.position.z)
+        + this.pipeOffsetY(this.rider.root.position.x);
       if (this.rider.root.position.y <= groundLevel) {
         this.rider.root.position.y = groundLevel;
         this.verticalVelocity = 0;
@@ -643,18 +671,18 @@ export class Game {
     }
 
     this.rider.root.position.z += this.speed * dt;
-    if (this.mode !== 'half-pipe') {
-      this.rider.root.position.x += sinH * this.maxSpeed * this.lateralBleed * dt;
-    }
+    this.rider.root.position.x += sinH * this.maxSpeed * this.lateralBleed * dt;
 
     if (this.mode === 'half-pipe') {
-      const limit = this.HP_PIPE_HALF - 1.0;
-      if (this.rider.root.position.x > limit)  this.rider.root.position.x = limit;
+      const limit = this.HP_PIPE_HALF;
+      if (this.rider.root.position.x >  limit) this.rider.root.position.x =  limit;
       if (this.rider.root.position.x < -limit) this.rider.root.position.x = -limit;
     }
 
     if (this.grounded) {
-      const groundLevel = this.groundY + this.surfaceY(this.rider.root.position.z);
+      const groundLevel = this.groundY
+        + this.surfaceY(this.rider.root.position.z)
+        + this.pipeOffsetY(this.rider.root.position.x);
       if (this.rider.root.position.y - groundLevel > 0.4) {
         this.grounded = false;
         this.verticalVelocity = 0;
