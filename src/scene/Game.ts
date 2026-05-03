@@ -92,20 +92,17 @@ export class Game {
   private rng = new SeedRng(BigInt(Date.now()));
 
   private readonly groundY = 0.85;
-  private readonly accel = 5;
   private readonly gravity = 9.81;
   private readonly jumpMin = 4.0;
   private readonly jumpMax = 8.0;
   private readonly chargeRate = 1.4;
-  private readonly flipRate = 6.5;     // rad/s for body.rotation.x (somersaults)
-  private readonly airSpinRate = 5.0;  // rad/s for heading change while airborne (spins)
+  private readonly flipRate = 6.5;
+  private readonly airSpinRate = 5.0;
 
   private readonly maxLean = 0.698;
   private readonly leanResponse = 6.0;
   private readonly speedCatch = 4.0;
   private readonly lateralBleed = 0.45;
-
-  private readonly KNEE_BEND = 0.5;
 
   private running = false;
 
@@ -568,7 +565,6 @@ export class Game {
     const stickX = this.input.leftStick().x;
     const v = Math.max(0.5, this.speed);
 
-    // Edge angle (visual lean) tracks stick at all times.
     const sinThetaMax = Math.min(0.99, (v * v) / (this.SIDECUT * this.G));
     const physThetaMax = Math.asin(sinThetaMax);
     const thetaMax = Math.min(this.maxLean, physThetaMax);
@@ -577,10 +573,6 @@ export class Game {
     const leanRate = isReturning ? this.leanResponse * 0.35 : this.leanResponse;
     this.edgeAngle += (targetEdge - this.edgeAngle) * Math.min(1, leanRate * dt);
 
-    // Heading rotation: ground = PDF carve (omega = V/R from edge),
-    // air = direct stick → spin (Snowboard Jumping Manual: spins are
-    // separate from carved turns and happen via head/upper-body rotation
-    // around the vertical Y axis while in flight).
     if (this.grounded) {
       if (Math.abs(this.edgeAngle) > 0.005) {
         const R = this.SIDECUT * Math.cos(Math.abs(this.edgeAngle));
@@ -633,7 +625,6 @@ export class Game {
           this.flipRotation = 0;
           this.rider.body.rotation.x = 0;
 
-          // Spins count only full 360s — partial doesn't earn.
           if (Math.abs(this.spinRotation) > Math.PI * 1.5) {
             this.spinsLanded += Math.floor(Math.abs(this.spinRotation) / (Math.PI * 2));
           }
@@ -682,7 +673,7 @@ export class Game {
     const coinTag = `  •  ${this.coinsCollected} ❄`;
     this.callbacks.onScore?.(`${meters} m${coinTag}${flipTag}${spinTag}`);
 
-    void this.trail; void this.KNEE_BEND;
+    void this.trail;
     this.scene.render();
   }
 
