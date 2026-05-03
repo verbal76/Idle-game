@@ -8,6 +8,16 @@ import { TwinStickInput } from './input/TwinStickInput';
 import { ActionButtons } from './input/ActionButtons';
 import { Game } from './scene/Game';
 
+declare global {
+  interface Window {
+    ReactNativeWebView?: { postMessage: (data: string) => void };
+  }
+}
+
+function setOrientation(mode: 'landscape' | 'default'): void {
+  window.ReactNativeWebView?.postMessage(`orientation:${mode}`);
+}
+
 async function bootstrap(): Promise<void> {
   const screen = document.getElementById('screen') as HTMLElement;
   const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement;
@@ -16,6 +26,8 @@ async function bootstrap(): Promise<void> {
   await profiles.init();
 
   while (true) {
+    setOrientation('default'); // menus allow either orientation
+
     if (!profiles.activeProfile) await showProfileSelect(screen, profiles);
 
     const choice: MenuChoice = await showMainMenu(screen, profiles);
@@ -24,8 +36,12 @@ async function bootstrap(): Promise<void> {
       continue;
     }
 
-    await runSession(screen, canvas, choice, profiles);
-    await profiles.save();
+    setOrientation('landscape'); // lock during action
+    try {
+      await runSession(screen, canvas, choice, profiles);
+    } finally {
+      await profiles.save();
+    }
   }
 }
 

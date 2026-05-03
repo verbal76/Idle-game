@@ -4,7 +4,7 @@
     "slug": "snow",
     "owner": "hot-attic-games",
     "version": "0.0.1",
-    "orientation": "landscape",
+    "orientation": "default",
     "backgroundColor": "#0b1320",
     "userInterfaceStyle": "dark",
     "platforms": ["android"],

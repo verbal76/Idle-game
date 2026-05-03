@@ -12,6 +12,7 @@
   "dependencies": {
     "expo": "~51.0.39",
     "expo-constants": "~16.0.2",
+    "expo-screen-orientation": "~7.0.5",
     "expo-status-bar": "~1.12.1",
     "expo-updates": "~0.25.27",
     "react": "18.2.0",

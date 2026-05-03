@@ -1,17 +1,24 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { WebView } from 'react-native-webview';
+import { WebView, type WebViewMessageEvent } from 'react-native-webview';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { HTML_BUNDLE } from './src/__generated__/html-bundle';
 
 /**
- * The whole game lives in HTML_BUNDLE — Vite singlefile inlines Babylon,
- * code, and CSS into one HTML string at build time, then
- * scripts/embed-html.mjs writes that string into src/__generated__/.
- *
- * Setting baseUrl to https://localhost/ gives the WebView a stable origin
- * so IndexedDB (used by the profile system) persists across launches.
+ * Bridges WebView → native orientation lock. The web side posts:
+ *   'orientation:landscape' — lock landscape (in-game)
+ *   'orientation:default'   — unlock to system default (menus)
  */
+function handleMessage(event: WebViewMessageEvent): void {
+  const data = event.nativeEvent.data;
+  if (data === 'orientation:landscape') {
+    void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+  } else if (data === 'orientation:default') {
+    void ScreenOrientation.unlockAsync();
+  }
+}
+
 export default function App(): React.JSX.Element {
   return (
     <View style={styles.root}>
@@ -27,6 +34,7 @@ export default function App(): React.JSX.Element {
         bounces={false}
         scrollEnabled={false}
         overScrollMode="never"
+        onMessage={handleMessage}
         style={styles.webview}
       />
     </View>
