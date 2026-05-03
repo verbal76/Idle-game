@@ -4,6 +4,7 @@ import {
   AbstractMesh, ParticleSystem, DynamicTexture, TrailMesh, TransformNode
 } from '@babylonjs/core';
 import type { StickValue } from '../input/TwinStickInput';
+import type { UpgradeLevels } from '../profiles/IndexedDbStore';
 import { buildRider, RiderRig } from './Rider';
 import { SeedRng } from '../world/SeedRng';
 
@@ -26,7 +27,7 @@ interface ChunkData {
   ground: Mesh;
   features: AbstractMesh[];
   rocks: Array<{ x: number; z: number }>;
-  kickers: Array<{ x: number; z: number; width: number }>;
+  kickers: Array<{ x: number; z: number; width: number; power: number }>;
   coins: Array<{ mesh: Mesh; x: number; z: number; collected: boolean }>;
   cx: number;
   cz: number;
@@ -36,6 +37,8 @@ export class Game {
   private engine: Engine;
   private scene: Scene;
   private rider!: RiderRig;
+  private mode: GameMode;
+  private upgrades: UpgradeLevels;
 
   private snowMat!: StandardMaterial;
   private rockMat!: StandardMaterial;
@@ -44,6 +47,7 @@ export class Game {
   private trunkMat!: StandardMaterial;
   private foliageMat!: StandardMaterial;
   private mountainMat!: StandardMaterial;
+  private cliffMat!: StandardMaterial;
 
   private trunkTemplate!: Mesh;
   private foliageTemplate!: Mesh;
@@ -53,6 +57,11 @@ export class Game {
   private readonly viewAhead = 4;
   private readonly viewBehind = 1;
   private readonly viewSide = 2;
+
+  // Slope: world tilts down at +Z. Cliffs add additional drops at chunk
+  // boundaries (cliffs map: cz -> drop-meters introduced at that cz).
+  private readonly slopeRad = 0.21; // ~12°
+  private cliffs = new Map<number, number>();
 
   private speed = 0;
   private verticalVelocity = 0;
@@ -66,41 +75,46 @@ export class Game {
   private leanAngle = 0;
   private lateralVelocity = 0;
 
-  // Bail/recovery state machine.
   private state: RiderState = 'normal';
   private stateEndsAt = 0;
   private readonly bailDurationMs = 3000;
   private readonly recoverDurationMs = 3000;
-  private readonly cleanLandTolerance = Math.PI / 4; // 45°
+  private readonly cleanLandTolerance = Math.PI / 4;
 
   private dustParticles!: ParticleSystem;
   private trail!: TrailMesh;
+  private mountainAnchor!: TransformNode;
 
   private rng = new SeedRng(BigInt(Date.now()));
 
-  private readonly maxSpeed = 22;
-  private readonly accel = 5;
+  // Stat tunables (some scaled by upgrades)
   private readonly groundY = 0.85;
+  private readonly accel = 5;
   private readonly gravity = 24;
   private readonly jumpMin = 6;
   private readonly jumpMax = 13;
   private readonly chargeRate = 1.4;
   private readonly flipRate = 7.0;
 
-  private readonly maxLean = 1.4;
-  private readonly leanResponse = 7.0;
+  // Sharper carve.
+  private readonly maxLean = 1.55;       // ~89° at full stick
+  private readonly leanResponse = 10.0;  // snappier into the carve
   private readonly autoCenterRate = 1.5;
-  private readonly carveStrength = 14.0;
-  private readonly lateralDrag = 1.6;
+  private readonly carveStrength = 24.0; // much stronger lateral acceleration
+  private readonly lateralDrag = 1.0;    // less drag, more sustained slide
 
   private running = false;
 
   constructor(
     canvas: HTMLCanvasElement,
-    _mode: GameMode,
+    mode: GameMode,
     private readonly input: GameInput,
-    private readonly callbacks: GameCallbacks = {}
+    private readonly callbacks: GameCallbacks = {},
+    upgrades: UpgradeLevels = { speed: 0, jump: 0, magnet: 0 }
   ) {
+    this.mode = mode;
+    this.upgrades = upgrades;
+
     this.engine = new Engine(canvas, true, { stencil: true });
     this.scene = new Scene(this.engine);
     this.scene.clearColor = new Color4(0.62, 0.78, 0.95, 1);
@@ -142,6 +156,23 @@ export class Game {
 
   private onResize(): void { this.engine.resize(); }
 
+  private get maxSpeed(): number { return 22 + this.upgrades.speed * 1.5; }
+  private get jumpMaxScaled(): number { return this.jumpMax * (1 + this.upgrades.jump * 0.10); }
+  private get magnetRadius(): number { return 1.4 + this.upgrades.magnet * 0.5; }
+
+  /** Cumulative cliff drop applied at and after chunk index cz. */
+  private cliffOffsetAt(cz: number): number {
+    let drop = 0;
+    for (const [k, v] of this.cliffs) if (k <= cz) drop += v;
+    return drop;
+  }
+
+  /** World Y of the snow surface at world-space Z. */
+  private surfaceY(z: number): number {
+    const cz = Math.floor(z / this.chunkSize);
+    return -z * Math.tan(this.slopeRad) - this.cliffOffsetAt(cz);
+  }
+
   private buildSharedMaterials(): void {
     this.snowMat     = mkMat(this.scene, 'snow',     new Color3(0.94, 0.96, 1.00));
     this.rockMat     = mkMat(this.scene, 'rock',     new Color3(0.32, 0.35, 0.38));
@@ -151,18 +182,19 @@ export class Game {
     this.trunkMat    = mkMat(this.scene, 'trunk',    new Color3(0.34, 0.22, 0.13));
     this.foliageMat  = mkMat(this.scene, 'foliage',  new Color3(0.18, 0.46, 0.24));
     this.mountainMat = mkMat(this.scene, 'mountain', new Color3(0.55, 0.66, 0.82));
+    this.cliffMat    = mkMat(this.scene, 'cliff',    new Color3(0.22, 0.20, 0.20));
   }
 
   private buildTreeTemplates(): void {
     const trunk = MeshBuilder.CreateCylinder('trunk-template', {
-      diameterTop: 0.22, diameterBottom: 0.34, height: 1.4, tessellation: 6
+      diameterTop: 0.22, diameterBottom: 0.34, height: 1.4, tessellation: 8
     }, this.scene);
     trunk.material = this.trunkMat;
     trunk.setEnabled(false);
     this.trunkTemplate = trunk;
 
     const foliage = MeshBuilder.CreateCylinder('foliage-template', {
-      diameterTop: 0.05, diameterBottom: 1.7, height: 2.6, tessellation: 6
+      diameterTop: 0.05, diameterBottom: 1.7, height: 2.6, tessellation: 8
     }, this.scene);
     foliage.material = this.foliageMat;
     foliage.setEnabled(false);
@@ -170,6 +202,8 @@ export class Game {
   }
 
   private buildBackgroundMountains(): void {
+    const anchor = new TransformNode('mountain-anchor', this.scene);
+    this.mountainAnchor = anchor;
     const count = 22;
     const radius = 360;
     for (let i = 0; i < count; i++) {
@@ -184,18 +218,19 @@ export class Game {
       }, this.scene);
       m.material = this.mountainMat;
       m.position.set(x, h / 2 - 18, z);
-      m.parent = this.rider.root;
+      m.parent = anchor;
     }
   }
 
   private spawnTree(x: number, z: number, scale: number, name: string): AbstractMesh[] {
     const trunkH = 1.4 * scale;
+    const baseY = this.surfaceY(z);
     const trunk = this.trunkTemplate.createInstance(`trunk-${name}`);
     trunk.scaling.setAll(scale);
-    trunk.position.set(x, trunkH / 2, z);
+    trunk.position.set(x, baseY + trunkH / 2, z);
     const foliage = this.foliageTemplate.createInstance(`foliage-${name}`);
     foliage.scaling.setAll(scale);
-    foliage.position.set(x, trunkH + 1.0 * scale, z);
+    foliage.position.set(x, baseY + trunkH + 1.0 * scale, z);
     return [trunk, foliage];
   }
 
@@ -261,6 +296,8 @@ export class Game {
   private chunkKey(cx: number, cz: number): string { return `${cx}:${cz}`; }
 
   private updateChunkStreaming(): void {
+    if (this.mode === 'half-pipe') return this.updateHalfPipeStreaming();
+
     const rx = Math.floor(this.rider.root.position.x / this.chunkSize);
     const rz = Math.floor(this.rider.root.position.z / this.chunkSize);
 
@@ -268,7 +305,7 @@ export class Game {
       for (let dx = -this.viewSide; dx <= this.viewSide; dx++) {
         const cx = rx + dx, cz = rz + dz;
         const key = this.chunkKey(cx, cz);
-        if (!this.chunks.has(key)) this.spawnChunk(cx, cz);
+        if (!this.chunks.has(key)) this.spawnDownhillChunk(cx, cz);
       }
     }
     for (const [key, chunk] of this.chunks) {
@@ -282,23 +319,59 @@ export class Game {
     }
   }
 
+  private updateHalfPipeStreaming(): void {
+    const rz = Math.floor(this.rider.root.position.z / this.chunkSize);
+    for (let dz = -this.viewBehind; dz <= this.viewAhead; dz++) {
+      const cz = rz + dz;
+      const key = this.chunkKey(0, cz);
+      if (!this.chunks.has(key)) this.spawnHalfPipeChunk(0, cz);
+    }
+    for (const [key, chunk] of this.chunks) {
+      const dz = chunk.cz - rz;
+      if (dz < -this.viewBehind - 1 || dz > this.viewAhead + 1) {
+        this.disposeChunk(chunk);
+        this.chunks.delete(key);
+      }
+    }
+  }
+
   private disposeChunk(chunk: ChunkData): void {
     chunk.ground.dispose();
     for (const f of chunk.features) f.dispose();
   }
 
-  private spawnChunk(cx: number, cz: number): void {
+  private spawnDownhillChunk(cx: number, cz: number): void {
     const half = this.chunkSize / 2;
     const ox = cx * this.chunkSize + half;
     const oz = cz * this.chunkSize + half;
 
+    // Decide if this chunk introduces a cliff. Cliffs only spawn ahead of
+    // the early grace zone.
+    let cliffFace: Mesh | null = null;
+    if (cz > 2 && cx === 0 && this.rng.next01() < 0.18 && !this.cliffs.has(cz)) {
+      const drop = 8 + this.rng.next01() * 10;
+      this.cliffs.set(cz, drop);
+      // Vertical rock face spanning a wide band at the chunk's leading edge.
+      const cliffZ = cz * this.chunkSize;
+      const cliffTopY = -cliffZ * Math.tan(this.slopeRad) - this.cliffOffsetAt(cz - 1);
+      const face = MeshBuilder.CreateBox(`cliff-${cz}`, {
+        width: 600, height: drop + 4, depth: 1.0
+      }, this.scene);
+      face.material = this.cliffMat;
+      face.position.set(0, cliffTopY - (drop + 4) / 2 + 1.5, cliffZ + 0.2);
+      cliffFace = face;
+    }
+
+    const cy = this.surfaceY(oz);
     const ground = MeshBuilder.CreateGround(`chunk-${cx}-${cz}`, {
       width: this.chunkSize, height: this.chunkSize, subdivisions: 1
     }, this.scene);
     ground.material = this.snowMat;
-    ground.position.set(ox, 0, oz);
+    ground.position.set(ox, cy, oz);
+    ground.rotation.x = -this.slopeRad;
 
     const features: AbstractMesh[] = [];
+    if (cliffFace) features.push(cliffFace);
     const rocks: ChunkData['rocks'] = [];
     const kickers: ChunkData['kickers'] = [];
     const coins: ChunkData['coins'] = [];
@@ -314,7 +387,7 @@ export class Game {
           width: 1.6, height: 1.4, depth: 1.4
         }, this.scene);
         rock.material = this.rockMat;
-        rock.position.set(lx, 0.7, lz);
+        rock.position.set(lx, this.surfaceY(lz) + 0.7, lz);
         features.push(rock);
         rocks.push({ x: lx, z: lz });
       }
@@ -324,8 +397,7 @@ export class Game {
         const lx = ox + this.rng.rangeFloat(-half + 3, half - 3);
         const lz = oz + this.rng.rangeFloat(-half + 3, half - 3);
         const scale = 0.9 + this.rng.next01() * 0.7;
-        const meshes = this.spawnTree(lx, lz, scale, `${cx}-${cz}-pf-${i}`);
-        features.push(...meshes);
+        features.push(...this.spawnTree(lx, lz, scale, `${cx}-${cz}-pf-${i}`));
         rocks.push({ x: lx, z: lz });
       }
 
@@ -339,40 +411,95 @@ export class Game {
           const tx = baseX + this.rng.rangeFloat(-3, 3);
           const tz = baseZ + this.rng.rangeFloat(-3, 3);
           const scale = 1.0 + this.rng.next01() * 0.9;
-          const meshes = this.spawnTree(tx, tz, scale, `${cx}-${cz}-edge-${i}-${t}`);
-          features.push(...meshes);
+          features.push(...this.spawnTree(tx, tz, scale, `${cx}-${cz}-edge-${i}-${t}`));
         }
       }
 
-      if (this.rng.next01() < 0.55) {
+      // Kicker (regular pop or rare mega-launch)
+      const kickerRoll = this.rng.next01();
+      if (kickerRoll < 0.55) {
+        const isMega = kickerRoll < 0.10;
         const lx = ox + this.rng.rangeFloat(-half + 4, half - 4);
         const lz = oz + this.rng.rangeFloat(-half + 4, half - 4);
-        const kicker = MeshBuilder.CreateBox(`kicker-${cx}-${cz}`, {
-          width: 4.5, height: 0.6, depth: 4
-        }, this.scene);
+        const w = isMega ? 6 : 4.5;
+        const h = isMega ? 1.2 : 0.6;
+        const d = isMega ? 6 : 4;
+        const kicker = MeshBuilder.CreateBox(`kicker-${cx}-${cz}`, { width: w, height: h, depth: d }, this.scene);
         kicker.material = this.kickerMat;
-        kicker.position.set(lx, 0.3, lz);
-        kicker.rotation.x = -0.32;
+        kicker.position.set(lx, this.surfaceY(lz) + h / 2, lz);
+        kicker.rotation.x = -0.32 - this.slopeRad;
         features.push(kicker);
-        kickers.push({ x: lx, z: lz, width: 4.5 });
+        kickers.push({ x: lx, z: lz, width: w, power: isMega ? 16 : 9.5 });
       }
 
       const coinCount = this.rng.rangeInt(2, 6);
       for (let i = 0; i < coinCount; i++) {
         const lx = ox + this.rng.rangeFloat(-half + 1, half - 1);
         const lz = oz + this.rng.rangeFloat(-half + 1, half - 1);
-        const coin = MeshBuilder.CreateSphere(`coin-${cx}-${cz}-${i}`, {
-          diameter: 0.55
-        }, this.scene);
+        const coin = MeshBuilder.CreateSphere(`coin-${cx}-${cz}-${i}`, { diameter: 0.55 }, this.scene);
         coin.material = this.coinMat;
-        coin.position.set(lx, 1.0, lz);
+        coin.position.set(lx, this.surfaceY(lz) + 1.0, lz);
         features.push(coin);
         coins.push({ mesh: coin, x: lx, z: lz, collected: false });
       }
     }
 
+    this.chunks.set(this.chunkKey(cx, cz), { ground, features, rocks, kickers, coins, cx, cz });
+  }
+
+  private spawnHalfPipeChunk(cx: number, cz: number): void {
+    const half = this.chunkSize / 2;
+    const ox = 0;
+    const oz = cz * this.chunkSize + half;
+    const cy = this.surfaceY(oz);
+
+    const floor = MeshBuilder.CreateBox(`hp-floor-${cz}`, {
+      width: 8, height: 0.2, depth: this.chunkSize
+    }, this.scene);
+    floor.material = this.snowMat;
+    floor.position.set(ox, cy - 0.1, oz);
+    floor.rotation.x = -this.slopeRad;
+
+    const features: AbstractMesh[] = [];
+    for (const side of [-1, 1] as const) {
+      const wall = MeshBuilder.CreateBox(`hp-wall-${side}-${cz}`, {
+        width: 0.4, height: 6, depth: this.chunkSize
+      }, this.scene);
+      wall.material = this.snowMat;
+      wall.position.set(ox + side * 4.5, cy + 2.5, oz);
+      wall.rotation.z = side * 0.45;
+      wall.rotation.x = -this.slopeRad;
+      features.push(wall);
+    }
+
+    const kickers: ChunkData['kickers'] = [];
+    const coins: ChunkData['coins'] = [];
+
+    if (cz > 0) {
+      // Coin row down the centerline
+      const coinCount = 5;
+      for (let i = 0; i < coinCount; i++) {
+        const lz = oz - half + (i + 1) * (this.chunkSize / (coinCount + 1));
+        const coin = MeshBuilder.CreateSphere(`hp-coin-${cz}-${i}`, { diameter: 0.55 }, this.scene);
+        coin.material = this.coinMat;
+        coin.position.set(ox, this.surfaceY(lz) + 1.4, lz);
+        features.push(coin);
+        coins.push({ mesh: coin, x: ox, z: lz, collected: false });
+      }
+      // Kicker every other chunk
+      if (cz % 2 === 1) {
+        const lz = oz + this.rng.rangeFloat(-half + 5, half - 5);
+        const kicker = MeshBuilder.CreateBox(`hp-kicker-${cz}`, { width: 4, height: 0.8, depth: 4 }, this.scene);
+        kicker.material = this.kickerMat;
+        kicker.position.set(ox, this.surfaceY(lz) + 0.4, lz);
+        kicker.rotation.x = -0.40 - this.slopeRad;
+        features.push(kicker);
+        kickers.push({ x: ox, z: lz, width: 4, power: 12 });
+      }
+    }
+
     this.chunks.set(this.chunkKey(cx, cz), {
-      ground, features, rocks, kickers, coins, cx, cz
+      ground: floor as Mesh, features, rocks: [], kickers, coins, cx, cz
     });
   }
 
@@ -380,7 +507,6 @@ export class Game {
     for (const p of this.rider.parts) p.isVisible = v;
   }
 
-  /** Bail if the flip didn't land board-down (within ±45° of upright). */
   private isCleanLanding(): boolean {
     const TWO_PI = Math.PI * 2;
     const norm = ((this.flipRotation % TWO_PI) + TWO_PI) % TWO_PI;
@@ -391,7 +517,6 @@ export class Game {
   private startBail(): void {
     this.state = 'bailing';
     this.stateEndsAt = performance.now() + this.bailDurationMs;
-    // Tip the body sideways for the slide.
     this.rider.body.rotation.x = 0;
     this.rider.body.rotation.z = Math.PI / 2;
     this.rider.lean.rotation.z = 0;
@@ -408,7 +533,7 @@ export class Game {
     this.rider.lean.rotation.z = 0;
     this.leanAngle = 0;
     this.lateralVelocity = 0;
-    this.speed = this.maxSpeed * 0.4; // give back some momentum
+    this.speed = this.maxSpeed * 0.4;
   }
 
   private exitRecovery(): void {
@@ -421,23 +546,25 @@ export class Game {
     const dt = Math.min(0.05, this.engine.getDeltaTime() / 1000);
     const now = performance.now();
 
-    // State machine transitions.
     if (this.state === 'bailing' && now >= this.stateEndsAt) this.startRecovery();
     else if (this.state === 'recovering' && now >= this.stateEndsAt) this.exitRecovery();
 
-    // Recovery flicker (~12.5 Hz).
     if (this.state === 'recovering') {
       const phase = Math.floor((now - (this.stateEndsAt - this.recoverDurationMs)) / 80) % 2;
       this.setRiderVisible(phase === 0);
     }
 
+    // Mountains track rider position only (no rotation inheritance).
+    this.mountainAnchor.position.copyFrom(this.rider.root.position);
+
     if (this.state === 'bailing') {
-      // Slide: decay speed, no input control, no carve, no jumps.
       this.speed *= Math.max(0, 1 - 1.2 * dt);
       this.lateralVelocity *= Math.max(0, 1 - 0.8 * dt);
       this.rider.root.position.x += this.lateralVelocity * dt;
       this.rider.root.position.z += this.speed * dt;
-      this.dustParticles.emitRate = 100; // dragging snow
+      // Glue to surface during slide
+      this.rider.root.position.y = this.groundY + this.surfaceY(this.rider.root.position.z);
+      this.dustParticles.emitRate = 100;
       this.updateChunkStreaming();
       this.scene.render();
       return;
@@ -445,7 +572,6 @@ export class Game {
 
     this.speed = Math.min(this.maxSpeed, this.speed + this.accel * dt);
 
-    // Carve.
     const stickX = this.input.leftStick().x;
     const targetLean = stickX * this.maxLean;
     const isReturning = Math.abs(stickX) < 0.05;
@@ -462,11 +588,18 @@ export class Game {
     this.lateralVelocity *= Math.max(0, 1 - this.lateralDrag * dt);
     this.rider.root.position.x += this.lateralVelocity * dt;
 
+    // Half-pipe lateral clamp.
+    if (this.mode === 'half-pipe') {
+      const limit = 3.5;
+      if (this.rider.root.position.x > limit)  { this.rider.root.position.x = limit;  this.lateralVelocity = 0; }
+      if (this.rider.root.position.x < -limit) { this.rider.root.position.x = -limit; this.lateralVelocity = 0; }
+    }
+
     if (this.grounded) {
       if (this.input.jumpHeld()) {
         this.jumpCharge = Math.min(1, this.jumpCharge + dt * this.chargeRate);
       } else if (this.jumpCharge > 0) {
-        this.verticalVelocity = this.jumpMin + this.jumpCharge * (this.jumpMax - this.jumpMin);
+        this.verticalVelocity = (this.jumpMin + this.jumpCharge * (this.jumpMaxScaled - this.jumpMin));
         this.jumpCharge = 0;
         this.grounded = false;
       }
@@ -481,8 +614,9 @@ export class Game {
         this.rider.body.rotation.x = this.flipRotation;
       }
 
-      if (this.rider.root.position.y <= this.groundY) {
-        this.rider.root.position.y = this.groundY;
+      const groundLevel = this.groundY + this.surfaceY(this.rider.root.position.z);
+      if (this.rider.root.position.y <= groundLevel) {
+        this.rider.root.position.y = groundLevel;
         this.verticalVelocity = 0;
         this.grounded = true;
 
@@ -502,6 +636,18 @@ export class Game {
 
     const forwardFactor = Math.max(0.15, Math.cos(this.leanAngle));
     this.rider.root.position.z += this.speed * forwardFactor * dt;
+
+    // Stick to surface when grounded; pop into air if surface drops away (cliffs).
+    if (this.grounded) {
+      const groundLevel = this.groundY + this.surfaceY(this.rider.root.position.z);
+      if (this.rider.root.position.y - groundLevel > 0.4) {
+        // Surface has dropped — we're now airborne (ran off a cliff edge).
+        this.grounded = false;
+        this.verticalVelocity = 0;
+      } else {
+        this.rider.root.position.y = groundLevel;
+      }
+    }
 
     for (const chunk of this.chunks.values()) {
       for (const c of chunk.coins) if (!c.collected) c.mesh.rotation.y += dt * 2;
@@ -529,13 +675,14 @@ export class Game {
     if (this.fellAlready) return;
     const r = this.rider.root.position;
     const invulnerable = this.state !== 'normal';
+    const magnetSq = this.magnetRadius * this.magnetRadius;
 
     for (const chunk of this.chunks.values()) {
       for (const c of chunk.coins) {
         if (c.collected) continue;
         const dx = c.x - r.x;
         const dz = c.z - r.z;
-        if (dx * dx + dz * dz < 1.4 * 1.4 && r.y < 1.5) {
+        if (dx * dx + dz * dz < magnetSq && Math.abs(r.y - this.surfaceY(c.z)) < 2.0) {
           c.collected = true;
           c.mesh.dispose();
           this.coinsCollected += 1;
@@ -546,16 +693,17 @@ export class Game {
           const dx = Math.abs(k.x - r.x);
           const dz = Math.abs(k.z - r.z);
           if (dx < k.width / 2 && dz < 1.6) {
-            this.verticalVelocity = 9.5;
+            this.verticalVelocity = k.power;
             this.grounded = false;
           }
         }
       }
       if (!invulnerable) {
+        const surfaceAtRider = this.surfaceY(r.z);
         for (const o of chunk.rocks) {
           const dx = Math.abs(o.x - r.x);
           const dz = Math.abs(o.z - r.z);
-          if (dx < 1.05 && dz < 0.95 && r.y < 1.55) {
+          if (dx < 1.05 && dz < 0.95 && r.y - (this.surfaceY(o.z)) < 1.55 && r.y - surfaceAtRider < 1.55) {
             this.fall();
             return;
           }

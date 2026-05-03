@@ -33,6 +33,23 @@ html, body {
 .row { display: flex; gap: 8px; align-items: center; }
 .muted { opacity: 0.65; font-size: 13px; }
 
+.upgrades-list { display: flex; flex-direction: column; gap: 10px; min-width: 320px; max-width: 480px; }
+.upgrade-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 14px; background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(160, 200, 240, 0.15);
+  border-radius: 10px;
+}
+.upgrade-info { display: flex; flex-direction: column; gap: 2px; }
+.upgrade-name { font-weight: 700; font-size: 15px; }
+.upgrade-desc { font-size: 12px; }
+.upgrade-buy {
+  padding: 8px 14px; background: #2a4f7f; color: #fff;
+  border: 0; border-radius: 8px; min-width: 90px;
+  font: inherit; font-weight: 700;
+}
+.upgrade-buy:disabled { opacity: 0.4; }
+
 #hud { position: absolute; inset: 0; display: block; }
 #hud .top-bar {
   position: absolute;

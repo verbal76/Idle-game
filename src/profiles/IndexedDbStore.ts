@@ -1,5 +1,11 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 
+export interface UpgradeLevels {
+  speed: number;
+  jump: number;
+  magnet: number;
+}
+
 export interface SaveData {
   id: string;
   name: string;
@@ -9,6 +15,7 @@ export interface SaveData {
   unlocks: string[];
   bestHalfPipeScore: number;
   longestDownhillMeters: number;
+  upgrades: UpgradeLevels;
   settings: { musicVolume: number; sfxVolume: number };
 }
 
@@ -33,21 +40,10 @@ export class IndexedDbStore {
     });
   }
 
-  async list(): Promise<SaveData[]> {
-    return (await this.dbPromise).getAll('profiles');
-  }
-
-  async get(id: string): Promise<SaveData | undefined> {
-    return (await this.dbPromise).get('profiles', id);
-  }
-
-  async put(profile: SaveData): Promise<void> {
-    await (await this.dbPromise).put('profiles', profile);
-  }
-
-  async delete(id: string): Promise<void> {
-    await (await this.dbPromise).delete('profiles', id);
-  }
+  async list(): Promise<SaveData[]> { return (await this.dbPromise).getAll('profiles'); }
+  async get(id: string): Promise<SaveData | undefined> { return (await this.dbPromise).get('profiles', id); }
+  async put(profile: SaveData): Promise<void> { await (await this.dbPromise).put('profiles', profile); }
+  async delete(id: string): Promise<void> { await (await this.dbPromise).delete('profiles', id); }
 
   async getActiveId(): Promise<string | null> {
     const v = await (await this.dbPromise).get('meta', ACTIVE_KEY);

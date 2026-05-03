@@ -3,6 +3,7 @@ import { IndexedDbStore } from './profiles/IndexedDbStore';
 import { ProfileService } from './profiles/ProfileService';
 import { showProfileSelect } from './ui/ProfileSelect';
 import { showMainMenu, MenuChoice } from './ui/MainMenu';
+import { showUpgrades } from './ui/Upgrades';
 import { buildHUD } from './ui/HUD';
 import { TwinStickInput } from './input/TwinStickInput';
 import { ActionButtons } from './input/ActionButtons';
@@ -26,7 +27,7 @@ async function bootstrap(): Promise<void> {
   await profiles.init();
 
   while (true) {
-    setOrientation('default'); // menus allow either orientation
+    setOrientation('default');
 
     if (!profiles.activeProfile) await showProfileSelect(screen, profiles);
 
@@ -35,8 +36,13 @@ async function bootstrap(): Promise<void> {
       await showProfileSelect(screen, profiles);
       continue;
     }
+    if (choice === 'upgrades') {
+      await showUpgrades(screen, profiles);
+      await profiles.save();
+      continue;
+    }
 
-    setOrientation('landscape'); // lock during action
+    setOrientation('landscape');
     try {
       await runSession(screen, canvas, choice, profiles);
     } finally {
@@ -48,7 +54,7 @@ async function bootstrap(): Promise<void> {
 async function runSession(
   screen: HTMLElement,
   canvas: HTMLCanvasElement,
-  mode: Exclude<MenuChoice, 'switch-profile'>,
+  mode: Exclude<MenuChoice, 'switch-profile' | 'upgrades'>,
   profiles: ProfileService
 ): Promise<void> {
   return new Promise<void>((resolve) => {
@@ -56,6 +62,7 @@ async function runSession(
     const hud = buildHUD(screen);
     const sticks = new TwinStickInput(hud.leftStick);
     const buttons = new ActionButtons(hud.jumpBtn, hud.flipBtn);
+    const upgrades = profiles.activeProfile!.upgrades;
 
     const game = new Game(canvas, mode, {
       leftStick: () => sticks.left,
@@ -75,7 +82,7 @@ async function runSession(
           `Distance: ${stats.distanceMeters} m  •  Coins: +${stats.coins}  •  Flips: ${stats.flips}`;
         hud.fellOverlay.style.display = 'flex';
       },
-    });
+    }, upgrades);
     game.start();
 
     const finish = () => {

@@ -3,19 +3,14 @@ import {
 } from '@babylonjs/core';
 
 export interface RiderRig {
-  root: TransformNode;     // world translation
-  lean: TransformNode;     // Z roll for carves
-  body: TransformNode;     // X flip / Z fall
-  humanoid: TransformNode; // Y-rotated 90° so the rider stands sideways
-  board: Mesh;             // anchor for trail / dust
-  parts: AbstractMesh[];   // every renderable part — used for fade/flicker
+  root: TransformNode;
+  lean: TransformNode;
+  body: TransformNode;
+  humanoid: TransformNode;
+  board: Mesh;
+  parts: AbstractMesh[];
 }
 
-/**
- * Hierarchy: root → lean → body → humanoid (sideways) + snowboard.
- * humanoid is rotated -90° around Y so the rider faces +X (regular stance,
- * left side of body leads the direction of travel).
- */
 export function buildRider(scene: Scene): RiderRig {
   const root = new TransformNode('rider-root', scene);
   const lean = new TransformNode('rider-lean', scene);
@@ -24,43 +19,75 @@ export function buildRider(scene: Scene): RiderRig {
   body.parent = lean;
   const humanoid = new TransformNode('rider-humanoid', scene);
   humanoid.parent = body;
-  humanoid.rotation.y = -Math.PI / 2; // regular: left side leads
+  humanoid.rotation.y = -Math.PI / 2;
 
   const skin    = mat(scene, 'skin',    new Color3(0.96, 0.82, 0.70));
   const jacket  = mat(scene, 'jacket',  new Color3(0.94, 0.42, 0.18));
+  const jacketDark = mat(scene, 'jacket-dark', new Color3(0.62, 0.26, 0.10));
   const pants   = mat(scene, 'pants',   new Color3(0.10, 0.18, 0.32));
   const board   = mat(scene, 'board',   new Color3(0.07, 0.08, 0.10));
   const beanie  = mat(scene, 'beanie',  new Color3(0.12, 0.20, 0.36));
+  const boot    = mat(scene, 'boot',    new Color3(0.12, 0.10, 0.10));
+  const glove   = mat(scene, 'glove',   new Color3(0.08, 0.12, 0.20));
+  const binding = mat(scene, 'binding', new Color3(0.45, 0.45, 0.50));
+  const goggle  = mat(scene, 'goggle',  new Color3(0.06, 0.08, 0.12));
+  goggle.emissiveColor = new Color3(0.25, 0.45, 0.65);
 
   const parts: AbstractMesh[] = [];
+  const T = 24; // tessellation bump for smoother bodies
 
-  parts.push(attach(MeshBuilder.CreateCapsule('torso', { height: 0.7, radius: 0.22 }, scene),
+  // Torso: tapered from waist to chest
+  parts.push(attach(MeshBuilder.CreateCapsule('torso', { height: 0.7, radius: 0.24, tessellation: T }, scene),
     humanoid, jacket, 0, 0.05, 0));
+  parts.push(attach(MeshBuilder.CreateBox('jacket-stripe', { width: 0.50, height: 0.06, depth: 0.34 }, scene),
+    humanoid, jacketDark, 0, -0.12, 0));
 
-  parts.push(attach(MeshBuilder.CreateSphere('head', { diameter: 0.32 }, scene),
+  // Head + beanie + goggles
+  parts.push(attach(MeshBuilder.CreateSphere('head', { diameter: 0.32, segments: T }, scene),
     humanoid, skin, 0, 0.55, 0));
+  parts.push(attach(MeshBuilder.CreateSphere('beanie', { diameter: 0.36, segments: T, slice: 0.55 }, scene),
+    humanoid, beanie, 0, 0.66, 0));
+  parts.push(attach(MeshBuilder.CreateBox('goggles', { width: 0.30, height: 0.07, depth: 0.20 }, scene),
+    humanoid, goggle, 0, 0.55, 0.13));
 
-  const hat = MeshBuilder.CreateSphere('beanie', { diameter: 0.36, slice: 0.55 }, scene);
-  parts.push(attach(hat, humanoid, beanie, 0, 0.66, 0));
-
+  // Arms with glove on the end
   for (const side of [-1, 1] as const) {
     const arm = MeshBuilder.CreateCapsule(`arm-${side}`,
-      { height: 0.55, radius: 0.075 }, scene);
+      { height: 0.55, radius: 0.080, tessellation: T }, scene);
     parts.push(attach(arm, humanoid, jacket, 0.30 * side, 0.05, 0));
-    arm.rotation.z = -0.15 * side;
+    arm.rotation.z = -0.18 * side;
+    parts.push(attach(MeshBuilder.CreateSphere(`glove-${side}`,
+      { diameter: 0.20, segments: T }, scene),
+      humanoid, glove, 0.34 * side, -0.21, 0));
   }
 
+  // Legs with chunky boots
   for (const side of [-1, 1] as const) {
-    const leg = MeshBuilder.CreateCapsule(`leg-${side}`,
-      { height: 0.42, radius: 0.10 }, scene);
-    parts.push(attach(leg, humanoid, pants, 0.12 * side, -0.45, 0));
+    parts.push(attach(MeshBuilder.CreateCapsule(`leg-${side}`,
+      { height: 0.42, radius: 0.105, tessellation: T }, scene),
+      humanoid, pants, 0.12 * side, -0.45, 0));
+    parts.push(attach(MeshBuilder.CreateBox(`boot-${side}`,
+      { width: 0.20, height: 0.16, depth: 0.34 }, scene),
+      humanoid, boot, 0.12 * side, -0.70, 0));
   }
 
-  // Board stays parented to body (no humanoid Y rotation), so its long
-  // axis remains aligned with travel direction.
+  // Snowboard: longer with rounded tip and tail via additional small boxes
   const snowboard = MeshBuilder.CreateBox('snowboard',
     { width: 0.36, height: 0.06, depth: 1.5 }, scene);
   parts.push(attach(snowboard, body, board, 0, -0.72, 0));
+  parts.push(attach(MeshBuilder.CreateBox('board-tip',
+    { width: 0.28, height: 0.05, depth: 0.18 }, scene),
+    body, board, 0, -0.71, 0.78));
+  parts.push(attach(MeshBuilder.CreateBox('board-tail',
+    { width: 0.28, height: 0.05, depth: 0.18 }, scene),
+    body, board, 0, -0.71, -0.78));
+
+  // Snowboard bindings (visible mounting hardware between feet and board)
+  for (const sign of [-1, 1] as const) {
+    parts.push(attach(MeshBuilder.CreateBox(`binding-${sign}`,
+      { width: 0.24, height: 0.10, depth: 0.30 }, scene),
+      body, binding, 0, -0.66, sign * 0.30));
+  }
 
   return { root, lean, body, humanoid, board: snowboard, parts };
 }

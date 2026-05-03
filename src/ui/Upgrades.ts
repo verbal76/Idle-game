@@ -1,0 +1,63 @@
+import { ProfileService } from '../profiles/ProfileService';
+
+export interface UpgradeDef {
+  id: 'speed' | 'jump' | 'magnet';
+  label: string;
+  description: string;
+  baseCost: number;
+  costMul: number;
+  maxLevel: number;
+}
+
+export const UPGRADES: UpgradeDef[] = [
+  { id: 'speed',  label: 'Top Speed',   description: '+1.5 m/s per level',     baseCost: 50,  costMul: 2.0, maxLevel: 5 },
+  { id: 'jump',   label: 'Jump Power',  description: '+10% jump per level',    baseCost: 50,  costMul: 2.0, maxLevel: 5 },
+  { id: 'magnet', label: 'Coin Magnet', description: '+0.5 m radius per level', baseCost: 100, costMul: 2.0, maxLevel: 5 },
+];
+
+export function costForNext(def: UpgradeDef, currentLevel: number): number {
+  return Math.floor(def.baseCost * Math.pow(def.costMul, currentLevel));
+}
+
+export function showUpgrades(root: HTMLElement, profiles: ProfileService): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const render = () => {
+      const p = profiles.activeProfile!;
+      root.innerHTML = `
+        <div class="fullscreen-panel">
+          <h1>UPGRADES</h1>
+          <p class="muted">${p.currency} ❄</p>
+          <div class="upgrades-list" id="upgrades-list"></div>
+          <div class="row"><button id="upgrades-back">Back</button></div>
+        </div>
+      `;
+      const listEl = root.querySelector<HTMLElement>('#upgrades-list')!;
+      for (const u of UPGRADES) {
+        const lvl = p.upgrades[u.id];
+        const maxed = lvl >= u.maxLevel;
+        const cost = costForNext(u, lvl);
+        const canAfford = !maxed && p.currency >= cost;
+        const row = document.createElement('div');
+        row.className = 'upgrade-row';
+        row.innerHTML = `
+          <div class="upgrade-info">
+            <div class="upgrade-name">${u.label}</div>
+            <div class="upgrade-desc muted">${u.description} • ${lvl}/${u.maxLevel}</div>
+          </div>
+          <button class="upgrade-buy" ${canAfford ? '' : 'disabled'}>${maxed ? 'MAX' : `${cost} ❄`}</button>
+        `;
+        const btn = row.querySelector<HTMLButtonElement>('.upgrade-buy')!;
+        btn.addEventListener('click', async () => {
+          if (maxed || !canAfford) return;
+          p.currency -= cost;
+          p.upgrades[u.id] += 1;
+          await profiles.save();
+          render();
+        });
+        listEl.appendChild(row);
+      }
+      root.querySelector<HTMLButtonElement>('#upgrades-back')!.addEventListener('click', () => resolve());
+    };
+    render();
+  });
+}
