@@ -79,9 +79,9 @@ export class Game {
 
   private heading = 0;
   private edgeAngle = 0;
-  // Smaller sidecut → tighter R = C·cos θ → faster ω = V/R. With C=3,
-  // V=22, θ=40°: R≈2.3 m, ω≈9.6 rad/s — a 90° turn in ~0.16 s.
-  private readonly SIDECUT = 3.0;
+  // R = C·cos θ, ω = V/R. C=5, V=22, θ=40°: R≈3.8 m, ω≈5.8 rad/s —
+  // 90° in ~0.27 s. Big enough arc to read as a carve, not a tank pivot.
+  private readonly SIDECUT = 5.0;
   private readonly G = 9.81;
 
   private state: RiderState = 'normal';
@@ -106,10 +106,11 @@ export class Game {
   private readonly airSpinRate = 5.0;
 
   private readonly maxLean = 0.698;
-  private readonly leanResponse = 12.0; // edge catches stick in ~80 ms
+  private readonly leanResponse = 6.5;  // ~150 ms to mostly-leaned, so the
+                                        // tilt is visible before the heading swings
   private readonly speedCatch = 4.0;
-  private readonly lateralBleed = 0.20; // less side drift so sharp turns
-                                        // don't push the rider off the loaded chunks
+  private readonly lateralBleed = 0.35; // sideways drift while heading is off-axis,
+                                        // gives the "sailing" swerve feel
 
   private running = false;
 
