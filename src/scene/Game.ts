@@ -20,6 +20,8 @@ export interface GameCallbacks {
   onFell?: (stats: { distanceMeters: number; flips: number; coins: number }) => void;
 }
 
+type RiderState = 'normal' | 'bailing' | 'recovering';
+
 interface ChunkData {
   ground: Mesh;
   features: AbstractMesh[];
@@ -43,7 +45,6 @@ export class Game {
   private foliageMat!: StandardMaterial;
   private mountainMat!: StandardMaterial;
 
-  // Tree instance templates (geometry shared, instances are cheap).
   private trunkTemplate!: Mesh;
   private foliageTemplate!: Mesh;
 
@@ -65,6 +66,13 @@ export class Game {
   private leanAngle = 0;
   private lateralVelocity = 0;
 
+  // Bail/recovery state machine.
+  private state: RiderState = 'normal';
+  private stateEndsAt = 0;
+  private readonly bailDurationMs = 3000;
+  private readonly recoverDurationMs = 3000;
+  private readonly cleanLandTolerance = Math.PI / 4; // 45°
+
   private dustParticles!: ParticleSystem;
   private trail!: TrailMesh;
 
@@ -79,10 +87,7 @@ export class Game {
   private readonly chargeRate = 1.4;
   private readonly flipRate = 7.0;
 
-  // Carve: full deflection rolls to ~80°. Forward speed multiplies by
-  // cos(leanAngle), so a hard 90° carve crawls forward (clamped at 0.15
-  // so you never fully stop).
-  private readonly maxLean = 1.4;          // ~80° at full stick
+  private readonly maxLean = 1.4;
   private readonly leanResponse = 7.0;
   private readonly autoCenterRate = 1.5;
   private readonly carveStrength = 14.0;
@@ -138,13 +143,13 @@ export class Game {
   private onResize(): void { this.engine.resize(); }
 
   private buildSharedMaterials(): void {
-    this.snowMat = mkMat(this.scene, 'snow',     new Color3(0.94, 0.96, 1.00));
-    this.rockMat = mkMat(this.scene, 'rock',     new Color3(0.32, 0.35, 0.38));
-    this.kickerMat = mkMat(this.scene, 'kicker', new Color3(0.28, 0.40, 0.62));
-    this.coinMat = mkMat(this.scene, 'coin',     new Color3(1.00, 0.82, 0.18));
+    this.snowMat     = mkMat(this.scene, 'snow',     new Color3(0.94, 0.96, 1.00));
+    this.rockMat     = mkMat(this.scene, 'rock',     new Color3(0.32, 0.35, 0.38));
+    this.kickerMat   = mkMat(this.scene, 'kicker',   new Color3(0.28, 0.40, 0.62));
+    this.coinMat     = mkMat(this.scene, 'coin',     new Color3(1.00, 0.82, 0.18));
     this.coinMat.emissiveColor = new Color3(0.45, 0.32, 0.0);
-    this.trunkMat = mkMat(this.scene, 'trunk',   new Color3(0.34, 0.22, 0.13));
-    this.foliageMat = mkMat(this.scene, 'foliage', new Color3(0.18, 0.46, 0.24));
+    this.trunkMat    = mkMat(this.scene, 'trunk',    new Color3(0.34, 0.22, 0.13));
+    this.foliageMat  = mkMat(this.scene, 'foliage',  new Color3(0.18, 0.46, 0.24));
     this.mountainMat = mkMat(this.scene, 'mountain', new Color3(0.55, 0.66, 0.82));
   }
 
@@ -164,7 +169,6 @@ export class Game {
     this.foliageTemplate = foliage;
   }
 
-  /** Distant cone "mountains" parented to the rider so they always feel far. */
   private buildBackgroundMountains(): void {
     const count = 22;
     const radius = 360;
@@ -242,12 +246,9 @@ export class Game {
     this.dustParticles = ps;
   }
 
-  /** Trail anchor sits at the back end of the snowboard, on the snow. */
   private buildSnowTrail(): void {
     const anchor = new TransformNode('trail-anchor', this.scene);
     anchor.parent = this.rider.root;
-    // Board is 1.5 long centered at body local z=0 → back end at z=-0.75.
-    // Y at world ground level (root is at groundY): local y = -groundY + 0.02.
     anchor.position.set(0, -this.groundY + 0.02, -0.75);
     const trail = new TrailMesh('snow-trail', anchor, this.scene, 0.32, 80, true);
     const trailMat = mkMat(this.scene, 'trail', new Color3(0.74, 0.81, 0.92));
@@ -305,7 +306,6 @@ export class Game {
     const isGraceZone = (cx === 0 && cz === 0);
 
     if (!isGraceZone) {
-      // Rocks
       const rockCount = this.rng.rangeInt(1, 4);
       for (let i = 0; i < rockCount; i++) {
         const lx = ox + this.rng.rangeFloat(-half + 2, half - 2);
@@ -319,7 +319,6 @@ export class Game {
         rocks.push({ x: lx, z: lz });
       }
 
-      // Trees in the playfield (collidable)
       const treeCount = this.rng.rangeInt(2, 5);
       for (let i = 0; i < treeCount; i++) {
         const lx = ox + this.rng.rangeFloat(-half + 3, half - 3);
@@ -327,10 +326,9 @@ export class Game {
         const scale = 0.9 + this.rng.next01() * 0.7;
         const meshes = this.spawnTree(lx, lz, scale, `${cx}-${cz}-pf-${i}`);
         features.push(...meshes);
-        rocks.push({ x: lx, z: lz }); // tree trunk = collision hazard
+        rocks.push({ x: lx, z: lz });
       }
 
-      // Edge tree clusters (decorative, no collision — parallax silhouettes)
       const clusters = this.rng.rangeInt(2, 5);
       for (let i = 0; i < clusters; i++) {
         const side = this.rng.next01() < 0.5 ? -1 : 1;
@@ -346,7 +344,6 @@ export class Game {
         }
       }
 
-      // Kickers
       if (this.rng.next01() < 0.55) {
         const lx = ox + this.rng.rangeFloat(-half + 4, half - 4);
         const lz = oz + this.rng.rangeFloat(-half + 4, half - 4);
@@ -360,7 +357,6 @@ export class Game {
         kickers.push({ x: lx, z: lz, width: 4.5 });
       }
 
-      // Coins
       const coinCount = this.rng.rangeInt(2, 6);
       for (let i = 0; i < coinCount; i++) {
         const lx = ox + this.rng.rangeFloat(-half + 1, half - 1);
@@ -380,13 +376,76 @@ export class Game {
     });
   }
 
+  private setRiderVisible(v: boolean): void {
+    for (const p of this.rider.parts) p.isVisible = v;
+  }
+
+  /** Bail if the flip didn't land board-down (within ±45° of upright). */
+  private isCleanLanding(): boolean {
+    const TWO_PI = Math.PI * 2;
+    const norm = ((this.flipRotation % TWO_PI) + TWO_PI) % TWO_PI;
+    const fromUpright = Math.min(norm, TWO_PI - norm);
+    return fromUpright < this.cleanLandTolerance;
+  }
+
+  private startBail(): void {
+    this.state = 'bailing';
+    this.stateEndsAt = performance.now() + this.bailDurationMs;
+    // Tip the body sideways for the slide.
+    this.rider.body.rotation.x = 0;
+    this.rider.body.rotation.z = Math.PI / 2;
+    this.rider.lean.rotation.z = 0;
+    this.flipRotation = 0;
+    this.leanAngle = 0;
+    this.lateralVelocity *= 0.4;
+  }
+
+  private startRecovery(): void {
+    this.state = 'recovering';
+    this.stateEndsAt = performance.now() + this.recoverDurationMs;
+    this.rider.body.rotation.x = 0;
+    this.rider.body.rotation.z = 0;
+    this.rider.lean.rotation.z = 0;
+    this.leanAngle = 0;
+    this.lateralVelocity = 0;
+    this.speed = this.maxSpeed * 0.4; // give back some momentum
+  }
+
+  private exitRecovery(): void {
+    this.state = 'normal';
+    this.setRiderVisible(true);
+  }
+
   private tick(): void {
     if (!this.running) { this.scene.render(); return; }
     const dt = Math.min(0.05, this.engine.getDeltaTime() / 1000);
+    const now = performance.now();
+
+    // State machine transitions.
+    if (this.state === 'bailing' && now >= this.stateEndsAt) this.startRecovery();
+    else if (this.state === 'recovering' && now >= this.stateEndsAt) this.exitRecovery();
+
+    // Recovery flicker (~12.5 Hz).
+    if (this.state === 'recovering') {
+      const phase = Math.floor((now - (this.stateEndsAt - this.recoverDurationMs)) / 80) % 2;
+      this.setRiderVisible(phase === 0);
+    }
+
+    if (this.state === 'bailing') {
+      // Slide: decay speed, no input control, no carve, no jumps.
+      this.speed *= Math.max(0, 1 - 1.2 * dt);
+      this.lateralVelocity *= Math.max(0, 1 - 0.8 * dt);
+      this.rider.root.position.x += this.lateralVelocity * dt;
+      this.rider.root.position.z += this.speed * dt;
+      this.dustParticles.emitRate = 100; // dragging snow
+      this.updateChunkStreaming();
+      this.scene.render();
+      return;
+    }
 
     this.speed = Math.min(this.maxSpeed, this.speed + this.accel * dt);
 
-    // Carve steering with auto-center.
+    // Carve.
     const stickX = this.input.leftStick().x;
     const targetLean = stickX * this.maxLean;
     const isReturning = Math.abs(stickX) < 0.05;
@@ -426,16 +485,21 @@ export class Game {
         this.rider.root.position.y = this.groundY;
         this.verticalVelocity = 0;
         this.grounded = true;
-        if (this.flipRotation > 0) {
-          this.flipsLanded += Math.floor(this.flipRotation / (Math.PI * 2));
+
+        if (this.isCleanLanding()) {
+          if (this.flipRotation > Math.PI * 1.5) {
+            this.flipsLanded += Math.round(this.flipRotation / (Math.PI * 2));
+          }
+          this.flipRotation = 0;
+          this.rider.body.rotation.x = 0;
+        } else {
+          this.startBail();
+          this.scene.render();
+          return;
         }
-        this.flipRotation = 0;
-        this.rider.body.rotation.x = 0;
       }
     }
 
-    // Forward speed scales by cos(leanAngle): hard 90° carve → ~15% forward
-    // (clamped so you never fully stop). Straight = 100%.
     const forwardFactor = Math.max(0.15, Math.cos(this.leanAngle));
     this.rider.root.position.z += this.speed * forwardFactor * dt;
 
@@ -464,6 +528,7 @@ export class Game {
   private checkInteractions(): void {
     if (this.fellAlready) return;
     const r = this.rider.root.position;
+    const invulnerable = this.state !== 'normal';
 
     for (const chunk of this.chunks.values()) {
       for (const c of chunk.coins) {
@@ -476,7 +541,7 @@ export class Game {
           this.coinsCollected += 1;
         }
       }
-      if (this.grounded) {
+      if (this.grounded && !invulnerable) {
         for (const k of chunk.kickers) {
           const dx = Math.abs(k.x - r.x);
           const dz = Math.abs(k.z - r.z);
@@ -486,12 +551,14 @@ export class Game {
           }
         }
       }
-      for (const o of chunk.rocks) {
-        const dx = Math.abs(o.x - r.x);
-        const dz = Math.abs(o.z - r.z);
-        if (dx < 1.05 && dz < 0.95 && r.y < 1.55) {
-          this.fall();
-          return;
+      if (!invulnerable) {
+        for (const o of chunk.rocks) {
+          const dx = Math.abs(o.x - r.x);
+          const dz = Math.abs(o.z - r.z);
+          if (dx < 1.05 && dz < 0.95 && r.y < 1.55) {
+            this.fall();
+            return;
+          }
         }
       }
     }
