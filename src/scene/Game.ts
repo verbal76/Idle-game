@@ -18,7 +18,7 @@ export interface GameInput {
 
 export interface GameCallbacks {
   onScore?: (label: string) => void;
-  onFell?: (stats: { distanceMeters: number; flips: number; coins: number }) => void;
+  onFell?: (stats: { distanceMeters: number; flips: number; spins: number; coins: number }) => void;
 }
 
 type RiderState = 'normal' | 'bailing' | 'recovering';
@@ -58,8 +58,8 @@ export class Game {
   private readonly viewBehind = 1;
   private readonly viewSide = 2;
 
-  private readonly slopeRad = 0.21;     // ~12° downhill
-  private readonly halfPipeSlopeRad = 0.28; // 16° (Phillips, standard halfpipe)
+  private readonly slopeRad = 0.21;
+  private readonly halfPipeSlopeRad = 0.28;
   private cliffs = new Map<number, number>();
 
   private speed = 0;
@@ -68,17 +68,15 @@ export class Game {
   private jumpCharge = 0;
   private flipRotation = 0;
   private flipsLanded = 0;
+  private spinRotation = 0;
+  private spinsLanded = 0;
   private coinsCollected = 0;
   private fellAlready = false;
 
-  // Carve model — Michaud/Duncumb:
-  //   sin(θ) = V² / (C·g)
-  //   R      = C·cos(θ)
-  //   ω      = V / R
   private heading = 0;
   private edgeAngle = 0;
   private readonly SIDECUT = 12.0;
-  private readonly G = 9.81;            // O'Shea: real-world gravity
+  private readonly G = 9.81;
 
   private state: RiderState = 'normal';
   private stateEndsAt = 0;
@@ -93,28 +91,21 @@ export class Game {
 
   private rng = new SeedRng(BigInt(Date.now()));
 
-  // Physics tunables. Jump impulses chosen so that v² = 2gh gives
-  // sensible heights at g = 9.81: jumpMin → ~0.8 m hop, jumpMax → ~3.2 m
-  // pop, kicker → ~1.3 m, mega-kicker → ~5 m (lots of air for flips).
   private readonly groundY = 0.85;
   private readonly accel = 5;
   private readonly gravity = 9.81;
   private readonly jumpMin = 4.0;
   private readonly jumpMax = 8.0;
   private readonly chargeRate = 1.4;
-  private readonly flipRate = 6.5;      // rad/s — gives ~1 flip per typical airtime
+  private readonly flipRate = 6.5;     // rad/s for body.rotation.x (somersaults)
+  private readonly airSpinRate = 5.0;  // rad/s for heading change while airborne (spins)
 
-  // Carve feel
   private readonly maxLean = 0.698;
   private readonly leanResponse = 6.0;
   private readonly speedCatch = 4.0;
   private readonly lateralBleed = 0.45;
 
-  // O'Shea landing model: average normal force = mg(1 + h/b·cosθ) where
-  // b is knee compression (~0.5m). We model it implicitly: rotation
-  // alignment alone decides clean vs bail. Impact-magnitude bailing is
-  // a future hook (would compare v_perp = |v·n_slope| against a tolerance).
-  private readonly KNEE_BEND = 0.5;     // metres — for future impact threshold
+  private readonly KNEE_BEND = 0.5;
 
   private running = false;
 
@@ -437,7 +428,6 @@ export class Game {
         kicker.position.set(lx, this.surfaceY(lz) + h / 2, lz);
         kicker.rotation.x = -0.32 - this.activeSlope;
         features.push(kicker);
-        // Powers chosen for v² = 2gh, g=9.81: kicker→1.3m, mega→5m air.
         kickers.push({ x: lx, z: lz, width: w, power: isMega ? 10.0 : 5.0 });
       }
 
@@ -528,6 +518,7 @@ export class Game {
     this.rider.body.rotation.z = Math.PI / 2;
     this.rider.lean.rotation.z = 0;
     this.flipRotation = 0;
+    this.spinRotation = 0;
     this.edgeAngle = 0;
   }
 
@@ -574,22 +565,32 @@ export class Game {
       return;
     }
 
-    // === Carve (Michaud/Duncumb) ===
     const stickX = this.input.leftStick().x;
     const v = Math.max(0.5, this.speed);
+
+    // Edge angle (visual lean) tracks stick at all times.
     const sinThetaMax = Math.min(0.99, (v * v) / (this.SIDECUT * this.G));
     const physThetaMax = Math.asin(sinThetaMax);
     const thetaMax = Math.min(this.maxLean, physThetaMax);
-
     const targetEdge = stickX * thetaMax;
     const isReturning = Math.abs(stickX) < 0.05;
     const leanRate = isReturning ? this.leanResponse * 0.35 : this.leanResponse;
     this.edgeAngle += (targetEdge - this.edgeAngle) * Math.min(1, leanRate * dt);
 
-    if (Math.abs(this.edgeAngle) > 0.005) {
-      const R = this.SIDECUT * Math.cos(Math.abs(this.edgeAngle));
-      const omega = v / R;
-      this.heading += Math.sign(this.edgeAngle) * omega * dt;
+    // Heading rotation: ground = PDF carve (omega = V/R from edge),
+    // air = direct stick → spin (Snowboard Jumping Manual: spins are
+    // separate from carved turns and happen via head/upper-body rotation
+    // around the vertical Y axis while in flight).
+    if (this.grounded) {
+      if (Math.abs(this.edgeAngle) > 0.005) {
+        const R = this.SIDECUT * Math.cos(Math.abs(this.edgeAngle));
+        const omega = v / R;
+        this.heading += Math.sign(this.edgeAngle) * omega * dt;
+      }
+    } else {
+      const spinDelta = stickX * this.airSpinRate * dt;
+      this.heading += spinDelta;
+      this.spinRotation += spinDelta;
     }
 
     this.rider.root.rotation.y = this.heading;
@@ -626,11 +627,17 @@ export class Game {
         this.grounded = true;
 
         if (this.isCleanLanding()) {
-          if (this.flipRotation > Math.PI * 1.5) {
-            this.flipsLanded += Math.round(this.flipRotation / (Math.PI * 2));
+          if (Math.abs(this.flipRotation) > Math.PI * 1.5) {
+            this.flipsLanded += Math.round(Math.abs(this.flipRotation) / (Math.PI * 2));
           }
           this.flipRotation = 0;
           this.rider.body.rotation.x = 0;
+
+          // Spins count only full 360s — partial doesn't earn.
+          if (Math.abs(this.spinRotation) > Math.PI * 1.5) {
+            this.spinsLanded += Math.floor(Math.abs(this.spinRotation) / (Math.PI * 2));
+          }
+          this.spinRotation = 0;
         } else {
           this.startBail();
           this.scene.render();
@@ -671,8 +678,9 @@ export class Game {
 
     const meters = Math.floor(this.rider.root.position.z);
     const flipTag = this.flipsLanded > 0 ? `  •  ${this.flipsLanded} flip${this.flipsLanded > 1 ? 's' : ''}` : '';
+    const spinTag = this.spinsLanded > 0 ? `  •  ${this.spinsLanded} spin${this.spinsLanded > 1 ? 's' : ''}` : '';
     const coinTag = `  •  ${this.coinsCollected} ❄`;
-    this.callbacks.onScore?.(`${meters} m${coinTag}${flipTag}`);
+    this.callbacks.onScore?.(`${meters} m${coinTag}${flipTag}${spinTag}`);
 
     void this.trail; void this.KNEE_BEND;
     this.scene.render();
@@ -727,9 +735,12 @@ export class Game {
     this.rider.body.rotation.x = 0;
     this.rider.body.rotation.z = Math.PI / 2;
     const distanceMeters = Math.floor(this.rider.root.position.z);
-    const flips = this.flipsLanded;
-    const coins = this.coinsCollected;
-    setTimeout(() => this.callbacks.onFell?.({ distanceMeters, flips, coins }), 700);
+    setTimeout(() => this.callbacks.onFell?.({
+      distanceMeters,
+      flips: this.flipsLanded,
+      spins: this.spinsLanded,
+      coins: this.coinsCollected,
+    }), 700);
   }
 }
 
