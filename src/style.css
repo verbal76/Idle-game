@@ -70,21 +70,28 @@ html, body {
   padding: 4px 12px; border-radius: 10px;
 }
 
-.stick {
+.dpad-left {
   position: absolute;
   bottom: max(env(safe-area-inset-bottom, 24px), 24px);
-  width: 130px; height: 130px; border-radius: 50%;
-  background: rgba(20, 32, 56, 0.55);
-  border: 2px solid rgba(160, 200, 240, 0.55);
-  touch-action: none;
+  left: 24px;
+  display: flex; gap: 12px;
 }
-.stick-left { left: 24px; }
-.stick .knob {
-  position: absolute; left: 50%; top: 50%;
-  width: 56px; height: 56px; border-radius: 50%;
-  background: rgba(120, 180, 240, 0.95);
-  transform: translate(-50%, -50%);
-  pointer-events: none;
+.dpad-btn {
+  width: 88px; height: 88px;
+  border-radius: 22px;
+  background: rgba(40, 90, 160, 0.92);
+  color: #fff;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  font: inherit; font-weight: 800; font-size: 36px; line-height: 1;
+  touch-action: none;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 80ms, transform 80ms;
+}
+.dpad-btn.pressed {
+  transform: translateY(2px);
+  background: rgba(255, 200, 80, 0.96);
+  color: #1a1000;
+  border-color: rgba(255, 240, 200, 0.8);
 }
 
 .actions-right {

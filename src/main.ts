@@ -5,7 +5,7 @@ import { showProfileSelect } from './ui/ProfileSelect';
 import { showMainMenu, MenuChoice } from './ui/MainMenu';
 import { showUpgrades } from './ui/Upgrades';
 import { buildHUD } from './ui/HUD';
-import { TwinStickInput } from './input/TwinStickInput';
+import { ArrowPadInput } from './input/ArrowPadInput';
 import { ActionButtons } from './input/ActionButtons';
 import { Game } from './scene/Game';
 
@@ -15,8 +15,6 @@ declare global {
   }
 }
 
-// Visible error overlay — anything thrown anywhere in the app gets dumped on
-// screen. Useful when the WebView's only debug surface is what we render.
 function showError(prefix: string, err: unknown): void {
   const msg = (err && (err as { stack?: string }).stack) || String(err);
   const safe = String(msg).replace(/[&<>"']/g, ch =>
@@ -73,12 +71,12 @@ async function runSession(
   return new Promise<void>((resolve) => {
     screen.innerHTML = '';
     const hud = buildHUD(screen);
-    const sticks = new TwinStickInput(hud.leftStick);
+    const dpad = new ArrowPadInput(hud.leftBtn, hud.rightBtn);
     const buttons = new ActionButtons(hud.jumpBtn, hud.flipBtn);
     const upgrades = profiles.activeProfile!.upgrades ?? { speed: 0, jump: 0, magnet: 0 };
 
     const game = new Game(canvas, mode, {
-      leftStick: () => sticks.left,
+      leftStick: () => dpad.left,
       jumpHeld: () => buttons.jumpHeld,
       flipHeld: () => buttons.flipHeld,
     }, {
@@ -100,7 +98,7 @@ async function runSession(
 
     const finish = () => {
       game.dispose();
-      sticks.detach();
+      dpad.detach();
       buttons.detach();
       resolve();
     };

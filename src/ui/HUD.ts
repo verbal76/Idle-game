@@ -2,7 +2,8 @@ export interface HUDRefs {
   hud: HTMLElement;
   score: HTMLElement;
   pauseBtn: HTMLButtonElement;
-  leftStick: HTMLElement;
+  leftBtn: HTMLElement;
+  rightBtn: HTMLElement;
   jumpBtn: HTMLElement;
   flipBtn: HTMLElement;
   pauseMenu: HTMLElement;
@@ -20,7 +21,10 @@ export function buildHUD(root: HTMLElement): HUDRefs {
         <span class="score" id="score">0 m</span>
         <button class="pause-btn" id="pause">II</button>
       </div>
-      <div class="stick stick-left" id="stick-left"><div class="knob"></div></div>
+      <div class="dpad-left">
+        <button class="dpad-btn left" id="dpad-left">◀</button>
+        <button class="dpad-btn right" id="dpad-right">▶</button>
+      </div>
       <div class="actions-right">
         <button class="action-btn flip" id="flip">FLIP</button>
         <button class="action-btn jump" id="jump">JUMP</button>
@@ -45,7 +49,8 @@ export function buildHUD(root: HTMLElement): HUDRefs {
     hud:         root.querySelector<HTMLElement>('#hud')!,
     score:       root.querySelector<HTMLElement>('#score')!,
     pauseBtn:    root.querySelector<HTMLButtonElement>('#pause')!,
-    leftStick:   root.querySelector<HTMLElement>('#stick-left')!,
+    leftBtn:     root.querySelector<HTMLElement>('#dpad-left')!,
+    rightBtn:    root.querySelector<HTMLElement>('#dpad-right')!,
     jumpBtn:     root.querySelector<HTMLElement>('#jump')!,
     flipBtn:     root.querySelector<HTMLElement>('#flip')!,
     pauseMenu:   root.querySelector<HTMLElement>('#pause-menu')!,
