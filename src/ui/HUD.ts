@@ -3,21 +3,28 @@ export interface HUDRefs {
   score: HTMLElement;
   pauseBtn: HTMLButtonElement;
   leftStick: HTMLElement;
-  rightStick: HTMLElement;
+  jumpBtn: HTMLElement;
+  flipBtn: HTMLElement;
   pauseMenu: HTMLElement;
   resumeBtn: HTMLButtonElement;
   quitBtn: HTMLButtonElement;
+  fellOverlay: HTMLElement;
+  fellStats: HTMLElement;
+  fellOkBtn: HTMLButtonElement;
 }
 
 export function buildHUD(root: HTMLElement): HUDRefs {
   root.innerHTML = `
     <div id="hud">
       <div class="top-bar">
-        <span class="score" id="score">0</span>
+        <span class="score" id="score">0 m</span>
         <button class="pause-btn" id="pause">II</button>
       </div>
-      <div class="stick stick-left"  id="stick-left"><div class="knob"></div></div>
-      <div class="stick stick-right" id="stick-right"><div class="knob"></div></div>
+      <div class="stick stick-left" id="stick-left"><div class="knob"></div></div>
+      <div class="actions-right">
+        <button class="action-btn flip" id="flip">FLIP</button>
+        <button class="action-btn jump" id="jump">JUMP</button>
+      </div>
       <div id="pause-menu" class="fullscreen-panel" style="display:none">
         <h1>Paused</h1>
         <div class="list">
@@ -25,16 +32,27 @@ export function buildHUD(root: HTMLElement): HUDRefs {
           <button id="quit" class="danger">Quit run</button>
         </div>
       </div>
+      <div id="fell-overlay" class="fullscreen-panel" style="display:none">
+        <h1>You fell</h1>
+        <p class="muted" id="fell-stats"></p>
+        <div class="list">
+          <button id="fell-ok">Continue</button>
+        </div>
+      </div>
     </div>
   `;
   return {
-    hud:        root.querySelector<HTMLElement>('#hud')!,
-    score:      root.querySelector<HTMLElement>('#score')!,
-    pauseBtn:   root.querySelector<HTMLButtonElement>('#pause')!,
-    leftStick:  root.querySelector<HTMLElement>('#stick-left')!,
-    rightStick: root.querySelector<HTMLElement>('#stick-right')!,
-    pauseMenu:  root.querySelector<HTMLElement>('#pause-menu')!,
-    resumeBtn:  root.querySelector<HTMLButtonElement>('#resume')!,
-    quitBtn:    root.querySelector<HTMLButtonElement>('#quit')!,
+    hud:         root.querySelector<HTMLElement>('#hud')!,
+    score:       root.querySelector<HTMLElement>('#score')!,
+    pauseBtn:    root.querySelector<HTMLButtonElement>('#pause')!,
+    leftStick:   root.querySelector<HTMLElement>('#stick-left')!,
+    jumpBtn:     root.querySelector<HTMLElement>('#jump')!,
+    flipBtn:     root.querySelector<HTMLElement>('#flip')!,
+    pauseMenu:   root.querySelector<HTMLElement>('#pause-menu')!,
+    resumeBtn:   root.querySelector<HTMLButtonElement>('#resume')!,
+    quitBtn:     root.querySelector<HTMLButtonElement>('#quit')!,
+    fellOverlay: root.querySelector<HTMLElement>('#fell-overlay')!,
+    fellStats:   root.querySelector<HTMLElement>('#fell-stats')!,
+    fellOkBtn:   root.querySelector<HTMLButtonElement>('#fell-ok')!,
   };
 }

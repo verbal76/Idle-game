@@ -5,6 +5,7 @@ import { showProfileSelect } from './ui/ProfileSelect';
 import { showMainMenu, MenuChoice } from './ui/MainMenu';
 import { buildHUD } from './ui/HUD';
 import { TwinStickInput } from './input/TwinStickInput';
+import { ActionButtons } from './input/ActionButtons';
 import { Game } from './scene/Game';
 
 async function bootstrap(): Promise<void> {
@@ -36,13 +37,26 @@ async function runSession(
   return new Promise<void>((resolve) => {
     screen.innerHTML = '';
     const hud = buildHUD(screen);
-    const input = new TwinStickInput(hud.leftStick, hud.rightStick);
-    const game = new Game(canvas, mode, () => input.left);
+    const sticks = new TwinStickInput(hud.leftStick);
+    const buttons = new ActionButtons(hud.jumpBtn, hud.flipBtn);
+
+    const game = new Game(canvas, mode, {
+      leftStick: () => sticks.left,
+      jumpHeld: () => buttons.jumpHeld,
+      flipHeld: () => buttons.flipHeld,
+    }, {
+      onScore: (label) => { hud.score.textContent = label; },
+      onFell: (stats) => {
+        hud.fellStats.textContent = `Distance: ${stats.distanceMeters} m  •  Flips: ${stats.flips}`;
+        hud.fellOverlay.style.display = 'flex';
+      },
+    });
     game.start();
 
     const finish = () => {
       game.dispose();
-      input.detach();
+      sticks.detach();
+      buttons.detach();
       resolve();
     };
 
@@ -55,6 +69,7 @@ async function runSession(
       game.resume();
     });
     hud.quitBtn.addEventListener('click', finish);
+    hud.fellOkBtn.addEventListener('click', finish);
   });
 }
 

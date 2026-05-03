@@ -41,25 +41,62 @@ html, body {
   display: flex; justify-content: space-between; align-items: center;
 }
 #hud .pause-btn {
-  background: rgba(255,255,255,0.18); color: #fff;
-  border: 0; padding: 10px 14px; border-radius: 10px; font-size: 14px; font: inherit;
+  background: rgba(20, 32, 56, 0.82); color: #fff;
+  border: 2px solid rgba(160, 200, 240, 0.55);
+  padding: 8px 14px; border-radius: 10px;
+  font: inherit; font-size: 16px; font-weight: 700;
 }
-#hud .score { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 22px; }
+#hud .score {
+  font-variant-numeric: tabular-nums; font-weight: 800; font-size: 22px;
+  color: #0b1320;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 4px 12px; border-radius: 10px;
+}
 
 .stick {
   position: absolute;
   bottom: max(env(safe-area-inset-bottom, 24px), 24px);
   width: 130px; height: 130px; border-radius: 50%;
-  background: rgba(255,255,255,0.08);
-  border: 2px solid rgba(255,255,255,0.14);
+  background: rgba(20, 32, 56, 0.55);
+  border: 2px solid rgba(160, 200, 240, 0.55);
   touch-action: none;
 }
-.stick-left  { left: 24px; }
-.stick-right { right: 24px; }
+.stick-left { left: 24px; }
 .stick .knob {
   position: absolute; left: 50%; top: 50%;
   width: 56px; height: 56px; border-radius: 50%;
-  background: rgba(255,255,255,0.38);
+  background: rgba(120, 180, 240, 0.95);
   transform: translate(-50%, -50%);
   pointer-events: none;
+}
+
+.actions-right {
+  position: absolute;
+  bottom: max(env(safe-area-inset-bottom, 24px), 24px);
+  right: 24px;
+  display: flex; gap: 12px; align-items: flex-end;
+}
+.action-btn {
+  color: #fff;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  border-radius: 18px;
+  font: inherit; font-weight: 800; font-size: 16px; letter-spacing: 0.06em;
+  touch-action: none;
+  transition: background 80ms, transform 80ms;
+  min-width: 84px;
+}
+.action-btn.jump {
+  background: rgba(40, 90, 160, 0.92);
+  padding: 22px 24px;
+  font-size: 18px;
+}
+.action-btn.flip {
+  background: rgba(140, 60, 30, 0.92);
+  padding: 18px 20px;
+}
+.action-btn.pressed {
+  transform: translateY(2px);
+  background: rgba(255, 200, 80, 0.96);
+  color: #1a1000;
+  border-color: rgba(255, 240, 200, 0.8);
 }

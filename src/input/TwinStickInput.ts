@@ -12,9 +12,11 @@ export class TwinStickInput {
   readonly right: StickValue = { x: 0, y: 0 };
   private bindings: Bound[] = [];
 
-  constructor(leftEl: HTMLElement, rightEl: HTMLElement) {
+  // rightEl is optional now — the action buttons (jump/flip) live where the
+  // right stick used to be, so most modes only wire a left stick.
+  constructor(leftEl: HTMLElement, rightEl?: HTMLElement) {
     this.bindings.push(this.bind(leftEl, this.left));
-    this.bindings.push(this.bind(rightEl, this.right));
+    if (rightEl) this.bindings.push(this.bind(rightEl, this.right));
   }
 
   detach(): void {
