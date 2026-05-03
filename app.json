@@ -1,20 +1,21 @@
 {
   "expo": {
-    "name": "Boarder",
-    "slug": "boarder",
+    "name": "Snow",
+    "slug": "snow",
+    "owner": "hot-attic-games",
     "version": "0.0.1",
     "orientation": "landscape",
     "backgroundColor": "#0b1320",
     "userInterfaceStyle": "dark",
     "platforms": ["android"],
     "android": {
-      "package": "com.verbal76.boarder",
+      "package": "com.hotatticgames.snow",
       "versionCode": 1,
       "backgroundColor": "#0b1320"
     },
     "assetBundlePatterns": ["dist/**/*"],
     "updates": {
-      "url": "https://u.expo.dev/REPLACE_WITH_EAS_PROJECT_ID",
+      "url": "https://u.expo.dev/147c7fa1-88de-4800-8c08-c5e6411f069e",
       "fallbackToCacheTimeout": 3000
     },
     "runtimeVersion": {
@@ -22,7 +23,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+        "projectId": "147c7fa1-88de-4800-8c08-c5e6411f069e"
       }
     }
   }
