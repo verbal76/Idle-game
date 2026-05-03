@@ -1,5 +1,6 @@
-# Requires repo Settings -> Actions -> Workflow permissions: Read and write
-# (one-time toggle so configure-pages can call POST /repos/.../pages).
+# Pages must be enabled at the repo level once (Settings -> Pages ->
+# Source: GitHub Actions). Free-plan repos must be public for Pages
+# to be available at all.
 name: Deploy to Pages
 
 on:
