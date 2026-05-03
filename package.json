@@ -7,7 +7,7 @@
     "start": "expo start",
     "web:build": "tsc && vite build && node scripts/embed-html.mjs",
     "web:dev": "vite",
-    "eas-build-pre-build": "npm run web:build"
+    "eas-build-post-install": "npm run web:build"
   },
   "dependencies": {
     "expo": "~51.0.39",
