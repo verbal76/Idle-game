@@ -1,6 +1,7 @@
 import {
   Engine, Scene, FollowCamera, HemisphericLight, DirectionalLight,
-  Vector3, Color3, Color4, MeshBuilder, StandardMaterial, Mesh
+  Vector3, Color3, Color4, MeshBuilder, StandardMaterial, Mesh,
+  ParticleSystem, DynamicTexture, TrailMesh, TransformNode
 } from '@babylonjs/core';
 import type { StickValue } from '../input/TwinStickInput';
 import { buildRider, RiderRig } from './Rider';
@@ -35,6 +36,16 @@ export class Game {
   private flipsLanded = 0;
   private fellAlready = false;
 
+  // Carve physics: stick deflection rolls the body, lean + speed produce
+  // lateral velocity, lateral velocity decays so releasing the stick drifts
+  // to a stop instead of locking instantly.
+  private leanAngle = 0;
+  private lateralVelocity = 0;
+
+  private dustParticles!: ParticleSystem;
+  private trail!: TrailMesh;
+  private trailAnchor!: TransformNode;
+
   private rng = new SeedRng(BigInt(Date.now()));
 
   private readonly chunkLen = 50;
@@ -49,6 +60,12 @@ export class Game {
   private readonly jumpMax = 13;
   private readonly chargeRate = 1.4;
   private readonly flipRate = 7.0;
+
+  // Carving feel constants.
+  private readonly maxLean = 0.40;          // ~23° of body roll at full stick
+  private readonly leanResponse = 6.0;      // higher = snappier lean catch-up
+  private readonly carveStrength = 14.0;    // lateral acceleration per radian of lean
+  private readonly lateralDrag = 2.0;       // 1/s decay on lateral velocity
 
   private running = false;
 
@@ -74,6 +91,8 @@ export class Game {
     this.rider.root.position.set(0, this.groundY, 0);
 
     this.buildCamera();
+    this.buildSnowDust();
+    this.buildSnowTrail();
     for (let i = 0; i < this.chunksAhead; i++) this.spawnChunk();
 
     this.engine.runRenderLoop(() => this.tick());
@@ -95,8 +114,6 @@ export class Game {
   private onResize(): void { this.engine.resize(); }
 
   private buildCamera(): void {
-    // FollowCamera follows an AbstractMesh; attach an invisible target mesh
-    // to the rider root so flips don't shake the camera.
     const follow = MeshBuilder.CreateBox('follow-target', { size: 0.001 }, this.scene);
     follow.isVisible = false;
     follow.parent = this.rider.root;
@@ -107,6 +124,60 @@ export class Game {
     cam.cameraAcceleration = 0.06;
     cam.maxCameraSpeed = 40;
     this.scene.activeCamera = cam;
+  }
+
+  /** Soft white particles spraying off the back of the board on every carve. */
+  private buildSnowDust(): void {
+    const tex = new DynamicTexture('snow-particle-tex', 32, this.scene, false);
+    const ctx = tex.getContext();
+    const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+    grad.addColorStop(0,    'rgba(255,255,255,1)');
+    grad.addColorStop(0.5,  'rgba(255,255,255,0.6)');
+    grad.addColorStop(1,    'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 32, 32);
+    tex.update();
+
+    const ps = new ParticleSystem('snow-dust', 400, this.scene);
+    ps.particleTexture = tex;
+    ps.emitter = this.rider.board;
+    ps.minEmitBox = new Vector3(-0.18, 0, -0.4);
+    ps.maxEmitBox = new Vector3(0.18, 0.05, 0.0);
+    ps.color1     = new Color4(1, 1, 1, 0.9);
+    ps.color2     = new Color4(0.9, 0.95, 1, 0.65);
+    ps.colorDead  = new Color4(0.85, 0.92, 1, 0);
+    ps.minSize = 0.06;
+    ps.maxSize = 0.18;
+    ps.minLifeTime = 0.35;
+    ps.maxLifeTime = 0.80;
+    ps.emitRate = 12; // baseline; tick() scales up with carve intensity
+    ps.gravity = new Vector3(0, -2.5, 0);
+    ps.direction1 = new Vector3(-0.6, 0.4, -1.0);
+    ps.direction2 = new Vector3(0.6, 1.2, -2.0);
+    ps.minEmitPower = 1.0;
+    ps.maxEmitPower = 2.8;
+    ps.blendMode = ParticleSystem.BLENDMODE_STANDARD;
+    ps.start();
+    this.dustParticles = ps;
+  }
+
+  /** Continuous ribbon trail behind the board, hugging the snow surface. */
+  private buildSnowTrail(): void {
+    // The trail tracks a separate anchor parented to the rider root so it
+    // stays at ground level even when the body leans/flips.
+    const anchor = new TransformNode('trail-anchor', this.scene);
+    anchor.parent = this.rider.root;
+    anchor.position.set(0, -this.groundY + 0.02, -0.4);
+    this.trailAnchor = anchor;
+
+    const trail = new TrailMesh('snow-trail', anchor, this.scene, 0.32, 80, true);
+    const trailMat = new StandardMaterial('trail-mat', this.scene);
+    trailMat.diffuseColor  = new Color3(0.74, 0.81, 0.92);
+    trailMat.specularColor = new Color3(0.04, 0.05, 0.08);
+    trailMat.emissiveColor = new Color3(0.20, 0.24, 0.30);
+    trailMat.alpha = 0.55;
+    trail.material = trailMat;
+    this.trail = trail;
   }
 
   private spawnChunk(): void {
@@ -164,12 +235,32 @@ export class Game {
 
     this.speed = Math.min(this.maxSpeed, this.speed + this.accel * dt);
 
-    const stick = this.input.leftStick();
-    const lateral = stick.x * 9 * dt;
-    const limit = this.chunkWidth / 2 - 1;
-    this.rider.root.position.x = Math.max(-limit,
-      Math.min(limit, this.rider.root.position.x + lateral));
+    // === Carve steering ===
+    // Stick deflection becomes a target lean angle; lean catches up smoothly.
+    const stickX = this.input.leftStick().x;
+    const targetLean = stickX * this.maxLean;
+    const leanCatch = Math.min(1, this.leanResponse * dt);
+    this.leanAngle += (targetLean - this.leanAngle) * leanCatch;
+    // Roll the body around its forward axis. Negative so positive stickX
+    // (right) actually tips the rider's head to +X.
+    this.rider.lean.rotation.z = -this.leanAngle;
 
+    // The lean carves only when the board is on the snow.
+    if (this.grounded) {
+      const speedFactor = this.speed / this.maxSpeed;
+      const carveAccel = this.leanAngle * this.carveStrength * speedFactor;
+      this.lateralVelocity += carveAccel * dt;
+    }
+    this.lateralVelocity *= Math.max(0, 1 - this.lateralDrag * dt);
+
+    // Apply lateral motion with boundary clamp.
+    const limit = this.chunkWidth / 2 - 1;
+    let newX = this.rider.root.position.x + this.lateralVelocity * dt;
+    if (newX > limit)  { newX = limit;  this.lateralVelocity = 0; }
+    if (newX < -limit) { newX = -limit; this.lateralVelocity = 0; }
+    this.rider.root.position.x = newX;
+
+    // === Jump charge / release ===
     if (this.grounded) {
       if (this.input.jumpHeld()) {
         this.jumpCharge = Math.min(1, this.jumpCharge + dt * this.chargeRate);
@@ -180,6 +271,7 @@ export class Game {
       }
     }
 
+    // === Air physics + flip ===
     if (!this.grounded) {
       this.verticalVelocity -= this.gravity * dt;
       this.rider.root.position.y += this.verticalVelocity * dt;
@@ -201,7 +293,13 @@ export class Game {
       }
     }
 
+    // Forward motion.
     this.rider.root.position.z += this.speed * dt;
+
+    // Snow dust intensity scales with carve effort + groundedness.
+    const carveIntensity = Math.min(1,
+      (Math.abs(this.lateralVelocity) / 6) + Math.abs(this.leanAngle) / this.maxLean * 0.5);
+    this.dustParticles.emitRate = this.grounded ? (8 + carveIntensity * 70) : 0;
 
     this.checkObstacleCollision();
 
@@ -229,7 +327,12 @@ export class Game {
   private fall(): void {
     this.fellAlready = true;
     this.running = false;
+    this.dustParticles.stop();
+    this.rider.lean.rotation.z = 0;
+    this.rider.body.rotation.x = 0;
     this.rider.body.rotation.z = Math.PI / 2;
+    void this.trail;
+    void this.trailAnchor;
     const distanceMeters = Math.floor(this.rider.root.position.z);
     const flips = this.flipsLanded;
     setTimeout(() => this.callbacks.onFell?.({ distanceMeters, flips }), 700);

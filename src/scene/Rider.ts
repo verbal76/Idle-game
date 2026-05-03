@@ -5,19 +5,30 @@ import {
 export interface RiderRig {
   /** Root transform — translate this to move the rider through the world. */
   root: TransformNode;
+  /** Lean pivot — rotate around Z to roll the body for snowboard carves. */
+  lean: TransformNode;
   /** Body pivot — rotate around X for flips, around Z to tip over on a fall. */
   body: TransformNode;
+  /** Snowboard mesh — used as anchor for the trail and the snow-dust plume. */
+  board: Mesh;
 }
 
 /**
  * Code-built stylized snowboarder. Cheap primitives stacked to read as a
  * person on a board: torso, head, beanie, two arms, two legs, board.
- * Replace with a glTF when we wire in real assets.
+ *
+ * Hierarchy is root -> lean -> body so:
+ *   - root translates the rider through the world.
+ *   - lean rolls the rider around its forward axis for carves (Z rotation),
+ *     without disturbing flip rotations.
+ *   - body handles flip (X) and fall (Z), independent of carve lean.
  */
 export function buildRider(scene: Scene): RiderRig {
   const root = new TransformNode('rider-root', scene);
+  const lean = new TransformNode('rider-lean', scene);
+  lean.parent = root;
   const body = new TransformNode('rider-body', scene);
-  body.parent = root;
+  body.parent = lean;
 
   const skin   = mat(scene, 'skin',   new Color3(0.96, 0.82, 0.70));
   const jacket = mat(scene, 'jacket', new Color3(0.94, 0.42, 0.18));
@@ -47,11 +58,11 @@ export function buildRider(scene: Scene): RiderRig {
     attach(leg, body, pants, 0.12 * side, -0.45, 0);
   }
 
-  attach(MeshBuilder.CreateBox('snowboard',
-    { width: 0.36, height: 0.06, depth: 1.5 }, scene),
-    body, board, 0, -0.72, 0);
+  const snowboard = MeshBuilder.CreateBox('snowboard',
+    { width: 0.36, height: 0.06, depth: 1.5 }, scene);
+  attach(snowboard, body, board, 0, -0.72, 0);
 
-  return { root, body };
+  return { root, lean, body, board: snowboard };
 }
 
 function mat(scene: Scene, name: string, color: Color3): StandardMaterial {
