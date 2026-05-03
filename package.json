@@ -5,26 +5,25 @@
   "main": "index.js",
   "scripts": {
     "start": "expo start",
-    "web:build": "tsc && vite build",
+    "web:build": "tsc && vite build && node scripts/embed-html.mjs",
     "web:dev": "vite",
     "eas-build-pre-build": "npm run web:build"
   },
   "dependencies": {
-    "@babylonjs/core": "^7.39.0",
-    "@babylonjs/loaders": "^7.39.0",
     "expo": "~51.0.39",
-    "expo-asset": "~10.0.10",
     "expo-constants": "~16.0.2",
     "expo-status-bar": "~1.12.1",
     "expo-updates": "~0.25.27",
-    "idb": "^8.0.0",
     "react": "18.2.0",
     "react-native": "0.74.5",
     "react-native-webview": "13.10.5"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
+    "@babylonjs/core": "^7.39.0",
+    "@babylonjs/loaders": "^7.39.0",
     "@types/react": "~18.2.79",
+    "idb": "^8.0.0",
     "typescript": "~5.3.3",
     "vite": "^5.4.10",
     "vite-plugin-singlefile": "^2.0.3"

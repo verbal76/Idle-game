@@ -1,56 +1,24 @@
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import React from 'react';
+import { StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { Asset } from 'expo-asset';
 import { WebView } from 'react-native-webview';
+import { HTML_BUNDLE } from './src/__generated__/html-bundle';
 
-// Bundled with the app via assetBundlePatterns in app.json. Vite's single-file
-// build collapses the entire game (Babylon, code, CSS, IndexedDB shim) into
-// this one HTML file so the WebView can load it directly via file:// URI.
-const INDEX_HTML = require('./dist/index.html');
-
+/**
+ * The whole game lives in HTML_BUNDLE — Vite singlefile inlines Babylon,
+ * code, and CSS into one HTML string at build time, then
+ * scripts/embed-html.mjs writes that string into src/__generated__/.
+ *
+ * Setting baseUrl to https://localhost/ gives the WebView a stable origin
+ * so IndexedDB (used by the profile system) persists across launches.
+ */
 export default function App(): React.JSX.Element {
-  const [uri, setUri] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const asset = Asset.fromModule(INDEX_HTML);
-        await asset.downloadAsync();
-        setUri(asset.localUri ?? asset.uri);
-      } catch (e) {
-        setError(String(e));
-      }
-    })();
-  }, []);
-
-  if (error) {
-    return (
-      <View style={styles.errorContainer}>
-        <StatusBar hidden />
-      </View>
-    );
-  }
-
-  if (!uri) {
-    return (
-      <View style={styles.loadingContainer}>
-        <StatusBar hidden />
-        <ActivityIndicator size="large" color="#8fb6e8" />
-      </View>
-    );
-  }
-
   return (
     <View style={styles.root}>
       <StatusBar hidden />
       <WebView
-        source={{ uri }}
+        source={{ html: HTML_BUNDLE, baseUrl: 'https://localhost/' }}
         originWhitelist={['*']}
-        allowFileAccess
-        allowFileAccessFromFileURLs
-        allowUniversalAccessFromFileURLs
         javaScriptEnabled
         domStorageEnabled
         databaseEnabled
@@ -66,8 +34,6 @@ export default function App(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0b1320' },
-  webview: { flex: 1, backgroundColor: '#0b1320' },
-  loadingContainer: { flex: 1, backgroundColor: '#0b1320', alignItems: 'center', justifyContent: 'center' },
-  errorContainer: { flex: 1, backgroundColor: '#0b1320' }
+  root:    { flex: 1, backgroundColor: '#0b1320' },
+  webview: { flex: 1, backgroundColor: '#0b1320' }
 });
