@@ -58,9 +58,7 @@ export class Game {
   private readonly viewBehind = 1;
   private readonly viewSide = 2;
 
-  // Slope: world tilts down at +Z. Cliffs add additional drops at chunk
-  // boundaries (cliffs map: cz -> drop-meters introduced at that cz).
-  private readonly slopeRad = 0.21; // ~12°
+  private readonly slopeRad = 0.21;
   private cliffs = new Map<number, number>();
 
   private speed = 0;
@@ -72,8 +70,12 @@ export class Game {
   private coinsCollected = 0;
   private fellAlready = false;
 
+  // Carve model — heading drives the turn (board direction), lean is a
+  // capped visual response. See Michaud/Duncumb "Physics of a Snowboard
+  // Carved Turn" — the board's edge-and-direction does the cutting; lean
+  // is just the body balancing centrifugal force.
+  private heading = 0;
   private leanAngle = 0;
-  private lateralVelocity = 0;
 
   private state: RiderState = 'normal';
   private stateEndsAt = 0;
@@ -84,10 +86,10 @@ export class Game {
   private dustParticles!: ParticleSystem;
   private trail!: TrailMesh;
   private mountainAnchor!: TransformNode;
+  private followTarget!: Mesh;
 
   private rng = new SeedRng(BigInt(Date.now()));
 
-  // Stat tunables (some scaled by upgrades)
   private readonly groundY = 0.85;
   private readonly accel = 5;
   private readonly gravity = 24;
@@ -96,12 +98,12 @@ export class Game {
   private readonly chargeRate = 1.4;
   private readonly flipRate = 7.0;
 
-  // Sharper carve.
-  private readonly maxLean = 1.55;       // ~89° at full stick
-  private readonly leanResponse = 10.0;  // snappier into the carve
-  private readonly autoCenterRate = 1.5;
-  private readonly carveStrength = 24.0; // much stronger lateral acceleration
-  private readonly lateralDrag = 1.0;    // less drag, more sustained slide
+  // Carve feel
+  private readonly maxLean = 0.698;     // 40° hard cap on visual lean
+  private readonly leanResponse = 6.0;  // smoothing of lean toward target
+  private readonly turnRate = 1.6;      // rad/s heading change at full stick
+  private readonly lateralBleed = 0.45; // fraction of maxSpeed that drifts sideways at sin(heading)=1
+  private readonly speedCatch = 4.0;    // smoothing of speed toward heading-derived target
 
   private running = false;
 
@@ -160,14 +162,12 @@ export class Game {
   private get jumpMaxScaled(): number { return this.jumpMax * (1 + this.upgrades.jump * 0.10); }
   private get magnetRadius(): number { return 1.4 + this.upgrades.magnet * 0.5; }
 
-  /** Cumulative cliff drop applied at and after chunk index cz. */
   private cliffOffsetAt(cz: number): number {
     let drop = 0;
     for (const [k, v] of this.cliffs) if (k <= cz) drop += v;
     return drop;
   }
 
-  /** World Y of the snow surface at world-space Z. */
   private surfaceY(z: number): number {
     const cz = Math.floor(z / this.chunkSize);
     return -z * Math.tan(this.slopeRad) - this.cliffOffsetAt(cz);
@@ -235,9 +235,12 @@ export class Game {
   }
 
   private buildCamera(): void {
+    // Follow target tracks the rider's WORLD position only — its parent is
+    // null and we copy position each tick. This way the camera doesn't
+    // spin with rider.root.rotation.y when the board turns.
     const follow = MeshBuilder.CreateBox('follow-target', { size: 0.001 }, this.scene);
     follow.isVisible = false;
-    follow.parent = this.rider.root;
+    this.followTarget = follow;
     const cam = new FollowCamera('cam', new Vector3(0, 5, -10), this.scene, follow);
     cam.heightOffset = 3.5;
     cam.radius = 9;
@@ -345,13 +348,10 @@ export class Game {
     const ox = cx * this.chunkSize + half;
     const oz = cz * this.chunkSize + half;
 
-    // Decide if this chunk introduces a cliff. Cliffs only spawn ahead of
-    // the early grace zone.
     let cliffFace: Mesh | null = null;
     if (cz > 2 && cx === 0 && this.rng.next01() < 0.18 && !this.cliffs.has(cz)) {
       const drop = 8 + this.rng.next01() * 10;
       this.cliffs.set(cz, drop);
-      // Vertical rock face spanning a wide band at the chunk's leading edge.
       const cliffZ = cz * this.chunkSize;
       const cliffTopY = -cliffZ * Math.tan(this.slopeRad) - this.cliffOffsetAt(cz - 1);
       const face = MeshBuilder.CreateBox(`cliff-${cz}`, {
@@ -415,7 +415,6 @@ export class Game {
         }
       }
 
-      // Kicker (regular pop or rare mega-launch)
       const kickerRoll = this.rng.next01();
       if (kickerRoll < 0.55) {
         const isMega = kickerRoll < 0.10;
@@ -476,7 +475,6 @@ export class Game {
     const coins: ChunkData['coins'] = [];
 
     if (cz > 0) {
-      // Coin row down the centerline
       const coinCount = 5;
       for (let i = 0; i < coinCount; i++) {
         const lz = oz - half + (i + 1) * (this.chunkSize / (coinCount + 1));
@@ -486,7 +484,6 @@ export class Game {
         features.push(coin);
         coins.push({ mesh: coin, x: ox, z: lz, collected: false });
       }
-      // Kicker every other chunk
       if (cz % 2 === 1) {
         const lz = oz + this.rng.rangeFloat(-half + 5, half - 5);
         const kicker = MeshBuilder.CreateBox(`hp-kicker-${cz}`, { width: 4, height: 0.8, depth: 4 }, this.scene);
@@ -522,7 +519,6 @@ export class Game {
     this.rider.lean.rotation.z = 0;
     this.flipRotation = 0;
     this.leanAngle = 0;
-    this.lateralVelocity *= 0.4;
   }
 
   private startRecovery(): void {
@@ -532,7 +528,8 @@ export class Game {
     this.rider.body.rotation.z = 0;
     this.rider.lean.rotation.z = 0;
     this.leanAngle = 0;
-    this.lateralVelocity = 0;
+    this.heading = 0; // straighten back out
+    this.rider.root.rotation.y = 0;
     this.speed = this.maxSpeed * 0.4;
   }
 
@@ -554,15 +551,13 @@ export class Game {
       this.setRiderVisible(phase === 0);
     }
 
-    // Mountains track rider position only (no rotation inheritance).
+    // Camera + mountain anchors track world position only.
+    this.followTarget.position.copyFrom(this.rider.root.position);
     this.mountainAnchor.position.copyFrom(this.rider.root.position);
 
     if (this.state === 'bailing') {
       this.speed *= Math.max(0, 1 - 1.2 * dt);
-      this.lateralVelocity *= Math.max(0, 1 - 0.8 * dt);
-      this.rider.root.position.x += this.lateralVelocity * dt;
       this.rider.root.position.z += this.speed * dt;
-      // Glue to surface during slide
       this.rider.root.position.y = this.groundY + this.surfaceY(this.rider.root.position.z);
       this.dustParticles.emitRate = 100;
       this.updateChunkStreaming();
@@ -570,31 +565,29 @@ export class Game {
       return;
     }
 
-    this.speed = Math.min(this.maxSpeed, this.speed + this.accel * dt);
-
+    // === Carve: heading-driven turn, lean as visual response ===
     const stickX = this.input.leftStick().x;
+
+    // Heading is the board's facing direction. Stick X turns the board.
+    this.heading += stickX * this.turnRate * dt;
+
+    // Visual lean smoothly chases stick, capped at ±maxLean (40°).
     const targetLean = stickX * this.maxLean;
     const isReturning = Math.abs(stickX) < 0.05;
-    const responseRate = isReturning ? this.autoCenterRate : this.leanResponse;
-    const leanCatch = Math.min(1, responseRate * dt);
-    this.leanAngle += (targetLean - this.leanAngle) * leanCatch;
+    const leanRate = isReturning ? this.leanResponse * 0.35 : this.leanResponse;
+    this.leanAngle += (targetLean - this.leanAngle) * Math.min(1, leanRate * dt);
+
+    this.rider.root.rotation.y = this.heading;
     this.rider.lean.rotation.z = -this.leanAngle;
 
-    if (this.grounded) {
-      const speedFactor = this.speed / this.maxSpeed;
-      const carveAccel = this.leanAngle * this.carveStrength * speedFactor;
-      this.lateralVelocity += carveAccel * dt;
-    }
-    this.lateralVelocity *= Math.max(0, 1 - this.lateralDrag * dt);
-    this.rider.root.position.x += this.lateralVelocity * dt;
+    // Speed: cos²(heading) — full at 0° and 180°, zero around 90°.
+    const cosH = Math.cos(this.heading);
+    const sinH = Math.sin(this.heading);
+    const headingAlignment = cosH * cosH;
+    const targetSpeed = this.maxSpeed * Math.max(0.05, headingAlignment);
+    this.speed += (targetSpeed - this.speed) * Math.min(1, this.speedCatch * dt);
 
-    // Half-pipe lateral clamp.
-    if (this.mode === 'half-pipe') {
-      const limit = 3.5;
-      if (this.rider.root.position.x > limit)  { this.rider.root.position.x = limit;  this.lateralVelocity = 0; }
-      if (this.rider.root.position.x < -limit) { this.rider.root.position.x = -limit; this.lateralVelocity = 0; }
-    }
-
+    // === Jump charge / release ===
     if (this.grounded) {
       if (this.input.jumpHeld()) {
         this.jumpCharge = Math.min(1, this.jumpCharge + dt * this.chargeRate);
@@ -605,6 +598,7 @@ export class Game {
       }
     }
 
+    // === Air physics + flip ===
     if (!this.grounded) {
       this.verticalVelocity -= this.gravity * dt;
       this.rider.root.position.y += this.verticalVelocity * dt;
@@ -634,14 +628,23 @@ export class Game {
       }
     }
 
-    const forwardFactor = Math.max(0.15, Math.cos(this.leanAngle));
-    this.rider.root.position.z += this.speed * forwardFactor * dt;
+    // Forward motion: always +Z (gravity-dominant fall line). Lateral drift
+    // proportional to sin(heading) so the rider does carve sideways while
+    // the board points across the slope.
+    this.rider.root.position.z += this.speed * dt;
+    this.rider.root.position.x += sinH * this.maxSpeed * this.lateralBleed * dt;
 
-    // Stick to surface when grounded; pop into air if surface drops away (cliffs).
+    // Half-pipe lateral clamp.
+    if (this.mode === 'half-pipe') {
+      const limit = 3.5;
+      if (this.rider.root.position.x > limit)  this.rider.root.position.x = limit;
+      if (this.rider.root.position.x < -limit) this.rider.root.position.x = -limit;
+    }
+
+    // Stick to surface or pop airborne if surface drops away (cliffs).
     if (this.grounded) {
       const groundLevel = this.groundY + this.surfaceY(this.rider.root.position.z);
       if (this.rider.root.position.y - groundLevel > 0.4) {
-        // Surface has dropped — we're now airborne (ran off a cliff edge).
         this.grounded = false;
         this.verticalVelocity = 0;
       } else {
@@ -655,9 +658,8 @@ export class Game {
 
     this.checkInteractions();
 
-    const carveIntensity = Math.min(1,
-      (Math.abs(this.lateralVelocity) / 6) +
-      Math.abs(this.leanAngle) / this.maxLean * 0.5);
+    // Snow dust intensity: rises with how off-axis the board is (carving hard).
+    const carveIntensity = Math.min(1, Math.abs(sinH) * 1.0);
     this.dustParticles.emitRate = this.grounded ? (8 + carveIntensity * 70) : 0;
 
     this.updateChunkStreaming();
