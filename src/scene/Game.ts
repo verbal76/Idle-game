@@ -62,8 +62,7 @@ export class Game {
   private readonly halfPipeSlopeRad = 0.28;
   private cliffs = new Map<number, number>();
 
-  private readonly HP_PIPE_WIDTH = 18.0;
-  private readonly HP_PIPE_HALF = 9.0;          // distance from centerline to lip
+  private readonly HP_PIPE_HALF = 9.0;          // distance from centerline to lip (= HP_PIPE_WIDTH / 2)
   private readonly HP_FLAT_HALF = 5.0;          // flat floor zone before transition
   private readonly HP_PIPE_RADIUS = 4.0;        // = HP_PIPE_HALF - HP_FLAT_HALF
   private readonly HP_LIP_HEIGHT = 0.6;         // small vertical lip at the top
@@ -682,7 +681,7 @@ export class Game {
         const lz = oz - half + (i + 1) * (this.chunkSize / (coinCount + 1));
         const coin = MeshBuilder.CreateSphere(`hp-coin-${cz}-${i}`, { diameter: 0.55 }, this.scene);
         coin.material = this.coinMat;
-        coin.position.set(ox, this.surfaceY(lx, lz) + 1.4, lz);
+        coin.position.set(ox, this.surfaceY(ox, lz) + 1.4, lz);
         features.push(coin);
         coins.push({ mesh: coin, x: ox, z: lz, collected: false });
       }
@@ -690,7 +689,7 @@ export class Game {
         const lz = oz + this.rng.rangeFloat(-half + 5, half - 5);
         const kicker = MeshBuilder.CreateBox(`hp-kicker-${cz}`, { width: 4, height: 0.8, depth: 4 }, this.scene);
         kicker.material = this.kickerMat;
-        kicker.position.set(ox, this.surfaceY(lx, lz) + 0.4, lz);
+        kicker.position.set(ox, this.surfaceY(ox, lz) + 0.4, lz);
         kicker.rotation.x = -0.40 - this.activeSlope;
         features.push(kicker);
         kickers.push({ x: ox, z: lz, width: 4, power: 7.5 });
