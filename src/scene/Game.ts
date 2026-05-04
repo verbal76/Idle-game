@@ -137,20 +137,21 @@ export class Game {
     this.scene.clearColor = new Color4(0.36, 0.26, 0.42, 1);
     this.scene.fogEnabled = true;
     this.scene.fogMode = Scene.FOGMODE_EXP2;
-    this.scene.fogDensity = 0.0035;
+    this.scene.fogDensity = 0.0022;
     // Warm dusk haze near the horizon — distant snow tints pink-orange.
     this.scene.fogColor = new Color3(0.78, 0.55, 0.55);
 
-    // Dim, cool fill from above; warm low sun across the slope for the
-    // long shadows / golden-hour read.
+    // Sun aimed more overhead so the slope (normal ≈ vertical) actually
+    // catches the light. Previous angle was so horizontal that the slope
+    // only got ~40 % illumination and the snow rendered as dim pink mud.
     const hemi = new HemisphericLight('hemi', new Vector3(0, 1, 0), this.scene);
-    hemi.intensity = 0.55;
-    hemi.diffuse    = new Color3(0.65, 0.55, 0.75);
+    hemi.intensity = 0.75;
+    hemi.diffuse    = new Color3(0.78, 0.72, 0.85);
     hemi.groundColor = new Color3(0.45, 0.30, 0.40);
-    const sun = new DirectionalLight('sun', new Vector3(-0.7, -0.35, -0.35), this.scene);
-    sun.intensity = 1.1;
-    sun.diffuse  = new Color3(1.00, 0.72, 0.50);
-    sun.specular = new Color3(1.00, 0.78, 0.60);
+    const sun = new DirectionalLight('sun', new Vector3(-0.45, -0.85, -0.25), this.scene);
+    sun.intensity = 1.6;
+    sun.diffuse  = new Color3(1.00, 0.78, 0.58);
+    sun.specular = new Color3(1.00, 0.82, 0.65);
 
     this.buildSharedMaterials();
     this.rider = buildRider(this.scene);
@@ -264,7 +265,7 @@ export class Game {
   }
 
   private buildSharedMaterials(): void {
-    this.snowMat     = mkMat(this.scene, 'snow',     new Color3(0.82, 0.88, 0.96));
+    this.snowMat     = mkMat(this.scene, 'snow',     new Color3(0.92, 0.94, 0.99));
     this.snowMat.backFaceCulling = false;
     this.rockMat     = mkMat(this.scene, 'rock',     new Color3(0.32, 0.35, 0.38));
     this.kickerMat   = mkMat(this.scene, 'kicker',   new Color3(0.28, 0.40, 0.62));
