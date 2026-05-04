@@ -662,7 +662,7 @@ export class Game {
     this.rider.lean.rotation.z = 0;
     this.edgeAngle = 0;
     this.heading = 0;
-    this.rider.root.rotation.y = 0;
+    this.rider.heading.rotation.y = 0;
     this.speed = this.maxSpeed * 0.4;
   }
 
@@ -732,7 +732,8 @@ export class Game {
       this.spinRotation += spinDelta;
     }
 
-    this.rider.root.rotation.y = this.heading;
+    this.rider.root.rotation.x = -this.activeSlope;
+    this.rider.heading.rotation.y = this.heading;
     this.rider.lean.rotation.z = -this.edgeAngle;
 
     const cosH = Math.cos(this.heading);

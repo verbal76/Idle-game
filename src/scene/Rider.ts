@@ -3,7 +3,8 @@ import {
 } from '@babylonjs/core';
 
 export interface RiderRig {
-  root: TransformNode;
+  root: TransformNode;       // world position + slope-tilt (rotation.x)
+  heading: TransformNode;    // yaw — rider's facing on the slope plane
   lean: TransformNode;
   body: TransformNode;
   humanoid: TransformNode;
@@ -12,9 +13,15 @@ export interface RiderRig {
 }
 
 export function buildRider(scene: Scene): RiderRig {
+  // Hierarchy (outer → inner): root → heading → lean → body → humanoid.
+  // The slope tilt lives on root so it's applied in world space, before
+  // the heading yaw — which means the rider stays normal-aligned to the
+  // slope no matter which direction they're pointing.
   const root = new TransformNode('rider-root', scene);
+  const heading = new TransformNode('rider-heading', scene);
+  heading.parent = root;
   const lean = new TransformNode('rider-lean', scene);
-  lean.parent = root;
+  lean.parent = heading;
   const body = new TransformNode('rider-body', scene);
   body.parent = lean;
   const humanoid = new TransformNode('rider-humanoid', scene);
@@ -89,7 +96,7 @@ export function buildRider(scene: Scene): RiderRig {
       body, binding, 0, -0.66, sign * 0.30));
   }
 
-  return { root, lean, body, humanoid, board: snowboard, parts };
+  return { root, heading, lean, body, humanoid, board: snowboard, parts };
 }
 
 function mat(scene: Scene, name: string, color: Color3): StandardMaterial {
