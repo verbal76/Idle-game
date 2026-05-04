@@ -146,17 +146,18 @@ export class Game {
     // Warm dusk haze near the horizon — distant snow tints pink-orange.
     this.scene.fogColor = new Color3(0.78, 0.55, 0.55);
 
-    // Sun aimed more overhead so the slope (normal ≈ vertical) actually
-    // catches the light. Previous angle was so horizontal that the slope
-    // only got ~40 % illumination and the snow rendered as dim pink mud.
+    // Lighting tuned so peak output stays under 1.0 — previously
+    // sun 1.6 + hemi 0.75 saturated snow to pure white (per-vertex math:
+    // 0.885·(1.0,0.78,0.58)·1.6 + 0.978·(0.78,0.72,0.85)·0.75 ≈
+    // (1.99, 1.63, 1.45), times snow → clamped to (1,1,1)).
     const hemi = new HemisphericLight('hemi', new Vector3(0, 1, 0), this.scene);
-    hemi.intensity = 0.75;
+    hemi.intensity = 0.50;
     hemi.diffuse    = new Color3(0.78, 0.72, 0.85);
     hemi.groundColor = new Color3(0.45, 0.30, 0.40);
     const sun = new DirectionalLight('sun', new Vector3(-0.45, -0.85, -0.25), this.scene);
-    sun.intensity = 1.6;
+    sun.intensity = 0.90;
     sun.diffuse  = new Color3(1.00, 0.78, 0.58);
-    sun.specular = new Color3(1.00, 0.82, 0.65);
+    sun.specular = new Color3(0.30, 0.25, 0.20);
 
     this.buildSharedMaterials();
     this.rider = buildRider(this.scene);
@@ -175,7 +176,15 @@ export class Game {
     window.addEventListener('resize', this.onResize);
   }
 
-  start(): void { this.running = true; }
+  start(): void {
+    this.running = true;
+    // Force a world-matrix refresh so the trail/dust emitter pulls valid
+    // positions on their first sample, and start the trail recording
+    // (it was constructed with autoStart=false to avoid degenerate ring).
+    this.rider.root.computeWorldMatrix(true);
+    this.rider.board.computeWorldMatrix(true);
+    if (this.trail) this.trail.start();
+  }
   pause(): void { this.running = false; }
   resume(): void { if (!this.fellAlready) this.running = true; }
 
@@ -270,8 +279,11 @@ export class Game {
   }
 
   private buildSharedMaterials(): void {
-    this.snowMat     = mkMat(this.scene, 'snow',     new Color3(0.92, 0.94, 0.99));
-    this.snowMat.backFaceCulling = true;
+    this.snowMat     = mkMat(this.scene, 'snow',     new Color3(0.85, 0.88, 0.95));
+    // Steep couloir + cliff steps can flip per-tri normals on chunk meshes;
+    // keep both sides drawing so a flipped triangle still renders from
+    // above instead of leaving a hole the rider sees through.
+    this.snowMat.backFaceCulling = false;
     this.rockMat     = mkMat(this.scene, 'rock',     new Color3(0.32, 0.35, 0.38));
     this.kickerMat   = mkMat(this.scene, 'kicker',   new Color3(0.28, 0.40, 0.62));
     this.coinMat     = mkMat(this.scene, 'coin',     new Color3(1.00, 0.82, 0.18));
@@ -314,25 +326,26 @@ export class Game {
       m.parent = anchor;
     };
 
-    // Left + right ridge walls — form the "couloir" the rider descends.
-    // Peaks at multiple Z so the run frames continuously rather than only
-    // on either end.
+    // Left + right ridge walls — pushed to ±420 (was ±200) and lowered
+    // to ~80 m (was 150–230). Old setup subtended ~41° vertical of a
+    // 45° FOV, looking like a wall slammed against the camera. New
+    // params subtend ~22° — frames the run instead of swallowing it.
     const wallSpan = [-260, -180, -100, -20, 60, 140, 220, 300, 380, 460];
     for (const z of wallSpan) {
-      const jL = Math.sin(z * 0.013) * 35;
-      const jR = Math.cos(z * 0.011) * 35;
-      const hL = 150 + Math.sin(z * 0.017) * 60;
-      const hR = 160 + Math.cos(z * 0.019) * 70;
-      make(-200 + jL, z, hL, 110 + Math.sin(z * 0.03) * 30);
-      make( 200 + jR, z, hR, 110 + Math.cos(z * 0.03) * 30);
+      const jL = Math.sin(z * 0.013) * 60;
+      const jR = Math.cos(z * 0.011) * 60;
+      const hL =  80 + Math.sin(z * 0.017) * 40;
+      const hR =  90 + Math.cos(z * 0.019) * 45;
+      make(-420 + jL, z, hL, 130 + Math.sin(z * 0.03) * 40);
+      make( 420 + jR, z, hR, 130 + Math.cos(z * 0.03) * 40);
     }
 
-    // Back wall in front of the rider — taller peaks framing the descent's
-    // vanishing point, like the cirque at the head of a couloir.
-    const backX = [-280, -160, -40, 80, 200, 320];
+    // Back cirque pushed from z=620 to z=900 (farther vanishing point),
+    // heights 240–320 → 160–220 (still dramatic but stop dominating).
+    const backX = [-360, -200, -40, 100, 240, 380];
     for (const x of backX) {
-      const h = 240 + Math.sin(x * 0.022) * 80;
-      make(x, 620 + Math.cos(x * 0.017) * 40, h, 150 + Math.sin(x * 0.04) * 40);
+      const h = 160 + Math.sin(x * 0.022) * 60;
+      make(x, 900 + Math.cos(x * 0.017) * 60, h, 170 + Math.sin(x * 0.04) * 50);
     }
 
     // A few peaks behind so turning around isn't pure void.
@@ -408,7 +421,12 @@ export class Game {
 
     const ps = new ParticleSystem('snow-dust', 400, this.scene);
     ps.particleTexture = tex;
-    ps.emitter = this.rider.board;
+    // Emit from followTarget (an actual Mesh that's already updated to the
+    // rider's position each tick) instead of rider.board — the board's
+    // world matrix isn't computed until the first render, so the first
+    // batch of particles was spawning at world origin and blowing toward
+    // the camera, filling the screen with white sprites for ~1 s on spawn.
+    ps.emitter = this.followTarget;
     ps.minEmitBox = new Vector3(-0.18, 0, -0.4);
     ps.maxEmitBox = new Vector3(0.18, 0.05, 0.0);
     ps.color1     = new Color4(1, 1, 1, 0.9);
@@ -432,8 +450,13 @@ export class Game {
   private buildSnowTrail(): void {
     const anchor = new TransformNode('trail-anchor', this.scene);
     anchor.parent = this.rider.root;
-    anchor.position.set(0, -this.groundY + 0.02, 0);
-    const trail = new TrailMesh('snow-trail', anchor, this.scene, 0.32, 80, true);
+    anchor.position.set(0, 0.02, 0);
+    // autoStart=false so the trail doesn't record its first frame at
+    // the spawn pose before camera/world matrices are settled. Without
+    // this, all 80 ring segments collapse onto the spawn point and the
+    // resulting degenerate ribbon sweeps through the camera view as
+    // the rider starts moving (visible as a "white wall at start").
+    const trail = new TrailMesh('snow-trail', anchor, this.scene, 0.32, 80, false);
     const trailMat = mkMat(this.scene, 'trail', new Color3(0.74, 0.81, 0.92));
     trailMat.emissiveColor = new Color3(0.20, 0.24, 0.30);
     trailMat.alpha = 0.55;
