@@ -48,6 +48,7 @@ export class Game {
   private trunkMat!: StandardMaterial;
   private foliageMat!: StandardMaterial;
   private mountainMat!: StandardMaterial;
+  private cliffMat!: StandardMaterial;
 
   private trunkTemplate!: Mesh;
   private foliageTemplate!: Mesh;
@@ -153,7 +154,7 @@ export class Game {
 
     this.buildSharedMaterials();
     this.rider = buildRider(this.scene);
-    this.rider.root.position.set(0, this.groundY, 0);
+    this.rider.root.position.set(0, this.groundY + this.surfaceY(0, 0), 0);
 
     this.buildTreeTemplates();
     this.buildBackgroundMountains();
@@ -272,6 +273,10 @@ export class Game {
     this.trunkMat    = mkMat(this.scene, 'trunk',    new Color3(0.34, 0.22, 0.13));
     this.foliageMat  = mkMat(this.scene, 'foliage',  new Color3(0.18, 0.46, 0.24));
     this.mountainMat = mkMat(this.scene, 'mountain', new Color3(0.42, 0.46, 0.58));
+    // Cliff face: warm-warning ochre that pops against the dusk sky and the
+    // cool snow so the rider can see edges to anticipate jumps/falls.
+    this.cliffMat = mkMat(this.scene, 'cliff', new Color3(0.85, 0.45, 0.18));
+    this.cliffMat.emissiveColor = new Color3(0.20, 0.10, 0.04);
   }
 
   private buildTreeTemplates(): void {
@@ -521,9 +526,29 @@ export class Game {
     const kickers: ChunkData['kickers'] = [];
     const coins: ChunkData['coins'] = [];
 
-    const isGraceZone = (cx === 0 && cz === 0);
+    // Visible cliff face: warning-orange vertical wall spanning the chunk's
+    // X width, sitting at the cz boundary, going from the lower (post-drop)
+    // surface up to the upper (pre-drop) surface. Without this the cliff
+    // edge is an invisible vertical step in the heightmap.
+    if (this.cliffs.has(cz)) {
+      const drop = this.cliffs.get(cz)!;
+      const boundaryZ = cz * this.chunkSize;
+      const lowerY = this.surfaceY(ox, boundaryZ + 0.01);
+      const face = MeshBuilder.CreateBox(`cliff-face-${cx}-${cz}`, {
+        width: this.chunkSize, height: drop, depth: 0.4
+      }, this.scene);
+      face.material = this.cliffMat;
+      face.position.set(ox, lowerY + drop / 2, boundaryZ);
+      features.push(face);
+    }
 
-    if (!isGraceZone) {
+    // Obstacles only spawn in the central chunk row (cx = 0). Outer chunks
+    // are couloir walls — putting trees / rocks / coins out there made them
+    // appear to float because they're 50–180 m above the path on the wall.
+    const isGraceZone = (cx === 0 && cz === 0);
+    const allowObstacles = (cx === 0 && !isGraceZone);
+
+    if (allowObstacles) {
       const rockCount = this.rng.rangeInt(1, 4);
       for (let i = 0; i < rockCount; i++) {
         const lx = ox + this.rng.rangeFloat(-half + 2, half - 2);
