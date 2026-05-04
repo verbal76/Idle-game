@@ -103,7 +103,12 @@ export class Game {
 
   private rng = new SeedRng(BigInt(Date.now()));
 
-  private readonly groundY = 0.85;
+  // Root pivots at the board's bottom, which is the snow surface. Tiny
+  // 5 cm clearance keeps the geometry just above the mesh to avoid
+  // Z-fighting with the chunk surface. Body parts in Rider.ts now carry
+  // a +0.85 local-Y offset so the rider visually sits in the same place
+  // as the legacy rig — only the rotation pivot moved.
+  private readonly groundY = 0.05;
   // Visual altitude reference — the rider starts at ~5 km elevation and the
   // HUD reads (peak − descent). Procedural terrain is endless; this is just
   // a number to give the run a "5 km mountain" sense of scale.
