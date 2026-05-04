@@ -1,7 +1,8 @@
 import {
   Engine, Scene, FollowCamera, HemisphericLight, DirectionalLight,
   Vector3, Color3, Color4, MeshBuilder, StandardMaterial, Mesh,
-  AbstractMesh, ParticleSystem, DynamicTexture, TrailMesh, TransformNode
+  AbstractMesh, ParticleSystem, DynamicTexture, TrailMesh, TransformNode,
+  VertexBuffer
 } from '@babylonjs/core';
 import type { StickValue } from '../input/TwinStickInput';
 import type { UpgradeLevels } from '../profiles/IndexedDbStore';
@@ -103,6 +104,10 @@ export class Game {
   private rng = new SeedRng(BigInt(Date.now()));
 
   private readonly groundY = 0.85;
+  // Visual altitude reference — the rider starts at ~5 km elevation and the
+  // HUD reads (peak − descent). Procedural terrain is endless; this is just
+  // a number to give the run a "5 km mountain" sense of scale.
+  private readonly peakAltitude = 5000;
   private readonly gravity = 9.81;
   private readonly jumpMin = 4.0;
   private readonly jumpMax = 8.0;
@@ -188,9 +193,63 @@ export class Game {
     return drop;
   }
 
-  private surfaceY(z: number): number {
+  // ---- Procedural mountain heightmap -------------------------------------
+  // surfaceY(x, z) = constant slope (z-direction) + couloir walls (x-direction)
+  // + layered FBM noise (terrain ripple) − cliff drops. The world is a single
+  // ~5 km mountain; chunks just stream pieces of this analytic heightmap.
+
+  private noiseHash(x: number, z: number): number {
+    const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
+    return s - Math.floor(s);
+  }
+
+  private vNoise(x: number, z: number): number {
+    const ix = Math.floor(x), iz = Math.floor(z);
+    const fx = x - ix, fz = z - iz;
+    const sx = fx * fx * (3 - 2 * fx);
+    const sz = fz * fz * (3 - 2 * fz);
+    const a = this.noiseHash(ix, iz);
+    const b = this.noiseHash(ix + 1, iz);
+    const c = this.noiseHash(ix, iz + 1);
+    const d = this.noiseHash(ix + 1, iz + 1);
+    return a + (b - a) * sx + (c - a) * sz + (a - b - c + d) * sx * sz;
+  }
+
+  private fbm(x: number, z: number): number {
+    let total = 0, amp = 0.5, freq = 1, max = 0;
+    for (let i = 0; i < 4; i++) {
+      total += this.vNoise(x * freq, z * freq) * amp;
+      max += amp;
+      amp *= 0.5;
+      freq *= 2;
+    }
+    return total / max;
+  }
+
+  // Valley walls: flat in the central X strip, ramping quadratically up the
+  // sides so the rider naturally descends in a couloir.
+  private couloirOffset(x: number): number {
+    const ax = Math.abs(x);
+    const flatHalf = 30;
+    const wallEnd = 110;
+    if (ax < flatHalf) return 0;
+    const t = Math.min(1, (ax - flatHalf) / (wallEnd - flatHalf));
+    return Math.pow(t, 1.6) * 90 + Math.max(0, ax - wallEnd) * 0.7;
+  }
+
+  // Soft FBM bumps; amplitude is much smaller in the central skiable strip
+  // so the rider doesn't bob, and grows out toward the ridges.
+  private terrainNoise(x: number, z: number): number {
+    const ax = Math.abs(x);
+    const ampScale = ax < 30 ? 0.35 : (ax < 60 ? 0.7 : 1.0);
+    return (this.fbm(x * 0.018, z * 0.018) - 0.5) * 3.0 * ampScale;
+  }
+
+  private surfaceY(x: number, z: number): number {
     const cz = Math.floor(z / this.chunkSize);
-    return -z * Math.tan(this.activeSlope) - this.cliffOffsetAt(cz);
+    const slope = -z * Math.tan(this.activeSlope);
+    if (this.mode === 'half-pipe') return slope - this.cliffOffsetAt(cz);
+    return slope + this.couloirOffset(x) + this.terrainNoise(x, z) - this.cliffOffsetAt(cz);
   }
 
   // U-shaped half-pipe cross-section: flat in the middle, quarter-arc up each side.
@@ -275,7 +334,7 @@ export class Game {
 
   private spawnTree(x: number, z: number, scale: number, name: string): AbstractMesh[] {
     const trunkH = 1.4 * scale;
-    const baseY = this.surfaceY(z);
+    const baseY = this.surfaceY(x, z);
     const trunk = this.trunkTemplate.createInstance(`trunk-${name}`);
     trunk.scaling.setAll(scale);
     trunk.position.set(x, baseY + trunkH / 2, z);
@@ -438,13 +497,25 @@ export class Game {
     const ox = cx * this.chunkSize + half;
     const oz = cz * this.chunkSize + half;
 
-    const cy = this.surfaceY(oz);
+    // Tessellated ground baked to the procedural heightmap. We don't
+    // position/rotate the mesh — vertex Y is set directly to surfaceY at
+    // each vertex's world (x, z), so slope, couloir walls, FBM bumps and
+    // cliff drops are all baked into the geometry.
     const ground = MeshBuilder.CreateGround(`chunk-${cx}-${cz}`, {
-      width: this.chunkSize, height: this.chunkSize, subdivisions: 1
+      width: this.chunkSize, height: this.chunkSize, subdivisions: 16
     }, this.scene);
     ground.material = this.snowMat;
-    ground.position.set(ox, cy, oz);
-    ground.rotation.x = -this.activeSlope;
+    const positions = ground.getVerticesData(VertexBuffer.PositionKind)!;
+    for (let i = 0; i < positions.length; i += 3) {
+      const wx = ox + positions[i];
+      const wz = oz + positions[i + 2];
+      positions[i + 0] = wx;
+      positions[i + 1] = this.surfaceY(wx, wz);
+      positions[i + 2] = wz;
+    }
+    ground.updateVerticesData(VertexBuffer.PositionKind, positions, false, false);
+    ground.createNormals(false);
+    ground.refreshBoundingInfo();
 
     const features: AbstractMesh[] = [];
     const rocks: ChunkData['rocks'] = [];
@@ -462,7 +533,7 @@ export class Game {
           width: 1.6, height: 1.4, depth: 1.4
         }, this.scene);
         rock.material = this.rockMat;
-        rock.position.set(lx, this.surfaceY(lz) + 0.7, lz);
+        rock.position.set(lx, this.surfaceY(lx, lz) + 0.7, lz);
         features.push(rock);
         rocks.push({ x: lx, z: lz });
       }
@@ -500,7 +571,7 @@ export class Game {
         const d = isMega ? 6 : 4;
         const kicker = MeshBuilder.CreateBox(`kicker-${cx}-${cz}`, { width: w, height: h, depth: d }, this.scene);
         kicker.material = this.kickerMat;
-        kicker.position.set(lx, this.surfaceY(lz) + h / 2, lz);
+        kicker.position.set(lx, this.surfaceY(lx, lz) + h / 2, lz);
         kicker.rotation.x = -0.32 - this.activeSlope;
         features.push(kicker);
         kickers.push({ x: lx, z: lz, width: w, power: isMega ? 10.0 : 5.0 });
@@ -527,7 +598,7 @@ export class Game {
             width: 1.6, height: 1.4, depth: 1.4
           }, this.scene);
           rock.material = this.rockMat;
-          rock.position.set(lx, this.surfaceY(lz) + 0.7, lz);
+          rock.position.set(lx, this.surfaceY(lx, lz) + 0.7, lz);
           features.push(rock);
           rocks.push({ x: lx, z: lz });
         } else {
@@ -537,7 +608,7 @@ export class Game {
             width: w, height: h, depth: d
           }, this.scene);
           kicker.material = this.kickerMat;
-          kicker.position.set(lx, this.surfaceY(lz) + h / 2, lz);
+          kicker.position.set(lx, this.surfaceY(lx, lz) + h / 2, lz);
           kicker.rotation.x = -0.32 - this.activeSlope;
           features.push(kicker);
           kickers.push({ x: lx, z: lz, width: w, power: 6.0 });
@@ -550,7 +621,7 @@ export class Game {
         const lz = oz + this.rng.rangeFloat(-half + 1, half - 1);
         const coin = MeshBuilder.CreateSphere(`coin-${cx}-${cz}-${i}`, { diameter: 0.55 }, this.scene);
         coin.material = this.coinMat;
-        coin.position.set(lx, this.surfaceY(lz) + 1.0, lz);
+        coin.position.set(lx, this.surfaceY(lx, lz) + 1.0, lz);
         features.push(coin);
         coins.push({ mesh: coin, x: lx, z: lz, collected: false });
       }
@@ -563,7 +634,7 @@ export class Game {
     const half = this.chunkSize / 2;
     const ox = 0;
     const oz = cz * this.chunkSize + half;
-    const cy = this.surfaceY(oz);
+    const cy = this.surfaceY(0, oz);
 
     const context = MeshBuilder.CreateGround(`hp-ctx-${cz}`, {
       width: this.HP_CONTEXT_WIDTH, height: this.chunkSize, subdivisions: 1
@@ -611,7 +682,7 @@ export class Game {
         const lz = oz - half + (i + 1) * (this.chunkSize / (coinCount + 1));
         const coin = MeshBuilder.CreateSphere(`hp-coin-${cz}-${i}`, { diameter: 0.55 }, this.scene);
         coin.material = this.coinMat;
-        coin.position.set(ox, this.surfaceY(lz) + 1.4, lz);
+        coin.position.set(ox, this.surfaceY(lx, lz) + 1.4, lz);
         features.push(coin);
         coins.push({ mesh: coin, x: ox, z: lz, collected: false });
       }
@@ -619,7 +690,7 @@ export class Game {
         const lz = oz + this.rng.rangeFloat(-half + 5, half - 5);
         const kicker = MeshBuilder.CreateBox(`hp-kicker-${cz}`, { width: 4, height: 0.8, depth: 4 }, this.scene);
         kicker.material = this.kickerMat;
-        kicker.position.set(ox, this.surfaceY(lz) + 0.4, lz);
+        kicker.position.set(ox, this.surfaceY(lx, lz) + 0.4, lz);
         kicker.rotation.x = -0.40 - this.activeSlope;
         features.push(kicker);
         kickers.push({ x: ox, z: lz, width: 4, power: 7.5 });
@@ -691,7 +762,7 @@ export class Game {
       this.speed *= Math.max(0, 1 - 1.2 * dt);
       this.rider.root.position.z += this.speed * dt;
       this.rider.root.position.y = this.groundY
-        + this.surfaceY(this.rider.root.position.z)
+        + this.surfaceY(this.rider.root.position.x, this.rider.root.position.z)
         + this.pipeOffsetY(this.rider.root.position.x);
       this.dustParticles.emitRate = 100;
       this.updateChunkStreaming();
@@ -769,7 +840,7 @@ export class Game {
       }
 
       const groundLevel = this.groundY
-        + this.surfaceY(this.rider.root.position.z)
+        + this.surfaceY(this.rider.root.position.x, this.rider.root.position.z)
         + this.pipeOffsetY(this.rider.root.position.x);
       if (this.rider.root.position.y <= groundLevel) {
         this.rider.root.position.y = groundLevel;
@@ -809,7 +880,7 @@ export class Game {
 
     if (this.grounded) {
       const groundLevel = this.groundY
-        + this.surfaceY(this.rider.root.position.z)
+        + this.surfaceY(this.rider.root.position.x, this.rider.root.position.z)
         + this.pipeOffsetY(this.rider.root.position.x);
       if (this.rider.root.position.y - groundLevel > 0.4) {
         this.grounded = false;
@@ -829,7 +900,7 @@ export class Game {
     // (chunk-spawn race, cliff edge, etc.), snap them back to it.
     {
       const groundLevel = this.groundY
-        + this.surfaceY(this.rider.root.position.z)
+        + this.surfaceY(this.rider.root.position.x, this.rider.root.position.z)
         + this.pipeOffsetY(this.rider.root.position.x);
       if (this.rider.root.position.y < groundLevel - 1.5) {
         this.rider.root.position.y = groundLevel;
@@ -844,10 +915,14 @@ export class Game {
     this.updateChunkStreaming();
 
     const meters = Math.floor(this.rider.root.position.z);
+    const altitude = this.mode === 'half-pipe'
+      ? null
+      : Math.max(0, Math.round(this.peakAltitude + this.rider.root.position.y - this.groundY));
+    const altTag = altitude !== null ? `${altitude} m ↧  •  ` : '';
     const flipTag = this.flipsLanded > 0 ? `  •  ${this.flipsLanded} flip${this.flipsLanded > 1 ? 's' : ''}` : '';
     const spinTag = this.spinsLanded > 0 ? `  •  ${this.spinsLanded} spin${this.spinsLanded > 1 ? 's' : ''}` : '';
     const coinTag = `  •  ${this.coinsCollected} ❄`;
-    this.callbacks.onScore?.(`${meters} m${coinTag}${flipTag}${spinTag}`);
+    this.callbacks.onScore?.(`${altTag}${meters} m${coinTag}${flipTag}${spinTag}`);
 
     void this.trail;
     this.scene.render();
@@ -864,7 +939,7 @@ export class Game {
         if (c.collected) continue;
         const dx = c.x - r.x;
         const dz = c.z - r.z;
-        if (dx * dx + dz * dz < magnetSq && Math.abs(r.y - this.surfaceY(c.z)) < 2.0) {
+        if (dx * dx + dz * dz < magnetSq && Math.abs(r.y - this.surfaceY(c.x, c.z)) < 2.0) {
           c.collected = true;
           c.mesh.dispose();
           this.coinsCollected += 1;
@@ -881,11 +956,11 @@ export class Game {
         }
       }
       if (!invulnerable) {
-        const surfaceAtRider = this.surfaceY(r.z);
+        const surfaceAtRider = this.surfaceY(r.x, r.z);
         for (const o of chunk.rocks) {
           const dx = Math.abs(o.x - r.x);
           const dz = Math.abs(o.z - r.z);
-          if (dx < 1.05 && dz < 0.95 && r.y - (this.surfaceY(o.z)) < 1.55 && r.y - surfaceAtRider < 1.55) {
+          if (dx < 1.05 && dz < 0.95 && r.y - (this.surfaceY(o.x, o.z)) < 1.55 && r.y - surfaceAtRider < 1.55) {
             this.fall();
             return;
           }
