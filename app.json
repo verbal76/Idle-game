@@ -14,7 +14,7 @@
     },
     "android": {
       "package": "com.hotatticgames.snow",
-      "versionCode": 2,
+      "versionCode": 3,
       "backgroundColor": "#0b1320",
       "splash": {
         "backgroundColor": "#0b1320",

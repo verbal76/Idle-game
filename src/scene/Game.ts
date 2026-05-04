@@ -55,7 +55,12 @@ export class Game {
 
   private chunks = new Map<string, ChunkData>();
   private readonly chunkSize = 80;
-  private readonly viewAhead = 4;
+  // viewAhead doubled (4 → 8) so the slope generates 640 m ahead instead
+  // of 320 m. With the wider camera (radius 13, heightOffset 6.5), the
+  // 320 m chunk-end horizon was visible mid-screen as a hard line with
+  // floating obstacles on top of it. 640 m pushes that edge into the
+  // fog blend so it dissolves smoothly into the dusk haze.
+  private readonly viewAhead = 8;
   private readonly viewBehind = 1;
   private readonly viewSide = 2;
 
@@ -146,16 +151,23 @@ export class Game {
     // Warm dusk haze near the horizon — distant snow tints pink-orange.
     this.scene.fogColor = new Color3(0.78, 0.55, 0.55);
 
-    // Lighting tuned so peak output stays under 1.0 — previously
-    // sun 1.6 + hemi 0.75 saturated snow to pure white (per-vertex math:
-    // 0.885·(1.0,0.78,0.58)·1.6 + 0.978·(0.78,0.72,0.85)·0.75 ≈
-    // (1.99, 1.63, 1.45), times snow → clamped to (1,1,1)).
+    // Lighting tuned so peak rendered output stays well under 1.0 even at
+    // the brightest vertex. The previous synthesis (sun 0.9, hemi 0.5,
+    // snow 0.85/0.88/0.95) still clipped R because at sun_factor=1 +
+    // hemi_factor=1 the math gives (1.0,0.78,0.58)·0.9 + (0.78,0.72,0.85)·0.5 =
+    // (1.29, 1.06, 0.95), times snow R=0.85 → 1.10, clipped.
+    //
+    // New values: sun 0.75, hemi 0.4, snow (0.78, 0.82, 0.88). Worst-case
+    // (sun_factor=1, hemi_factor=1):
+    //   (1.0,0.78,0.58)·0.75 + (0.78,0.72,0.85)·0.4 = (1.062, 0.873, 0.775)
+    //   × snow (0.78, 0.82, 0.88) = (0.83, 0.72, 0.68)
+    // R peak ~0.83 — colored snow with headroom, no white clipping.
     const hemi = new HemisphericLight('hemi', new Vector3(0, 1, 0), this.scene);
-    hemi.intensity = 0.50;
+    hemi.intensity = 0.40;
     hemi.diffuse    = new Color3(0.78, 0.72, 0.85);
     hemi.groundColor = new Color3(0.45, 0.30, 0.40);
     const sun = new DirectionalLight('sun', new Vector3(-0.45, -0.85, -0.25), this.scene);
-    sun.intensity = 0.90;
+    sun.intensity = 0.75;
     sun.diffuse  = new Color3(1.00, 0.78, 0.58);
     sun.specular = new Color3(0.30, 0.25, 0.20);
 
@@ -279,7 +291,10 @@ export class Game {
   }
 
   private buildSharedMaterials(): void {
-    this.snowMat     = mkMat(this.scene, 'snow',     new Color3(0.85, 0.88, 0.95));
+    // Snow color cut from (0.85, 0.88, 0.95) → (0.78, 0.82, 0.88). Combined
+    // with the lower light intensities, peak rendered R is ~0.83 (was
+    // clipped to 1.0). Snow now reads as colored cream/blue, not pure white.
+    this.snowMat     = mkMat(this.scene, 'snow',     new Color3(0.78, 0.82, 0.88));
     // Steep couloir + cliff steps can flip per-tri normals on chunk meshes;
     // keep both sides drawing so a flipped triangle still renders from
     // above instead of leaving a hole the rider sees through.
@@ -400,8 +415,15 @@ export class Game {
     mat.disableLighting = true;
     mat.backFaceCulling = false;
 
+    // Sky sphere doubled (1200 → 2400) so the back cirque mountains at
+    // z=900 stay inside the inner surface. Previously the sky's BACKSIDE-
+    // rendered inner faces (at radius 600) wrote depth and occluded the
+    // cirque (which sits at 900 from rider, outside the sphere), making
+    // the far horizon a void where the cirque should be the vanishing
+    // point. Radius 1200 leaves comfortable headroom for ridges (±420)
+    // and the new viewAhead=8 chunk extent (640 m).
     const sky = MeshBuilder.CreateSphere('sky', {
-      diameter: 1200, sideOrientation: Mesh.BACKSIDE
+      diameter: 2400, sideOrientation: Mesh.BACKSIDE
     }, this.scene);
     sky.material = mat;
     sky.applyFog = false;
