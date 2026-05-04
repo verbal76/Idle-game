@@ -81,6 +81,9 @@ export class Game {
 
   private heading = 0;
   private edgeAngle = 0;
+  private idleTime = 0;
+  private readonly autoCenterAfter = 2.0;   // seconds of no input before re-centering kicks in
+  private readonly autoCenterRate = 1.5;    // exp decay constant — heading reaches ~1% in ~3 s
   // R = C·cos θ, ω = V/R. C=5, V=22, θ=40°: R≈3.8 m, ω≈5.8 rad/s —
   // 90° in ~0.27 s. Big enough arc to read as a carve, not a tank pivot.
   private readonly SIDECUT = 5.0;
@@ -610,6 +613,7 @@ export class Game {
     this.flipRotation = 0;
     this.spinRotation = 0;
     this.edgeAngle = 0;
+    this.idleTime = 0;
   }
 
   private startRecovery(): void {
@@ -658,6 +662,9 @@ export class Game {
     }
 
     const stickX = this.input.leftStick().x;
+    const stickActive = Math.abs(stickX) > 0.05;
+    this.idleTime = stickActive ? 0 : this.idleTime + dt;
+
     // Carve uses a minimum reference speed so the rider can pivot back out
     // of a side-slip / brake — at v=0 omega=v/R would be 0 (stuck).
     const carveV = Math.max(8.0, this.speed);
@@ -666,8 +673,7 @@ export class Game {
     const physThetaMax = Math.asin(sinThetaMax);
     const thetaMax = Math.min(this.maxLean, physThetaMax);
     const targetEdge = stickX * thetaMax;
-    const isReturning = Math.abs(stickX) < 0.05;
-    const leanRate = isReturning ? this.leanResponse * 0.35 : this.leanResponse;
+    const leanRate = stickActive ? this.leanResponse : this.leanResponse * 0.35;
     this.edgeAngle += (targetEdge - this.edgeAngle) * Math.min(1, leanRate * dt);
 
     if (this.grounded) {
@@ -675,6 +681,12 @@ export class Game {
         const R = this.SIDECUT * Math.cos(Math.abs(this.edgeAngle));
         const omega = carveV / R;
         this.heading += Math.sign(this.edgeAngle) * omega * dt;
+      }
+      // After 2 s of no input, gravity wins — heading drifts back to the
+      // fall line (heading = 0) so the rider eventually points straight
+      // down the slope without the player having to steer.
+      if (!stickActive && this.idleTime > this.autoCenterAfter) {
+        this.heading += (0 - this.heading) * Math.min(1, this.autoCenterRate * dt);
       }
     } else {
       const spinDelta = stickX * this.airSpinRate * dt;
