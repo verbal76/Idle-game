@@ -126,15 +126,23 @@ export class Game {
 
     this.engine = new Engine(canvas, true, { stencil: true });
     this.scene = new Scene(this.engine);
-    this.scene.clearColor = new Color4(0.62, 0.78, 0.95, 1);
+    this.scene.clearColor = new Color4(0.36, 0.26, 0.42, 1);
     this.scene.fogEnabled = true;
     this.scene.fogMode = Scene.FOGMODE_EXP2;
     this.scene.fogDensity = 0.0035;
-    this.scene.fogColor = new Color3(0.62, 0.78, 0.95);
+    // Warm dusk haze near the horizon — distant snow tints pink-orange.
+    this.scene.fogColor = new Color3(0.78, 0.55, 0.55);
 
-    new HemisphericLight('hemi', new Vector3(0, 1, 0), this.scene).intensity = 0.7;
-    const sun = new DirectionalLight('sun', new Vector3(-0.5, -1, -0.4), this.scene);
-    sun.intensity = 1.2;
+    // Dim, cool fill from above; warm low sun across the slope for the
+    // long shadows / golden-hour read.
+    const hemi = new HemisphericLight('hemi', new Vector3(0, 1, 0), this.scene);
+    hemi.intensity = 0.55;
+    hemi.diffuse    = new Color3(0.65, 0.55, 0.75);
+    hemi.groundColor = new Color3(0.45, 0.30, 0.40);
+    const sun = new DirectionalLight('sun', new Vector3(-0.7, -0.35, -0.35), this.scene);
+    sun.intensity = 1.1;
+    sun.diffuse  = new Color3(1.00, 0.72, 0.50);
+    sun.specular = new Color3(1.00, 0.78, 0.60);
 
     this.buildSharedMaterials();
     this.rider = buildRider(this.scene);
@@ -142,6 +150,7 @@ export class Game {
 
     this.buildTreeTemplates();
     this.buildBackgroundMountains();
+    this.buildSky();
     this.buildCamera();
     this.buildSnowDust();
     this.buildSnowTrail();
@@ -258,12 +267,41 @@ export class Game {
     follow.isVisible = false;
     this.followTarget = follow;
     const cam = new FollowCamera('cam', new Vector3(0, 5, -10), this.scene, follow);
-    cam.heightOffset = 3.5;
-    cam.radius = 9;
+    cam.heightOffset = 6.5;          // higher so the slope below the rider is visible
+    cam.radius = 13;                 // pulled back to widen the downhill view
     cam.rotationOffset = 180;
     cam.cameraAcceleration = 0.20;
     cam.maxCameraSpeed = 100;
     this.scene.activeCamera = cam;
+  }
+
+  private buildSky(): void {
+    const tex = new DynamicTexture('sky-tex', { width: 64, height: 512 }, this.scene, false);
+    const ctx = tex.getContext() as unknown as CanvasRenderingContext2D;
+    const g = ctx.createLinearGradient(0, 0, 0, 512);
+    g.addColorStop(0.00, '#0d143a'); // zenith — deep twilight blue
+    g.addColorStop(0.30, '#2a2256'); // upper purple
+    g.addColorStop(0.55, '#7a3d63'); // dusk magenta
+    g.addColorStop(0.78, '#d56a4f'); // sunset orange
+    g.addColorStop(0.92, '#f0a878'); // hazy horizon
+    g.addColorStop(1.00, '#a47a86'); // ground-side haze (below)
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 64, 512);
+    tex.update();
+
+    const mat = new StandardMaterial('sky-mat', this.scene);
+    mat.emissiveTexture = tex;
+    mat.diffuseColor  = new Color3(0, 0, 0);
+    mat.specularColor = new Color3(0, 0, 0);
+    mat.disableLighting = true;
+    mat.backFaceCulling = false;
+
+    const sky = MeshBuilder.CreateSphere('sky', {
+      diameter: 1200, sideOrientation: Mesh.BACKSIDE
+    }, this.scene);
+    sky.material = mat;
+    sky.applyFog = false;
+    sky.parent = this.mountainAnchor; // follows rider position only (no rotation)
   }
 
   private buildSnowDust(): void {
