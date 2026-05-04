@@ -266,7 +266,7 @@ export class Game {
 
   private buildSharedMaterials(): void {
     this.snowMat     = mkMat(this.scene, 'snow',     new Color3(0.92, 0.94, 0.99));
-    this.snowMat.backFaceCulling = false;
+    this.snowMat.backFaceCulling = true;
     this.rockMat     = mkMat(this.scene, 'rock',     new Color3(0.32, 0.35, 0.38));
     this.kickerMat   = mkMat(this.scene, 'kicker',   new Color3(0.28, 0.40, 0.62));
     this.coinMat     = mkMat(this.scene, 'coin',     new Color3(1.00, 0.82, 0.18));
@@ -831,7 +831,7 @@ export class Game {
       this.spinRotation += spinDelta;
     }
 
-    this.rider.root.rotation.x = -this.activeSlope;
+    this.rider.root.rotation.x = this.activeSlope;
     this.rider.heading.rotation.y = this.heading;
     this.rider.lean.rotation.z = -this.edgeAngle;
 
