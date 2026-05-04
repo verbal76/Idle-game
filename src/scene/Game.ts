@@ -111,8 +111,6 @@ export class Game {
   private readonly leanResponse = 6.5;  // ~150 ms to mostly-leaned, so the
                                         // tilt is visible before the heading swings
   private readonly speedCatch = 4.0;
-  private readonly lateralBleed = 0.35; // sideways drift while heading is off-axis,
-                                        // gives the "sailing" swerve feel
 
   private running = false;
 
@@ -688,8 +686,11 @@ export class Game {
       }
     }
 
-    this.rider.root.position.z += this.speed * dt;
-    this.rider.root.position.x += sinH * this.maxSpeed * this.lateralBleed * dt;
+    // Velocity = speed × board direction. Both axes go to 0 when speed → 0
+    // (so the perpendicular-board brake actually stops the rider, instead
+    // of converting forward motion into a permanent sideways slip).
+    this.rider.root.position.z += cosH * this.speed * dt;
+    this.rider.root.position.x += sinH * this.speed * dt;
 
     if (this.mode === 'half-pipe') {
       const limit = this.HP_PIPE_HALF;
