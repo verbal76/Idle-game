@@ -83,8 +83,8 @@ export class Game {
   private heading = 0;
   private edgeAngle = 0;
   private idleTime = 0;
-  private readonly autoCenterAfter = 2.0;   // seconds of no input before re-centering kicks in
-  private readonly autoCenterRate = 1.5;    // exp decay constant — heading reaches ~1% in ~3 s
+  private readonly autoCenterAfter = 1.0;   // seconds of no input before re-centering kicks in
+  private readonly autoCenterRate = 4.0;    // exp decay constant — heading reaches ~1% in ~1.1 s
   // R = C·cos θ, ω = V/R. C=5, V=22, θ=40°: R≈3.8 m, ω≈5.8 rad/s —
   // 90° in ~0.27 s. Big enough arc to read as a carve, not a tank pivot.
   private readonly SIDECUT = 5.0;
@@ -786,14 +786,18 @@ export class Game {
     this.edgeAngle += (targetEdge - this.edgeAngle) * Math.min(1, leanRate * dt);
 
     if (this.grounded) {
-      if (Math.abs(this.edgeAngle) > 0.005) {
-        const R = this.SIDECUT * Math.cos(Math.abs(this.edgeAngle));
-        const omega = carveV / R;
-        this.heading += Math.sign(this.edgeAngle) * omega * dt;
-      }
-      // After 2 s of no input, gravity wins — heading drifts back to the
-      // fall line (heading = 0) so the rider eventually points straight
-      // down the slope without the player having to steer.
+      // Carve turn rate proportional to sin(edge), so omega tapers to 0
+      // as the board flattens. The previous omega = carveV / R didn't
+      // taper — it floored at carveV/SIDECUT (~4.4 rad/s) at zero edge,
+      // which kept slewing heading off-axis after the player let go and
+      // defeated the auto-center.
+      const R = this.SIDECUT * Math.cos(Math.abs(this.edgeAngle));
+      const omega = (carveV / R) * Math.sin(this.edgeAngle);
+      this.heading += omega * dt;
+
+      // After 1 s of no input, gravity wins — heading drifts back to
+      // the fall line (heading = 0) so the rider eventually points
+      // straight down the slope without the player having to steer.
       if (!stickActive && this.idleTime > this.autoCenterAfter) {
         this.heading += (0 - this.heading) * Math.min(1, this.autoCenterRate * dt);
       }
