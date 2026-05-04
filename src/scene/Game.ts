@@ -210,7 +210,7 @@ export class Game {
     this.coinMat.emissiveColor = new Color3(0.45, 0.32, 0.0);
     this.trunkMat    = mkMat(this.scene, 'trunk',    new Color3(0.34, 0.22, 0.13));
     this.foliageMat  = mkMat(this.scene, 'foliage',  new Color3(0.18, 0.46, 0.24));
-    this.mountainMat = mkMat(this.scene, 'mountain', new Color3(0.55, 0.66, 0.82));
+    this.mountainMat = mkMat(this.scene, 'mountain', new Color3(0.42, 0.46, 0.58));
   }
 
   private buildTreeTemplates(): void {
@@ -232,21 +232,41 @@ export class Game {
   private buildBackgroundMountains(): void {
     const anchor = new TransformNode('mountain-anchor', this.scene);
     this.mountainAnchor = anchor;
-    const count = 22;
-    const radius = 360;
-    for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2 + Math.sin(i * 7.91) * 0.18;
-      const dist = radius + Math.sin(i * 3.7) * 60;
-      const x = Math.cos(angle) * dist;
-      const z = Math.sin(angle) * dist;
-      const h = 90 + Math.sin(i * 2.3) * 60;
-      const w = 60 + Math.cos(i * 1.9) * 30;
-      const m = MeshBuilder.CreateCylinder(`mountain-${i}`, {
-        diameterTop: 0, diameterBottom: w, height: h, tessellation: 6
+
+    let i = 0;
+    const make = (x: number, z: number, h: number, w: number) => {
+      const m = MeshBuilder.CreateCylinder(`mountain-${i++}`, {
+        diameterTop: 0, diameterBottom: w, height: h, tessellation: 8
       }, this.scene);
       m.material = this.mountainMat;
       m.position.set(x, h / 2 - 18, z);
       m.parent = anchor;
+    };
+
+    // Left + right ridge walls — form the "couloir" the rider descends.
+    // Peaks at multiple Z so the run frames continuously rather than only
+    // on either end.
+    const wallSpan = [-260, -180, -100, -20, 60, 140, 220, 300, 380, 460];
+    for (const z of wallSpan) {
+      const jL = Math.sin(z * 0.013) * 35;
+      const jR = Math.cos(z * 0.011) * 35;
+      const hL = 150 + Math.sin(z * 0.017) * 60;
+      const hR = 160 + Math.cos(z * 0.019) * 70;
+      make(-200 + jL, z, hL, 110 + Math.sin(z * 0.03) * 30);
+      make( 200 + jR, z, hR, 110 + Math.cos(z * 0.03) * 30);
+    }
+
+    // Back wall in front of the rider — taller peaks framing the descent's
+    // vanishing point, like the cirque at the head of a couloir.
+    const backX = [-280, -160, -40, 80, 200, 320];
+    for (const x of backX) {
+      const h = 240 + Math.sin(x * 0.022) * 80;
+      make(x, 620 + Math.cos(x * 0.017) * 40, h, 150 + Math.sin(x * 0.04) * 40);
+    }
+
+    // A few peaks behind so turning around isn't pure void.
+    for (const x of [-260, -80, 120, 280]) {
+      make(x, -360 + Math.sin(x * 0.02) * 30, 110 + Math.sin(x) * 30, 90);
     }
   }
 
