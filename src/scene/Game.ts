@@ -506,6 +506,44 @@ export class Game {
         kickers.push({ x: lx, z: lz, width: w, power: isMega ? 10.0 : 5.0 });
       }
 
+      // Central-path challenge line: 3–5 obstacles forced into the
+      // narrow strip (-14..+14 X) at evenly-spaced Z bands. The rider
+      // can't just hold straight — they have to weave (or jump) between
+      // these every ~16–25 m of forward travel.
+      const lineCount = this.rng.rangeInt(3, 6);
+      for (let i = 0; i < lineCount; i++) {
+        const tBand = (i + 0.5) / lineCount;
+        const lz = oz - half + tBand * this.chunkSize + this.rng.rangeFloat(-3, 3);
+        const lx = ox + this.rng.rangeFloat(-14, 14);
+        const roll = this.rng.next01();
+        if (roll < 0.55) {
+          // tree
+          const scale = 1.1 + this.rng.next01() * 0.8;
+          features.push(...this.spawnTree(lx, lz, scale, `${cx}-${cz}-line-${i}`));
+          rocks.push({ x: lx, z: lz });
+        } else if (roll < 0.85) {
+          // rock
+          const rock = MeshBuilder.CreateBox(`rock-line-${cx}-${cz}-${i}`, {
+            width: 1.6, height: 1.4, depth: 1.4
+          }, this.scene);
+          rock.material = this.rockMat;
+          rock.position.set(lx, this.surfaceY(lz) + 0.7, lz);
+          features.push(rock);
+          rocks.push({ x: lx, z: lz });
+        } else {
+          // kicker — opt-in jump instead of dodge
+          const w = 4.5, h = 0.6, d = 4;
+          const kicker = MeshBuilder.CreateBox(`kicker-line-${cx}-${cz}-${i}`, {
+            width: w, height: h, depth: d
+          }, this.scene);
+          kicker.material = this.kickerMat;
+          kicker.position.set(lx, this.surfaceY(lz) + h / 2, lz);
+          kicker.rotation.x = -0.32 - this.activeSlope;
+          features.push(kicker);
+          kickers.push({ x: lx, z: lz, width: w, power: 6.0 });
+        }
+      }
+
       const coinCount = this.rng.rangeInt(2, 6);
       for (let i = 0; i < coinCount; i++) {
         const lx = ox + this.rng.rangeFloat(-half + 1, half - 1);
