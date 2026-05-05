@@ -89,6 +89,10 @@ twin action buttons (hold-to-charge JUMP, in-air FLIP), procedural rocks
 that end the run on collision, distance + flip counter HUD, profile-select
 + pause + fall overlay flow, IndexedDB-backed local profiles.
 
+The slope is a procedural chain of `SlopeSegment`s — each segment its own
+slope angle and length, with cliff drops between segments for jumps, gully
+walls flanking each segment, streamed ahead/behind the rider indefinitely.
+
 The v1 plan lives at `/root/.claude/plans/i-want-to-start-smooth-fairy.md`.
 Earlier scaffolding (Unity at `beac810`, web/PWA at `8737ea2`, Cloudflare
 at `c1b1a49`, Capacitor APK at `8ab0763`) is in git history. The leftover
