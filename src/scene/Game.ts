@@ -542,7 +542,14 @@ export class Game {
       positions[i + 1] = -worldZ * Math.tan(this.slopeRad);
     }
     floor.updateVerticesData(VertexBuffer.PositionKind, positions, false, false);
-    floor.createNormals(false);
+    // DO NOT call createNormals here. CreateGround's default normals point
+    // straight up (+Y); that's correct for our slope (lit by sun + hemi
+    // top-half). createNormals(false) would recompute from triangle winding
+    // and — for Babylon's left-handed CreateGround output — produce normals
+    // pointing DOWN (-Y). With backFaceCulling=false the floor still draws
+    // but lit only by hemi.groundColor (dim purple-brown) which then blends
+    // with the dusk sky and reads as invisible. This is the bug that
+    // appeared invisible across PR #1-#4 of attempts.
     floor.refreshBoundingInfo();
     this.slopeFloor = floor;
   }
