@@ -514,27 +514,59 @@ export class Game {
     }
   }
 
-  // Single huge sloped ground mesh. Uses mesh ROTATION instead of vertex
-  // deformation — CreateGround defaults to non-updatable buffers, so
-  // updateVerticesData() silently no-ops the GPU update (see
-  // @babylonjs/core/Buffers/buffer.js: Buffer.update only writes the GPU
-  // buffer when this._updatable === true). The CPU cache + bounding
-  // info DID reflect deformation, which is why earlier diagnostic
-  // readouts showed correct world bounds — but the GPU kept rendering
-  // a flat plane at Y=0, above the camera's sightline, so the slope
-  // appeared invisible. Rotating the mesh avoids the buffer update
-  // entirely: the GPU vertices don't change, only the world matrix.
+  // Single huge sloped ground mesh + couloir walls. All three meshes
+  // parent to a slope-frame TransformNode that tilts forward (rotation.x =
+  // slopeRad). Within that frame:
+  //   - the floor sits flat at Y=0 (covers the central skiable strip)
+  //   - the left + right walls are flat planes tilted around Z so their
+  //     OUTER edge rises while their INNER edge meets the floor's edge,
+  //     forming a V-valley.
   //
-  // Length 20000 m × cos(slope) ≈ 19560 m of forward range, plenty for
-  // the run distance the rider can reach.
+  // We only ever rotate / translate; no vertex deformation. CreateGround's
+  // GPU vertex buffer is non-updatable by default, and updateVerticesData
+  // silently no-ops without `updatable: true` (the bug that hid the slope
+  // for four PRs). Rotation-only is safe.
   private buildSlopeFloor(): void {
+    const frame = new TransformNode('slope-frame', this.scene);
+    frame.rotation.x = this.slopeRad;
+
     const floor = MeshBuilder.CreateGround('slope-floor', {
       width: 600, height: 20000, subdivisions: 2
     }, this.scene);
     floor.material = this.snowMat;
-    floor.position.set(0, 0, 0);
-    floor.rotation.x = this.slopeRad;
+    floor.parent = frame;
     this.slopeFloor = floor;
+
+    // Couloir walls. Wall is a plane of width `wallW`, tilted around its
+    // own Z by `wallTilt`. After tilt, place the wall so its INNER edge
+    // (the one closer to the floor) sits at the floor's edge (X=±300, Y=0).
+    //
+    // Wall vertex (+wallW/2, 0, 0) (inner edge) after Rz(-wallTilt):
+    //   (wallW/2·cosT, -wallW/2·sinT, 0)
+    // To map to (-300, 0, 0), translate by:
+    //   (-300 - wallW/2·cosT, +wallW/2·sinT, 0)
+    const wallW = 280;
+    const wallTilt = 0.65;        // ~37° outward tilt
+    const cosT = Math.cos(wallTilt);
+    const sinT = Math.sin(wallTilt);
+    const innerOffset = wallW / 2 * cosT;
+    const innerLift = wallW / 2 * sinT;
+
+    const leftWall = MeshBuilder.CreateGround('left-wall', {
+      width: wallW, height: 20000, subdivisions: 2
+    }, this.scene);
+    leftWall.material = this.mountainMat;
+    leftWall.parent = frame;
+    leftWall.position.set(-300 - innerOffset, innerLift, 0);
+    leftWall.rotation.z = -wallTilt;
+
+    const rightWall = MeshBuilder.CreateGround('right-wall', {
+      width: wallW, height: 20000, subdivisions: 2
+    }, this.scene);
+    rightWall.material = this.mountainMat;
+    rightWall.parent = frame;
+    rightWall.position.set(300 + innerOffset, innerLift, 0);
+    rightWall.rotation.z = wallTilt;
   }
 
   private spawnTree(x: number, z: number, scale: number, name: string): AbstractMesh[] {
