@@ -151,6 +151,7 @@ export class Game {
   private sky?: Mesh;
   private sun?: DirectionalLight;
   private hemi?: HemisphericLight;
+  private slopeFloor?: Mesh;
 
   private debugFlags = { wireGround: false, hideSky: false, hideTrail: false, hideDust: false, forceUnlit: false };
   private snowEmissiveDefault = new Color3(0, 0, 0);
@@ -229,6 +230,7 @@ export class Game {
 
     this.buildTreeTemplates();
     this.buildBackgroundMountains();
+    this.buildSlopeFloor();
     this.buildSky();
     this.buildCamera();
     this.buildSnowDust();
@@ -293,32 +295,32 @@ export class Game {
     const tgt = this.followTarget?.position ?? new Vector3(0, 0, 0);
 
     let nearest: DebugSnapshot['nearestChunk'] = null;
-    let nearestDist = Infinity;
-    for (const chunk of this.chunks.values()) {
-      const g = chunk.ground;
+    // PR #4: chunk grounds replaced by a single slope-floor mesh; report
+    // that as the "nearest chunk" so the diagnostic still tells us whether
+    // the visible floor mesh is rendering, lit, etc.
+    const target = this.slopeFloor ?? null;
+    if (target) {
+      const g = target;
       const bb = g.getBoundingInfo().boundingBox;
       const c = bb.centerWorld;
       const dx = c.x - camPos.x, dy = c.y - camPos.y, dz = c.z - camPos.z;
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      if (dist < nearestDist) {
-        nearestDist = dist;
-        const verts = g.getVerticesData(VertexBuffer.PositionKind);
-        nearest = {
-          name: g.name,
-          isVisible: g.isVisible,
-          isEnabled: g.isEnabled(),
-          vertexCount: verts ? verts.length / 3 : 0,
-          materialId: g.material ? g.material.id : '(null)',
-          materialIsSnowMat: g.material === this.snowMat,
-          renderingGroupId: g.renderingGroupId,
-          alphaIndex: g.alphaIndex,
-          boundsLocalMin: [bb.minimum.x, bb.minimum.y, bb.minimum.z],
-          boundsLocalMax: [bb.maximum.x, bb.maximum.y, bb.maximum.z],
-          boundsWorldMin: [bb.minimumWorld.x, bb.minimumWorld.y, bb.minimumWorld.z],
-          boundsWorldMax: [bb.maximumWorld.x, bb.maximumWorld.y, bb.maximumWorld.z],
-          distFromCamera: dist,
-        };
-      }
+      const verts = g.getVerticesData(VertexBuffer.PositionKind);
+      nearest = {
+        name: g.name,
+        isVisible: g.isVisible,
+        isEnabled: g.isEnabled(),
+        vertexCount: verts ? verts.length / 3 : 0,
+        materialId: g.material ? g.material.id : '(null)',
+        materialIsSnowMat: g.material === this.snowMat,
+        renderingGroupId: g.renderingGroupId,
+        alphaIndex: g.alphaIndex,
+        boundsLocalMin: [bb.minimum.x, bb.minimum.y, bb.minimum.z],
+        boundsLocalMax: [bb.maximum.x, bb.maximum.y, bb.maximum.z],
+        boundsWorldMin: [bb.minimumWorld.x, bb.minimumWorld.y, bb.minimumWorld.z],
+        boundsWorldMax: [bb.maximumWorld.x, bb.maximumWorld.y, bb.maximumWorld.z],
+        distFromCamera: dist,
+      };
     }
 
     const fc = this.scene.fogColor;
@@ -389,52 +391,22 @@ export class Game {
   // surfaceY(x, z) = constant slope (z-direction) + couloir walls (x-direction)
   // + layered FBM noise (terrain ripple) − cliff drops. The world is a single
   // ~5 km mountain; chunks just stream pieces of this analytic heightmap.
+  // PR #4 rip-out: the noise/fbm/vNoise helpers that fed terrainNoise were
+  // removed along with the chunked ground. surfaceY is now a pure linear
+  // slope; feature placement uses that same simple analytic.
 
-  private noiseHash(x: number, z: number): number {
-    const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
-    return s - Math.floor(s);
+  // Disabled (PR #4 rip-out): chunked ground replaced by a single big flat
+  // slope mesh. Couloir walls would create a Y discontinuity between the
+  // flat slope-floor and the (unused) chunked ground, so we collapse them
+  // to zero. Trees/rocks/coins now sit on the simple slope.
+  private couloirOffset(_x: number): number {
+    return 0;
   }
 
-  private vNoise(x: number, z: number): number {
-    const ix = Math.floor(x), iz = Math.floor(z);
-    const fx = x - ix, fz = z - iz;
-    const sx = fx * fx * (3 - 2 * fx);
-    const sz = fz * fz * (3 - 2 * fz);
-    const a = this.noiseHash(ix, iz);
-    const b = this.noiseHash(ix + 1, iz);
-    const c = this.noiseHash(ix, iz + 1);
-    const d = this.noiseHash(ix + 1, iz + 1);
-    return a + (b - a) * sx + (c - a) * sz + (a - b - c + d) * sx * sz;
-  }
-
-  private fbm(x: number, z: number): number {
-    let total = 0, amp = 0.5, freq = 1, max = 0;
-    for (let i = 0; i < 4; i++) {
-      total += this.vNoise(x * freq, z * freq) * amp;
-      max += amp;
-      amp *= 0.5;
-      freq *= 2;
-    }
-    return total / max;
-  }
-
-  // Valley walls: flat in the central X strip, ramping quadratically up the
-  // sides so the rider naturally descends in a couloir.
-  private couloirOffset(x: number): number {
-    const ax = Math.abs(x);
-    const flatHalf = 30;
-    const wallEnd = 110;
-    if (ax < flatHalf) return 0;
-    const t = Math.min(1, (ax - flatHalf) / (wallEnd - flatHalf));
-    return Math.pow(t, 1.6) * 90 + Math.max(0, ax - wallEnd) * 0.7;
-  }
-
-  // Soft FBM bumps; amplitude is much smaller in the central skiable strip
-  // so the rider doesn't bob, and grows out toward the ridges.
-  private terrainNoise(x: number, z: number): number {
-    const ax = Math.abs(x);
-    const ampScale = ax < 30 ? 0.35 : (ax < 60 ? 0.7 : 1.0);
-    return (this.fbm(x * 0.018, z * 0.018) - 0.5) * 3.0 * ampScale;
+  // Disabled (PR #4 rip-out). Returning 0 keeps surfaceY purely linear
+  // so feature placement matches the new flat slope mesh.
+  private terrainNoise(_x: number, _z: number): number {
+    return 0;
   }
 
   private surfaceY(x: number, z: number): number {
@@ -540,6 +512,39 @@ export class Game {
     for (const x of [-260, -80, 120, 280]) {
       make(x, -360 + Math.sin(x * 0.02) * 30, 110 + Math.sin(x) * 30, 90);
     }
+  }
+
+  // Single huge sloped ground mesh that replaces the chunked floor.
+  // Built once in world coords, vertices baked to surfaceY = -z·tan(slope).
+  // Spans X = ±300, Z = [−400, 9600] — covers anything a 5 km run can reach.
+  // Subdivisions 2 keep the geometry trivially small (3×3 vertex grid is
+  // exact for a planar slope) so there's no chance of a per-vertex /
+  // normal-recomputation bug like the chunked ground had.
+  private buildSlopeFloor(): void {
+    const halfWidth = 300;
+    const front = -400;
+    const back = 9600;
+    const length = back - front;
+    const center = (front + back) / 2;
+
+    const floor = MeshBuilder.CreateGround('slope-floor', {
+      width: halfWidth * 2, height: length, subdivisions: 2
+    }, this.scene);
+    floor.material = this.snowMat;
+    floor.position.set(0, 0, center);
+
+    const positions = floor.getVerticesData(VertexBuffer.PositionKind)!;
+    for (let i = 0; i < positions.length; i += 3) {
+      const localZ = positions[i + 2];
+      const worldZ = localZ + center;
+      // Pure linear slope: world Y = −worldZ · tan(slope). Local Y of mesh
+      // gets stored absolutely, since mesh.position.y = 0.
+      positions[i + 1] = -worldZ * Math.tan(this.slopeRad);
+    }
+    floor.updateVerticesData(VertexBuffer.PositionKind, positions, false, false);
+    floor.createNormals(false);
+    floor.refreshBoundingInfo();
+    this.slopeFloor = floor;
   }
 
   private spawnTree(x: number, z: number, scale: number, name: string): AbstractMesh[] {
@@ -662,15 +667,13 @@ export class Game {
 
   private chunkKey(cx: number, cz: number): string { return `${cx}:${cz}`; }
 
-  private cliffRolledFor = new Set<number>();
-  private maybeRollCliff(cz: number): void {
-    if (this.mode === 'half-pipe') return;
-    if (this.cliffRolledFor.has(cz)) return;
-    this.cliffRolledFor.add(cz);
-    if (cz > 2 && this.rng.next01() < 0.18 && !this.cliffs.has(cz)) {
-      const drop = 8 + this.rng.next01() * 10;
-      this.cliffs.set(cz, drop);
-    }
+  // Disabled (PR #4 rip-out). Cliffs created Y discontinuities in the chunk
+  // grounds that — combined with the chunked-mesh rendering issue — left
+  // the slope visually invisible. With the flat slope-floor mesh, cliffs
+  // would no longer line up between visible ground and feature heights.
+  // The cliffRolledFor de-dup set is gone with the cliff system itself.
+  private maybeRollCliff(_cz: number): void {
+    return;
   }
 
   private updateChunkStreaming(): void {
@@ -725,25 +728,15 @@ export class Game {
     const ox = cx * this.chunkSize + half;
     const oz = cz * this.chunkSize + half;
 
-    // Tessellated ground baked to the procedural heightmap. We don't
-    // position/rotate the mesh — vertex Y is set directly to surfaceY at
-    // each vertex's world (x, z), so slope, couloir walls, FBM bumps and
-    // cliff drops are all baked into the geometry.
-    const ground = MeshBuilder.CreateGround(`chunk-${cx}-${cz}`, {
-      width: this.chunkSize, height: this.chunkSize, subdivisions: 16
-    }, this.scene);
-    ground.material = this.snowMat;
-    const positions = ground.getVerticesData(VertexBuffer.PositionKind)!;
-    for (let i = 0; i < positions.length; i += 3) {
-      const wx = ox + positions[i];
-      const wz = oz + positions[i + 2];
-      positions[i + 0] = wx;
-      positions[i + 1] = this.surfaceY(wx, wz);
-      positions[i + 2] = wz;
-    }
-    ground.updateVerticesData(VertexBuffer.PositionKind, positions, false, false);
-    ground.createNormals(false);
-    ground.refreshBoundingInfo();
+    // PR #4 rip-out: the chunked ground mesh was invisible across every
+    // diagnostic toggle. Replaced by a single big flat slope mesh built
+    // once in buildSlopeFloor(). Each chunk now only carries its features
+    // (rocks, trees, kickers, coins). The `ground` field still exists to
+    // satisfy ChunkData; it's a tiny invisible sentinel that disposes
+    // alongside the chunk.
+    const ground = MeshBuilder.CreateBox(`chunk-stub-${cx}-${cz}`, { size: 0.001 }, this.scene);
+    ground.isVisible = false;
+    ground.setEnabled(false);
 
     const features: AbstractMesh[] = [];
     const rocks: ChunkData['rocks'] = [];
