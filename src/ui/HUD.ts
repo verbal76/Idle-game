@@ -12,6 +12,15 @@ export interface HUDRefs {
   fellOverlay: HTMLElement;
   fellStats: HTMLElement;
   fellOkBtn: HTMLButtonElement;
+  debugOverlay: HTMLElement;
+  debugReadout: HTMLElement;
+  debugWireBtn: HTMLButtonElement;
+  debugHideSkyBtn: HTMLButtonElement;
+  debugHideTrailBtn: HTMLButtonElement;
+  debugHideDustBtn: HTMLButtonElement;
+  debugUnlitBtn: HTMLButtonElement;
+  debugFreezeBtn: HTMLButtonElement;
+  debugCloseBtn: HTMLButtonElement;
 }
 
 export function buildHUD(root: HTMLElement): HUDRefs {
@@ -43,6 +52,21 @@ export function buildHUD(root: HTMLElement): HUDRefs {
           <button id="fell-ok">Continue</button>
         </div>
       </div>
+      <div id="debug-overlay" class="debug-overlay" style="display:none">
+        <div class="debug-head">
+          <span>DEBUG</span>
+          <button id="debug-close" class="debug-close">×</button>
+        </div>
+        <pre id="debug-readout" class="debug-readout"></pre>
+        <div class="debug-toggles">
+          <button id="debug-wire" class="debug-toggle">WIRE</button>
+          <button id="debug-hide-sky" class="debug-toggle">NO SKY</button>
+          <button id="debug-hide-trail" class="debug-toggle">NO TRAIL</button>
+          <button id="debug-hide-dust" class="debug-toggle">NO DUST</button>
+          <button id="debug-unlit" class="debug-toggle">UNLIT</button>
+          <button id="debug-freeze" class="debug-toggle">FREEZE</button>
+        </div>
+      </div>
     </div>
   `;
   return {
@@ -59,5 +83,14 @@ export function buildHUD(root: HTMLElement): HUDRefs {
     fellOverlay: root.querySelector<HTMLElement>('#fell-overlay')!,
     fellStats:   root.querySelector<HTMLElement>('#fell-stats')!,
     fellOkBtn:   root.querySelector<HTMLButtonElement>('#fell-ok')!,
+    debugOverlay:      root.querySelector<HTMLElement>('#debug-overlay')!,
+    debugReadout:      root.querySelector<HTMLElement>('#debug-readout')!,
+    debugWireBtn:      root.querySelector<HTMLButtonElement>('#debug-wire')!,
+    debugHideSkyBtn:   root.querySelector<HTMLButtonElement>('#debug-hide-sky')!,
+    debugHideTrailBtn: root.querySelector<HTMLButtonElement>('#debug-hide-trail')!,
+    debugHideDustBtn:  root.querySelector<HTMLButtonElement>('#debug-hide-dust')!,
+    debugUnlitBtn:     root.querySelector<HTMLButtonElement>('#debug-unlit')!,
+    debugFreezeBtn:    root.querySelector<HTMLButtonElement>('#debug-freeze')!,
+    debugCloseBtn:     root.querySelector<HTMLButtonElement>('#debug-close')!,
   };
 }
