@@ -124,30 +124,39 @@ async function runSession(
       hud.debugOverlay.style.display = 'none';
     });
 
-    // Two-finger long-press on the canvas reveals the debug overlay.
-    // Single-finger touches (dpad / jump / flip) are unaffected.
+    // Two-finger long-press anywhere reveals the debug overlay.
+    // The HUD layer (#hud) overlays the canvas with pointer-events: auto,
+    // so touches never reach the canvas — bind on window instead, which
+    // receives every touch event via bubbling regardless of target.
     let twoFingerTimer: number | null = null;
     const cancelTwoFinger = () => {
       if (twoFingerTimer !== null) { clearTimeout(twoFingerTimer); twoFingerTimer = null; }
     };
-    canvas.addEventListener('touchstart', (e: TouchEvent) => {
+    const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2 && twoFingerTimer === null) {
         twoFingerTimer = window.setTimeout(() => {
           hud.debugOverlay.style.display = 'flex';
           twoFingerTimer = null;
         }, 600);
       }
-    }, { passive: true });
-    canvas.addEventListener('touchend', cancelTwoFinger, { passive: true });
-    canvas.addEventListener('touchcancel', cancelTwoFinger, { passive: true });
-    canvas.addEventListener('touchmove', (e: TouchEvent) => {
+    };
+    const onTouchMove = (e: TouchEvent) => {
       if (e.touches.length !== 2) cancelTwoFinger();
-    }, { passive: true });
+    };
+    window.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchend', cancelTwoFinger, { passive: true });
+    window.addEventListener('touchcancel', cancelTwoFinger, { passive: true });
+    window.addEventListener('touchmove', onTouchMove, { passive: true });
 
     const finish = () => {
       game.dispose();
       dpad.detach();
       buttons.detach();
+      window.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchend', cancelTwoFinger);
+      window.removeEventListener('touchcancel', cancelTwoFinger);
+      window.removeEventListener('touchmove', onTouchMove);
+      cancelTwoFinger();
       resolve();
     };
 
