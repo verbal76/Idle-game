@@ -464,6 +464,13 @@ export class Game {
     // keep both sides drawing so a flipped triangle still renders from
     // above instead of leaving a hole the rider sees through.
     this.snowMat.backFaceCulling = false;
+    // Warm sun (1.00, 0.78, 0.58) on slight-cool snow (0.78, 0.82, 0.88)
+    // collapses to ~(0.78, 0.67, 0.64) — peach. Fog is also peach
+    // (0.78, 0.55, 0.55), so the lit slope blended into the haze and
+    // visually disappeared. A small cool-blue emissive floor pushes
+    // the snow color toward (~0.86, 0.79, 0.82), giving consistent
+    // contrast against the warm dusk fog at all view distances.
+    this.snowMat.emissiveColor = new Color3(0.08, 0.12, 0.18);
     this.snowEmissiveDefault = this.snowMat.emissiveColor.clone();
     this.rockMat     = mkMat(this.scene, 'rock',     new Color3(0.32, 0.35, 0.38));
     this.kickerMat   = mkMat(this.scene, 'kicker',   new Color3(0.28, 0.40, 0.62));
