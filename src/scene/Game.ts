@@ -20,6 +20,49 @@ export interface GameInput {
 export interface GameCallbacks {
   onScore?: (label: string) => void;
   onFell?: (stats: { distanceMeters: number; flips: number; spins: number; coins: number }) => void;
+  onDebugTick?: (snap: DebugSnapshot) => void;
+}
+
+export type DebugFlag = 'wireGround' | 'hideSky' | 'hideTrail' | 'hideDust' | 'forceUnlit';
+
+export interface DebugSnapshot {
+  ts: number;
+  fps: number;
+  rider: { x: number; y: number; z: number; heading: number; speed: number; grounded: boolean };
+  surfaceY: number;
+  camera: {
+    x: number; y: number; z: number;
+    minZ: number; maxZ: number;
+    targetX: number; targetY: number; targetZ: number;
+  };
+  scene: {
+    fogEnabled: boolean; fogMode: number; fogDensity: number;
+    fogColor: [number, number, number];
+    clearColor: [number, number, number];
+    activeMeshes: number;
+  };
+  nearestChunk: {
+    name: string;
+    isVisible: boolean;
+    isEnabled: boolean;
+    vertexCount: number;
+    materialId: string;
+    materialIsSnowMat: boolean;
+    renderingGroupId: number;
+    alphaIndex: number;
+    boundsLocalMin: [number, number, number];
+    boundsLocalMax: [number, number, number];
+    boundsWorldMin: [number, number, number];
+    boundsWorldMax: [number, number, number];
+    distFromCamera: number;
+  } | null;
+  snowMat: {
+    wireframe: boolean; alpha: number; backFaceCulling: boolean;
+    disableLighting: boolean; diffuseR: number; emissiveR: number;
+  };
+  sky: { x: number; y: number; z: number; isEnabled: boolean; parentName: string | null } | null;
+  lights: { count: number; sunDir: [number, number, number]; sunIntensity: number; hemiIntensity: number };
+  flags: { wireGround: boolean; hideSky: boolean; hideTrail: boolean; hideDust: boolean; forceUnlit: boolean };
 }
 
 type RiderState = 'normal' | 'bailing' | 'recovering';
@@ -105,6 +148,13 @@ export class Game {
   private trail!: TrailMesh;
   private mountainAnchor!: TransformNode;
   private followTarget!: Mesh;
+  private sky?: Mesh;
+  private sun?: DirectionalLight;
+  private hemi?: HemisphericLight;
+
+  private debugFlags = { wireGround: false, hideSky: false, hideTrail: false, hideDust: false, forceUnlit: false };
+  private snowEmissiveDefault = new Color3(0, 0, 0);
+  private lastDebugAt = 0;
 
   private rng = new SeedRng(BigInt(Date.now()));
 
@@ -166,10 +216,12 @@ export class Game {
     hemi.intensity = 0.40;
     hemi.diffuse    = new Color3(0.78, 0.72, 0.85);
     hemi.groundColor = new Color3(0.45, 0.30, 0.40);
+    this.hemi = hemi;
     const sun = new DirectionalLight('sun', new Vector3(-0.45, -0.85, -0.25), this.scene);
     sun.intensity = 0.75;
     sun.diffuse  = new Color3(1.00, 0.78, 0.58);
     sun.specular = new Color3(0.30, 0.25, 0.20);
+    this.sun = sun;
 
     this.buildSharedMaterials();
     this.rider = buildRider(this.scene);
@@ -205,6 +257,119 @@ export class Game {
     this.engine.stopRenderLoop();
     this.scene.dispose();
     this.engine.dispose();
+  }
+
+  setDebugFlag(name: DebugFlag, on: boolean): void {
+    this.debugFlags[name] = on;
+    switch (name) {
+      case 'wireGround':
+        this.snowMat.wireframe = on;
+        break;
+      case 'hideSky':
+        if (this.sky) this.sky.setEnabled(!on);
+        break;
+      case 'hideTrail':
+        if (this.trail) this.trail.setEnabled(!on);
+        break;
+      case 'hideDust':
+        if (on) this.dustParticles.stop(); else this.dustParticles.start();
+        break;
+      case 'forceUnlit':
+        this.snowMat.disableLighting = on;
+        if (on) {
+          // Bright emissive so the slope reads even when ignoring all lights.
+          this.snowMat.emissiveColor = new Color3(0.9, 0.95, 1.0);
+        } else {
+          this.snowMat.emissiveColor = this.snowEmissiveDefault.clone();
+        }
+        break;
+    }
+  }
+
+  private buildDebugSnapshot(): DebugSnapshot {
+    const r = this.rider.root.position;
+    const cam = this.scene.activeCamera as FollowCamera | null;
+    const camPos = cam ? cam.position : new Vector3(0, 0, 0);
+    const tgt = this.followTarget?.position ?? new Vector3(0, 0, 0);
+
+    let nearest: DebugSnapshot['nearestChunk'] = null;
+    let nearestDist = Infinity;
+    for (const chunk of this.chunks.values()) {
+      const g = chunk.ground;
+      const bb = g.getBoundingInfo().boundingBox;
+      const c = bb.centerWorld;
+      const dx = c.x - camPos.x, dy = c.y - camPos.y, dz = c.z - camPos.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        const verts = g.getVerticesData(VertexBuffer.PositionKind);
+        nearest = {
+          name: g.name,
+          isVisible: g.isVisible,
+          isEnabled: g.isEnabled(),
+          vertexCount: verts ? verts.length / 3 : 0,
+          materialId: g.material ? g.material.id : '(null)',
+          materialIsSnowMat: g.material === this.snowMat,
+          renderingGroupId: g.renderingGroupId,
+          alphaIndex: g.alphaIndex,
+          boundsLocalMin: [bb.minimum.x, bb.minimum.y, bb.minimum.z],
+          boundsLocalMax: [bb.maximum.x, bb.maximum.y, bb.maximum.z],
+          boundsWorldMin: [bb.minimumWorld.x, bb.minimumWorld.y, bb.minimumWorld.z],
+          boundsWorldMax: [bb.maximumWorld.x, bb.maximumWorld.y, bb.maximumWorld.z],
+          distFromCamera: dist,
+        };
+      }
+    }
+
+    const fc = this.scene.fogColor;
+    const cc = this.scene.clearColor;
+    const sd = this.snowMat.diffuseColor;
+    const se = this.snowMat.emissiveColor;
+    const sunDirVec = this.sun ? this.sun.direction : new Vector3(0, 0, 0);
+
+    return {
+      ts: performance.now(),
+      fps: this.engine.getFps(),
+      rider: {
+        x: r.x, y: r.y, z: r.z,
+        heading: this.heading, speed: this.speed, grounded: this.grounded,
+      },
+      surfaceY: this.surfaceY(r.x, r.z),
+      camera: {
+        x: camPos.x, y: camPos.y, z: camPos.z,
+        minZ: cam?.minZ ?? -1, maxZ: cam?.maxZ ?? -1,
+        targetX: tgt.x, targetY: tgt.y, targetZ: tgt.z,
+      },
+      scene: {
+        fogEnabled: this.scene.fogEnabled,
+        fogMode: this.scene.fogMode,
+        fogDensity: this.scene.fogDensity,
+        fogColor: [fc.r, fc.g, fc.b],
+        clearColor: [cc.r, cc.g, cc.b],
+        activeMeshes: this.scene.getActiveMeshes().length,
+      },
+      nearestChunk: nearest,
+      snowMat: {
+        wireframe: this.snowMat.wireframe,
+        alpha: this.snowMat.alpha,
+        backFaceCulling: this.snowMat.backFaceCulling,
+        disableLighting: this.snowMat.disableLighting,
+        diffuseR: sd.r,
+        emissiveR: se.r,
+      },
+      sky: this.sky ? {
+        x: this.sky.position.x, y: this.sky.position.y, z: this.sky.position.z,
+        isEnabled: this.sky.isEnabled(),
+        parentName: this.sky.parent ? this.sky.parent.name : null,
+      } : null,
+      lights: {
+        count: this.scene.lights.length,
+        sunDir: [sunDirVec.x, sunDirVec.y, sunDirVec.z],
+        sunIntensity: this.sun?.intensity ?? 0,
+        hemiIntensity: this.hemi?.intensity ?? 0,
+      },
+      flags: { ...this.debugFlags },
+    };
   }
 
   private onResize(): void { this.engine.resize(); }
@@ -299,6 +464,7 @@ export class Game {
     // keep both sides drawing so a flipped triangle still renders from
     // above instead of leaving a hole the rider sees through.
     this.snowMat.backFaceCulling = false;
+    this.snowEmissiveDefault = this.snowMat.emissiveColor.clone();
     this.rockMat     = mkMat(this.scene, 'rock',     new Color3(0.32, 0.35, 0.38));
     this.kickerMat   = mkMat(this.scene, 'kicker',   new Color3(0.28, 0.40, 0.62));
     this.coinMat     = mkMat(this.scene, 'coin',     new Color3(1.00, 0.82, 0.18));
@@ -428,6 +594,7 @@ export class Game {
     sky.material = mat;
     sky.applyFog = false;
     sky.parent = this.mountainAnchor; // follows rider position only (no rotation)
+    this.sky = sky;
   }
 
   private buildSnowDust(): void {
@@ -1001,6 +1168,11 @@ export class Game {
     const spinTag = this.spinsLanded > 0 ? `  •  ${this.spinsLanded} spin${this.spinsLanded > 1 ? 's' : ''}` : '';
     const coinTag = `  •  ${this.coinsCollected} ❄`;
     this.callbacks.onScore?.(`${altTag}${meters} m${coinTag}${flipTag}${spinTag}`);
+
+    if (this.callbacks.onDebugTick && now - this.lastDebugAt > 160) {
+      this.lastDebugAt = now;
+      this.callbacks.onDebugTick(this.buildDebugSnapshot());
+    }
 
     void this.trail;
     this.scene.render();
