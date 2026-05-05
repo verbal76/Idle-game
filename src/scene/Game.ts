@@ -67,6 +67,19 @@ export interface DebugSnapshot {
 
 type RiderState = 'normal' | 'bailing' | 'recovering';
 
+interface SlopeSegment {
+  frame: TransformNode;
+  floor: Mesh;
+  leftWall: Mesh;
+  rightWall: Mesh;
+  cliffFace?: Mesh;
+  startZ: number;   // world Z where this segment begins
+  endZ: number;     // world Z where this segment ends (= next segment's startZ)
+  startY: number;   // world Y at startZ (top of slope at start of segment)
+  endY: number;     // world Y at endZ
+  slope: number;    // segment slope angle in radians
+}
+
 interface ChunkData {
   ground: Mesh;
   features: AbstractMesh[];
@@ -151,7 +164,9 @@ export class Game {
   private sky?: Mesh;
   private sun?: DirectionalLight;
   private hemi?: HemisphericLight;
-  private slopeFloor?: Mesh;
+  private slopeSegments: SlopeSegment[] = [];
+  private readonly aheadMargin = 800;   // generate segments up to this far ahead of rider
+  private readonly behindMargin = 200;  // dispose segments this far behind rider
 
   private debugFlags = { wireGround: false, hideSky: false, hideTrail: false, hideDust: false, forceUnlit: false };
   private snowEmissiveDefault = new Color3(0, 0, 0);
@@ -295,10 +310,11 @@ export class Game {
     const tgt = this.followTarget?.position ?? new Vector3(0, 0, 0);
 
     let nearest: DebugSnapshot['nearestChunk'] = null;
-    // PR #4: chunk grounds replaced by a single slope-floor mesh; report
-    // that as the "nearest chunk" so the diagnostic still tells us whether
-    // the visible floor mesh is rendering, lit, etc.
-    const target = this.slopeFloor ?? null;
+    // PR #4-#7 evolution: report the slope segment containing the rider
+    // (the active floor under their feet) so the readout reflects the
+    // segment they're currently on. Falls back to first segment.
+    const seg = this.segmentAtZ(this.rider.root.position.z) ?? this.slopeSegments[0];
+    const target: Mesh | null = seg ? seg.floor : null;
     if (target) {
       const g = target;
       const bb = g.getBoundingInfo().boundingBox;
@@ -395,25 +411,24 @@ export class Game {
   // removed along with the chunked ground. surfaceY is now a pure linear
   // slope; feature placement uses that same simple analytic.
 
-  // Disabled (PR #4 rip-out): chunked ground replaced by a single big flat
-  // slope mesh. Couloir walls would create a Y discontinuity between the
-  // flat slope-floor and the (unused) chunked ground, so we collapse them
-  // to zero. Trees/rocks/coins now sit on the simple slope.
-  private couloirOffset(_x: number): number {
-    return 0;
-  }
-
-  // Disabled (PR #4 rip-out). Returning 0 keeps surfaceY purely linear
-  // so feature placement matches the new flat slope mesh.
-  private terrainNoise(_x: number, _z: number): number {
-    return 0;
-  }
+  // (couloirOffset / terrainNoise / fbm helpers removed in PR #8 — the
+  // slope is now a procedural chain of SlopeSegments at varied angles
+  // with cliff drops between them; piecewise heightmap, no analytic.)
 
   private surfaceY(x: number, z: number): number {
-    const cz = Math.floor(z / this.chunkSize);
-    const slope = -z * Math.tan(this.activeSlope);
-    if (this.mode === 'half-pipe') return slope - this.cliffOffsetAt(cz);
-    return slope + this.couloirOffset(x) + this.terrainNoise(x, z) - this.cliffOffsetAt(cz);
+    if (this.mode === 'half-pipe') {
+      const cz = Math.floor(z / this.chunkSize);
+      return -z * Math.tan(this.activeSlope) - this.cliffOffsetAt(cz);
+    }
+    // Downhill: piecewise from the procedural segment chain.
+    const seg = this.segmentAtZ(z);
+    if (seg) {
+      return seg.startY - (z - seg.startZ) * Math.tan(seg.slope);
+    }
+    // Fallback for queries before segments exist (e.g. constructor's
+    // initial rider position lookup at z=0) or beyond the generated range.
+    void x;
+    return -z * Math.tan(this.slopeRad);
   }
 
   // U-shaped half-pipe cross-section: flat in the middle, quarter-arc up each side.
@@ -526,47 +541,124 @@ export class Game {
   // GPU vertex buffer is non-updatable by default, and updateVerticesData
   // silently no-ops without `updatable: true` (the bug that hid the slope
   // for four PRs). Rotation-only is safe.
+  //
+  // Procedural slope: instead of one big floor mesh, the slope is a chain
+  // of segments. Each segment has its own slope angle and starts where the
+  // previous ended (with an optional cliff drop). Streaming spawns
+  // segments ahead of the rider and disposes them behind. Lets us match
+  // the cutaway profile the player sketched: variable steepness, drops
+  // for jumps, gully walls flanking each segment.
   private buildSlopeFloor(): void {
-    const frame = new TransformNode('slope-frame', this.scene);
-    frame.rotation.x = this.slopeRad;
+    this.extendSlopeAhead(this.aheadMargin);
+  }
 
-    const floor = MeshBuilder.CreateGround('slope-floor', {
-      width: 600, height: 20000, subdivisions: 2
+  private spawnNextSegment(): void {
+    const last = this.slopeSegments[this.slopeSegments.length - 1];
+    const segStartZ = last ? last.endZ : 0;
+    const baseY = last ? last.endY : 0;
+
+    // Cliff drop at the segment boundary. First segment is at the rider's
+    // spawn — no drop there or they'd start mid-air. After ~150 m of run,
+    // ~35% of segment boundaries get a cliff (6-24 m drop) for jumps.
+    const cliffDrop = (last && segStartZ > 150 && this.rng.next01() < 0.35)
+      ? 6 + this.rng.next01() * 18
+      : 0;
+    const startY = baseY - cliffDrop;
+
+    // Slope angle varied around the base slopeRad. Mostly between 0.85x
+    // and 1.5x — gentle to noticeably steep. Occasional steeper segment
+    // for a "couloir" feel.
+    const slope = this.slopeRad * (0.85 + this.rng.next01() * 0.65);
+
+    // Segment world-Z extent. Mesh height (along the tilted slope) needs
+    // to be lengthZ / cos(slope) so its world-Z projection is exactly
+    // lengthZ — keeps segments seamlessly adjacent.
+    const lengthZ = 110 + this.rng.next01() * 220;
+    const meshHeight = lengthZ / Math.cos(slope);
+    const endZ = segStartZ + lengthZ;
+    const endY = startY - lengthZ * Math.tan(slope);
+
+    const frame = new TransformNode(`seg-frame-${segStartZ.toFixed(0)}`, this.scene);
+    frame.position.set(0, startY, segStartZ);
+    frame.rotation.x = slope;
+
+    // Floor: shifted forward in the frame so its back edge sits at frame
+    // origin (0,0,0) and its front edge at (0,0,meshHeight).
+    const floor = MeshBuilder.CreateGround(`seg-floor-${segStartZ.toFixed(0)}`, {
+      width: 600, height: meshHeight, subdivisions: 2
     }, this.scene);
     floor.material = this.snowMat;
     floor.parent = frame;
-    this.slopeFloor = floor;
+    floor.position.set(0, 0, meshHeight / 2);
 
-    // Couloir walls. Wall is a plane of width `wallW`, tilted around its
-    // own Z by `wallTilt`. After tilt, place the wall so its INNER edge
-    // (the one closer to the floor) sits at the floor's edge (X=±300, Y=0).
-    //
-    // Wall vertex (+wallW/2, 0, 0) (inner edge) after Rz(-wallTilt):
-    //   (wallW/2·cosT, -wallW/2·sinT, 0)
-    // To map to (-300, 0, 0), translate by:
-    //   (-300 - wallW/2·cosT, +wallW/2·sinT, 0)
+    // Walls: V-shape inside the frame, length matches segment.
     const wallW = 280;
-    const wallTilt = 0.65;        // ~37° outward tilt
-    const cosT = Math.cos(wallTilt);
-    const sinT = Math.sin(wallTilt);
-    const innerOffset = wallW / 2 * cosT;
-    const innerLift = wallW / 2 * sinT;
+    const wallTilt = 0.65;
+    const innerOffset = wallW / 2 * Math.cos(wallTilt);
+    const innerLift = wallW / 2 * Math.sin(wallTilt);
 
-    const leftWall = MeshBuilder.CreateGround('left-wall', {
-      width: wallW, height: 20000, subdivisions: 2
+    const leftWall = MeshBuilder.CreateGround(`seg-leftwall-${segStartZ.toFixed(0)}`, {
+      width: wallW, height: meshHeight, subdivisions: 2
     }, this.scene);
     leftWall.material = this.mountainMat;
     leftWall.parent = frame;
-    leftWall.position.set(-300 - innerOffset, innerLift, 0);
+    leftWall.position.set(-300 - innerOffset, innerLift, meshHeight / 2);
     leftWall.rotation.z = -wallTilt;
 
-    const rightWall = MeshBuilder.CreateGround('right-wall', {
-      width: wallW, height: 20000, subdivisions: 2
+    const rightWall = MeshBuilder.CreateGround(`seg-rightwall-${segStartZ.toFixed(0)}`, {
+      width: wallW, height: meshHeight, subdivisions: 2
     }, this.scene);
     rightWall.material = this.mountainMat;
     rightWall.parent = frame;
-    rightWall.position.set(300 + innerOffset, innerLift, 0);
+    rightWall.position.set(300 + innerOffset, innerLift, meshHeight / 2);
     rightWall.rotation.z = wallTilt;
+
+    // Vertical cliff face at the boundary if there's a drop. Sits in
+    // absolute world coords (not parented to the frame) so its vertical
+    // edge stays vertical. Slightly oversized in height so the top
+    // forms a visible cornice line above the upper segment.
+    let cliffFace: Mesh | undefined;
+    if (cliffDrop > 0) {
+      cliffFace = MeshBuilder.CreateBox(`seg-cliff-${segStartZ.toFixed(0)}`, {
+        width: 600, height: cliffDrop + 0.4, depth: 0.4
+      }, this.scene);
+      cliffFace.material = this.cliffMat;
+      cliffFace.position.set(0, startY + cliffDrop / 2 + 0.2, segStartZ);
+    }
+
+    this.slopeSegments.push({
+      frame, floor, leftWall, rightWall, cliffFace,
+      startZ: segStartZ, endZ, startY, endY, slope,
+    });
+  }
+
+  private extendSlopeAhead(targetZ: number): void {
+    while (
+      this.slopeSegments.length === 0 ||
+      this.slopeSegments[this.slopeSegments.length - 1].endZ < targetZ
+    ) {
+      this.spawnNextSegment();
+    }
+  }
+
+  private disposeSlopeBehind(rz: number): void {
+    const cutoff = rz - this.behindMargin;
+    while (this.slopeSegments.length > 0 && this.slopeSegments[0].endZ < cutoff) {
+      const seg = this.slopeSegments.shift()!;
+      seg.floor.dispose();
+      seg.leftWall.dispose();
+      seg.rightWall.dispose();
+      if (seg.cliffFace) seg.cliffFace.dispose();
+      seg.frame.dispose();
+    }
+  }
+
+  private segmentAtZ(z: number): SlopeSegment | undefined {
+    // Linear scan; ~10 active segments at a time, cheap.
+    for (const s of this.slopeSegments) {
+      if (s.startZ <= z && z < s.endZ) return s;
+    }
+    return undefined;
   }
 
   private spawnTree(x: number, z: number, scale: number, name: string): AbstractMesh[] {
@@ -700,6 +792,11 @@ export class Game {
 
   private updateChunkStreaming(): void {
     if (this.mode === 'half-pipe') return this.updateHalfPipeStreaming();
+
+    // Procedural slope segments stream independently of feature chunks.
+    const riderZ = this.rider.root.position.z;
+    this.extendSlopeAhead(riderZ + this.aheadMargin);
+    this.disposeSlopeBehind(riderZ);
 
     const rx = Math.floor(this.rider.root.position.x / this.chunkSize);
     const rz = Math.floor(this.rider.root.position.z / this.chunkSize);
