@@ -514,43 +514,26 @@ export class Game {
     }
   }
 
-  // Single huge sloped ground mesh that replaces the chunked floor.
-  // Built once in world coords, vertices baked to surfaceY = -z·tan(slope).
-  // Spans X = ±300, Z = [−400, 9600] — covers anything a 5 km run can reach.
-  // Subdivisions 2 keep the geometry trivially small (3×3 vertex grid is
-  // exact for a planar slope) so there's no chance of a per-vertex /
-  // normal-recomputation bug like the chunked ground had.
+  // Single huge sloped ground mesh. Uses mesh ROTATION instead of vertex
+  // deformation — CreateGround defaults to non-updatable buffers, so
+  // updateVerticesData() silently no-ops the GPU update (see
+  // @babylonjs/core/Buffers/buffer.js: Buffer.update only writes the GPU
+  // buffer when this._updatable === true). The CPU cache + bounding
+  // info DID reflect deformation, which is why earlier diagnostic
+  // readouts showed correct world bounds — but the GPU kept rendering
+  // a flat plane at Y=0, above the camera's sightline, so the slope
+  // appeared invisible. Rotating the mesh avoids the buffer update
+  // entirely: the GPU vertices don't change, only the world matrix.
+  //
+  // Length 20000 m × cos(slope) ≈ 19560 m of forward range, plenty for
+  // the run distance the rider can reach.
   private buildSlopeFloor(): void {
-    const halfWidth = 300;
-    const front = -400;
-    const back = 9600;
-    const length = back - front;
-    const center = (front + back) / 2;
-
     const floor = MeshBuilder.CreateGround('slope-floor', {
-      width: halfWidth * 2, height: length, subdivisions: 2
+      width: 600, height: 20000, subdivisions: 2
     }, this.scene);
     floor.material = this.snowMat;
-    floor.position.set(0, 0, center);
-
-    const positions = floor.getVerticesData(VertexBuffer.PositionKind)!;
-    for (let i = 0; i < positions.length; i += 3) {
-      const localZ = positions[i + 2];
-      const worldZ = localZ + center;
-      // Pure linear slope: world Y = −worldZ · tan(slope). Local Y of mesh
-      // gets stored absolutely, since mesh.position.y = 0.
-      positions[i + 1] = -worldZ * Math.tan(this.slopeRad);
-    }
-    floor.updateVerticesData(VertexBuffer.PositionKind, positions, false, false);
-    // DO NOT call createNormals here. CreateGround's default normals point
-    // straight up (+Y); that's correct for our slope (lit by sun + hemi
-    // top-half). createNormals(false) would recompute from triangle winding
-    // and — for Babylon's left-handed CreateGround output — produce normals
-    // pointing DOWN (-Y). With backFaceCulling=false the floor still draws
-    // but lit only by hemi.groundColor (dim purple-brown) which then blends
-    // with the dusk sky and reads as invisible. This is the bug that
-    // appeared invisible across PR #1-#4 of attempts.
-    floor.refreshBoundingInfo();
+    floor.position.set(0, 0, 0);
+    floor.rotation.x = this.slopeRad;
     this.slopeFloor = floor;
   }
 
