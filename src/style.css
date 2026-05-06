@@ -125,3 +125,54 @@ html, body {
   border-color: rgba(255, 240, 200, 0.8);
 }
 
+/* Settings gear button — used in the HUD top-bar and as a corner
+   shortcut on full-screen menu panels. */
+.gear-btn {
+  background: rgba(20, 32, 56, 0.82); color: #fff;
+  border: 2px solid rgba(160, 200, 240, 0.55);
+  width: 40px; height: 40px;
+  border-radius: 10px;
+  font: inherit; font-size: 18px;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  min-width: 0;
+}
+#hud .top-bar .gear-btn { margin-left: auto; }
+.fullscreen-panel .gear-btn.corner {
+  position: absolute;
+  top: max(env(safe-area-inset-top, 12px), 12px);
+  right: max(env(safe-area-inset-right, 12px), 12px);
+}
+
+/* About panel: definition-list of build identifier fields. Two-column
+   row so labels align and SHA / timestamps stay readable. */
+.about-list {
+  display: flex; flex-direction: column; gap: 6px;
+  min-width: 320px; max-width: 560px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(160, 200, 240, 0.15);
+  border-radius: 10px;
+  padding: 12px 16px;
+}
+.about-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 16px;
+  font-size: 13px;
+}
+.about-label { opacity: 0.7; flex-shrink: 0; }
+.about-val { color: #eef3ff; text-align: right; word-break: break-all; }
+.about-val.mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+.about-warn {
+  color: #ffd28a; font-size: 13px; max-width: 480px; text-align: center;
+  background: rgba(140, 90, 20, 0.25);
+  border: 1px solid rgba(255, 200, 100, 0.4);
+  border-radius: 8px; padding: 8px 12px;
+}
+.about-fallback {
+  width: 100%; min-height: 120px;
+  margin-top: 8px;
+  background: rgba(0, 0, 0, 0.3); color: #eef3ff;
+  border: 1px solid rgba(160, 200, 240, 0.25);
+  border-radius: 6px; padding: 8px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px;
+}

@@ -4,6 +4,8 @@ import { ProfileService } from './profiles/ProfileService';
 import { showProfileSelect } from './ui/ProfileSelect';
 import { showMainMenu, MenuChoice } from './ui/MainMenu';
 import { showUpgrades } from './ui/Upgrades';
+import { showSettings } from './ui/Settings';
+import { showAbout } from './ui/About';
 import { buildHUD } from './ui/HUD';
 import { ArrowPadInput } from './input/ArrowPadInput';
 import { ActionButtons } from './input/ActionButtons';
@@ -15,7 +17,7 @@ declare global {
   }
 }
 
-type RunMode = Exclude<MenuChoice, 'switch-profile' | 'upgrades'>;
+type RunMode = Exclude<MenuChoice, 'switch-profile' | 'upgrades' | 'settings'>;
 
 function showError(prefix: string, err: unknown): void {
   const msg = (err && (err as { stack?: string }).stack) || String(err);
@@ -63,6 +65,10 @@ async function bootstrap(): Promise<void> {
       if (choice === 'upgrades') {
         await showUpgrades(screen, profiles);
         await profiles.save();
+        continue;
+      }
+      if (choice === 'settings') {
+        await showSettings(screen);
         continue;
       }
       mode = choice;
@@ -139,6 +145,19 @@ async function runSession(
     });
     hud.resumeBtn.addEventListener('click', () => {
       hud.pauseMenu.style.display = 'none';
+      game.resume();
+    });
+
+    hud.settingsBtn.addEventListener('click', async () => {
+      // In-game settings: pause the run, show the About panel inline
+      // in the existing settings-overlay div, then resume on close.
+      // Same About widget the menu screens use, so the build identifier
+      // is consistent across all entry points.
+      game.pause();
+      hud.settingsOverlay.style.display = 'flex';
+      await showAbout(hud.settingsOverlay);
+      hud.settingsOverlay.style.display = 'none';
+      hud.settingsOverlay.innerHTML = '';
       game.resume();
     });
     hud.switchBtn.addEventListener('click', () => {

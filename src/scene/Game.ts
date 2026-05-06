@@ -39,7 +39,9 @@ interface SlopeSegment {
 interface ChunkData {
   ground: Mesh;
   features: AbstractMesh[];
-  rocks: Array<{ x: number; z: number }>;
+  // Optional radius lets half-pipe weave bumps use a tighter hit-box than
+  // the 1.5 m default downhill rocks; collision loop reads the override.
+  rocks: Array<{ x: number; z: number; radius?: number }>;
   kickers: Array<{ x: number; z: number; width: number; power: number }>;
   cx: number;
   cz: number;
@@ -88,18 +90,24 @@ export class Game {
   private readonly HP_PIPE_RADIUS = 4.0;        // = HP_PIPE_HALF - HP_FLAT_HALF
   private readonly HP_LIP_HEIGHT = 0.6;         // small vertical lip at the top
   private readonly HP_CONTEXT_WIDTH = 220;
-  // Heading clamp range on the halfpipe — symmetric forward cone of ±45°
-  // (45° buffer from the ±90° stall pocket; cos²(45°) = 0.5 so target
-  // speed at the clamp limit is 50% of max — usable, not stuck).
-  // Applied only while grounded; air spin is free for tricks. On clean
-  // landing the heading snaps back to 0 so the rider always lands
-  // facing forward, no matter how much they spun in the air.
-  private readonly HP_HEADING_MAX =  45 * Math.PI / 180;
-  private readonly HP_HEADING_MIN = -45 * Math.PI / 180;
+  // Heading clamp — symmetric forward cone of ±80°, 10° buffer from the
+  // ±90° stall pocket (cos²(80°) ≈ 0.03 → ~3% target speed at the limit:
+  // a real scrub-brake state, not a hard stop). Applied to BOTH modes
+  // while grounded; air spin is free for tricks. On clean landing the
+  // accumulated air spin is collapsed via atan2 to (-π, π], then the
+  // next grounded tick squeezes it into ±80°.
+  private readonly HEADING_MAX =  80 * Math.PI / 180;
+  private readonly HEADING_MIN = -80 * Math.PI / 180;
 
   private speed = 0;
   private verticalVelocity = 0;
   private grounded = true;
+  // Last frame's groundLevel beneath the rider. Used by the grounded
+  // airborne-detect to recognize a cliff-edge step-down: when groundLevel
+  // drops by more than CLIFF_STEP_M between frames, the rider is going
+  // off a lip and gravity should take over instead of zeroing vy.
+  private prevGroundLevel: number | null = null;
+  private readonly CLIFF_STEP_M = 1.0;
   private jumpCharge = 0;
   private flipRotation = 0;
   private flipsLanded = 0;
@@ -223,7 +231,6 @@ export class Game {
 
     this.buildSharedMaterials();
     this.rider = buildRider(this.scene);
-    this.rider.root.position.set(0, this.groundY + this.surfaceY(0, 0) + this.pipeOffsetY(0), 0);
 
     this.buildTreeTemplates();
     this.buildBackgroundMountains();
@@ -231,7 +238,10 @@ export class Game {
     // own pipe ribbons via spawnHalfPipeChunk; the slope-segment chain
     // would land massive snow walls inside the pipe and the rider would
     // fall through them.
+    // Build the slope chain BEFORE the spawn-Y lookup so surfaceY(0,0)
+    // hits a real segment instead of the extrapolation fallback.
     if (this.mode !== 'half-pipe') this.buildSlopeFloor();
+    this.rider.root.position.set(0, this.groundY + this.surfaceY(0, 0) + this.pipeOffsetY(0), 0);
     this.buildSky();
     this.buildCamera();
     this.buildSnowDust();
@@ -309,9 +319,15 @@ export class Game {
     if (seg) {
       return seg.startY - (z - seg.startZ) * Math.tan(seg.slope);
     }
-    // Fallback for queries before segments exist (e.g. constructor's
-    // initial rider position lookup at z=0) or beyond the generated range.
     void x;
+    // Past the last segment: extrapolate from its endY along the base
+    // slope. The naive `-z * tan(slopeRad)` fallback ignores accumulated
+    // cliff drops, which placed surfaceY many meters above the visible
+    // mesh whenever the rider tunneled past the generated range — they'd
+    // land on phantom ground and stay underground until they jumped.
+    const last = this.slopeSegments[this.slopeSegments.length - 1];
+    if (last) return last.endY - (z - last.endZ) * Math.tan(this.slopeRad);
+    // Only used at construction before the first segment is built.
     return -z * Math.tan(this.slopeRad);
   }
 
@@ -937,10 +953,12 @@ export class Game {
     const features: AbstractMesh[] = [pipe];
 
     const kickers: ChunkData['kickers'] = [];
+    const rocks: ChunkData['rocks'] = [];
 
     if (cz > 0) {
       // Yellow orb coin pickups removed (PR #16). Snowflakes are now
       // earned per completed flip instead.
+      let kickerLz: number | null = null;
       if (cz % 2 === 1) {
         const lz = oz + this.rng.rangeFloat(-half + 5, half - 5);
         // Halfpipe kicker width tripled (4 → 12). HP_PIPE_HALF is 9, so a
@@ -952,11 +970,38 @@ export class Game {
         kicker.rotation.x = -0.40 - this.activeSlope;
         features.push(kicker);
         kickers.push({ x: ox, z: lz, width: 12, power: 7.5 });
+        kickerLz = lz;
+      }
+
+      // Weave bumps: 1–2 small ice-bump rocks per chunk, light enough
+      // that the pipe still reads as "long ramp with periodic jumps"
+      // but not a continuous straight line. Sit in the flat trough
+      // (-FLAT+1 .. +FLAT-1) so they never clip the curved walls. On
+      // kicker chunks, reject samples within ±3 m Z of the kicker so
+      // the rider can always hit the ramp clean.
+      if (cz > 1) {
+        const bumpCount = this.rng.rangeInt(1, 3); // 1 or 2 bumps
+        for (let i = 0; i < bumpCount; i++) {
+          let lz = 0;
+          for (let attempt = 0; attempt < 6; attempt++) {
+            lz = oz + this.rng.rangeFloat(-half + 8, half - 8);
+            if (kickerLz === null || Math.abs(lz - kickerLz) > 3) break;
+          }
+          if (kickerLz !== null && Math.abs(lz - kickerLz) <= 3) continue;
+          const lx = this.rng.rangeFloat(-this.HP_FLAT_HALF + 1, this.HP_FLAT_HALF - 1);
+          const bump = MeshBuilder.CreateBox(`hp-bump-${cz}-${i}`, {
+            width: 1.0, height: 0.6, depth: 1.0
+          }, this.scene);
+          bump.material = this.rockMat;
+          bump.position.set(lx, this.surfaceY(lx, lz) + 0.3, lz);
+          features.push(bump);
+          rocks.push({ x: lx, z: lz, radius: 0.7 });
+        }
       }
     }
 
     this.chunks.set(this.chunkKey(cx, cz), {
-      ground: context, features, rocks: [], kickers, cx, cz
+      ground: context, features, rocks, kickers, cx, cz
     });
   }
 
@@ -1106,15 +1151,13 @@ export class Game {
       this.spinRotation += spinDelta;
     }
 
-    // Halfpipe heading clamp — symmetric forward cone ±80° (10° buffer
-    // from the ±90° stall pocket where target = maxSpeed·cos²h ≈ 0).
-    // GROUND ONLY: in the air the rider can spin freely for tricks; on
-    // landing the heading is normalized to (-π, +π] via atan2 (see the
-    // landing branch below) so the post-landing clamp doesn't snap a
-    // 360° spin all the way back to 80°.
-    if (this.mode === 'half-pipe' && this.grounded) {
-      if (this.heading >  this.HP_HEADING_MAX) this.heading = this.HP_HEADING_MAX;
-      if (this.heading <  this.HP_HEADING_MIN) this.heading = this.HP_HEADING_MIN;
+    // Heading clamp — symmetric forward cone ±80°, both modes. GROUND
+    // ONLY: in the air the rider can spin freely for tricks; on landing
+    // the heading is normalized to (-π, +π] via atan2 (see the landing
+    // branch below) so a 360° spin lands at 0° and never sees the clamp.
+    if (this.grounded) {
+      if (this.heading >  this.HEADING_MAX) this.heading = this.HEADING_MAX;
+      if (this.heading <  this.HEADING_MIN) this.heading = this.HEADING_MIN;
     }
 
     this.rider.root.rotation.x = this.activeSlope;
@@ -1178,14 +1221,13 @@ export class Game {
           }
           this.spinRotation = 0;
 
-          // Halfpipe: snap heading to 0 on clean landing. Air spin
-          // accumulated freely for trick visuals; the moment they touch
-          // down they're facing forward again. Predictable + avoids the
-          // "stuck sideways at the clamp limit" feeling after a 540°
-          // trick.
-          if (this.mode === 'half-pipe') {
-            this.heading = 0;
-          }
+          // Both modes: collapse the unbounded air-spin angle into the
+          // canonical (-π, π] range via atan2 so the next grounded tick's
+          // ±80° clamp doesn't have to traverse multiple full turns.
+          // A clean 360° spin lands at 0°; a 270° spin lands at -90° and
+          // the next clamp tick squeezes it to -80°. A 540° lands at
+          // 180° and gets clamped to 80°.
+          this.heading = Math.atan2(Math.sin(this.heading), Math.cos(this.heading));
 
           // Take the hit with the knees: brief squat on impact.
           this.landingSquatUntil = performance.now() + this.SQUAT_MS;
@@ -1238,17 +1280,35 @@ export class Game {
         + this.surfaceY(this.rider.root.position.x, this.rider.root.position.z)
         + this.pipeOffsetY(this.rider.root.position.x);
       if (this.rider.root.position.y - groundLevel > 0.4) {
+        // Detect cliff-edge step-down: groundLevel just dropped by
+        // CLIFF_STEP_M+ from one frame to the next. The rider is going
+        // off a lip — let gravity take over from their current Y rather
+        // than zeroing vy and snapping them to the lower surface (which
+        // would put them on phantom ground beneath the visible cliff
+        // face). Air-spin works the same as a kicker launch.
+        const droppedOffCliff = this.prevGroundLevel !== null
+          && (this.prevGroundLevel - groundLevel) > this.CLIFF_STEP_M;
         this.grounded = false;
-        this.verticalVelocity = 0;
+        if (!droppedOffCliff) this.verticalVelocity = 0;
       } else {
         this.rider.root.position.y = groundLevel;
       }
+      this.prevGroundLevel = groundLevel;
+    } else {
+      // Reset the cliff-detect baseline whenever airborne so the next
+      // landing doesn't compare against a stale grounded sample.
+      this.prevGroundLevel = null;
     }
 
     this.checkInteractions();
 
     // Safety net: if the rider somehow ends up below the surface
     // (chunk-spawn race, cliff edge, etc.), snap them back to it.
+    // Pre-extend the slope chain so groundLevel reads against a real
+    // segment rather than the extrapolated fallback.
+    if (this.mode !== 'half-pipe') {
+      this.extendSlopeAhead(this.rider.root.position.z + 50);
+    }
     {
       const groundLevel = this.groundY
         + this.surfaceY(this.rider.root.position.x, this.rider.root.position.z)
@@ -1338,7 +1398,11 @@ export class Game {
         for (const o of chunk.rocks) {
           const dx = Math.abs(o.x - r.x);
           const dz = Math.abs(o.z - r.z);
-          if (dx < 1.5 && dz < 1.5 && r.y - (this.surfaceY(o.x, o.z)) < 1.55 && r.y - surfaceAtRider < 1.55) {
+          // Default 1.5 m matches the downhill rock visual; half-pipe
+          // weave bumps pass radius: 0.7 to keep the dodge corridor in
+          // proportion to the smaller mesh.
+          const hr = o.radius ?? 1.5;
+          if (dx < hr && dz < hr && r.y - (this.surfaceY(o.x, o.z)) < 1.55 && r.y - surfaceAtRider < 1.55) {
             this.fall();
             return;
           }

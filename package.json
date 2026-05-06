@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "expo start",
-    "web:build": "tsc && vite build && node scripts/embed-html.mjs && node scripts/make-icon.mjs",
+    "web:build": "node scripts/write-build-info.mjs && tsc && vite build && node scripts/embed-html.mjs && node scripts/make-icon.mjs",
     "web:dev": "vite",
     "eas-build-post-install": "npm run web:build"
   },
