@@ -27,7 +27,7 @@ export function showUpgrades(root: HTMLElement, profiles: ProfileService): Promi
     const render = () => {
       const p = profiles.activeProfile!;
       root.innerHTML = `
-        <div class="fullscreen-panel">
+        <div class="fullscreen-panel menu-bg">
           <h1>UPGRADES</h1>
           <p class="muted">${p.currency} ❄</p>
           <div class="upgrades-list" id="upgrades-list"></div>
