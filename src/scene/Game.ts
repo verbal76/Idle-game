@@ -129,6 +129,10 @@ export class Game {
   private readonly HP_PIPE_RADIUS = 4.0;        // = HP_PIPE_HALF - HP_FLAT_HALF
   private readonly HP_LIP_HEIGHT = 0.6;         // small vertical lip at the top
   private readonly HP_CONTEXT_WIDTH = 220;
+  // Heading clamp range on the halfpipe — keeps the rider out of the
+  // stall pocket where target = maxSpeed·cos²h ≈ 0. ~320° of free turning.
+  private readonly HP_HEADING_MAX =  40 * Math.PI / 180;
+  private readonly HP_HEADING_MIN = -280 * Math.PI / 180;
 
   private speed = 0;
   private verticalVelocity = 0;
@@ -1003,14 +1007,23 @@ export class Game {
     const oz = cz * this.chunkSize + half;
     const cy = this.surfaceY(0, oz);
 
+    // After rotation by activeSlope around the chunk center, mesh extents
+    // along Z compress by cos(slope). Compensate by stretching the local
+    // mesh so its post-rotation world-Z span is exactly chunkSize. Without
+    // this, adjacent chunks leave gaps you can see straight through.
+    const meshHeight = this.chunkSize / Math.cos(this.activeSlope);
+    const halfDepth = meshHeight / 2;
+
     const context = MeshBuilder.CreateGround(`hp-ctx-${cz}`, {
-      width: this.HP_CONTEXT_WIDTH, height: this.chunkSize, subdivisions: 1
+      width: this.HP_CONTEXT_WIDTH, height: meshHeight, subdivisions: 1
     }, this.scene);
     context.material = this.snowMat;
-    context.position.set(ox, cy, oz);
-    // rotation was -activeSlope (tilts uphill); the slope descends in +Z
-    // so floor must tilt +activeSlope. Was producing a "sky-floating"
-    // halfpipe the rider fell through.
+    // Drop the context 5 cm below the pipe's flat bottom. Both meshes
+    // cover the central X strip [-FLAT, +FLAT] at the same Y otherwise,
+    // and that produces visible z-fighting (the checker pattern across
+    // the halfpipe floor). 5 cm is invisible at the camera distance,
+    // pipe is rendered on top, no fight.
+    context.position.set(ox, cy - 0.05, oz);
     context.rotation.x = this.activeSlope;
 
     const FLAT = this.HP_FLAT_HALF;
@@ -1031,7 +1044,8 @@ export class Game {
     }
     cross.push(new Vector3(HALF, R + LIP, 0));
 
-    const halfDepth = this.chunkSize / 2;
+    // halfDepth comes from the compensated meshHeight at the top of this
+    // method — same gap fix applied to the pipe ribbon as to the context.
     const path1 = cross.map(v => new Vector3(v.x, v.y, -halfDepth));
     const path2 = cross.map(v => new Vector3(v.x, v.y,  halfDepth));
     const pipe = MeshBuilder.CreateRibbon(`hp-pipe-${cz}`, {
@@ -1179,6 +1193,16 @@ export class Game {
       const spinDelta = stickX * this.airSpinRate * dt;
       this.heading += spinDelta;
       this.spinRotation += spinDelta;
+    }
+
+    // Halfpipe heading clamp. Beyond +40° / -280° the rider's forward speed
+    // collapses (target = maxSpeed·cos²h hits its zero at ±90°), and they
+    // just stall facing the wall. Capping the heading range to [-280°,
+    // +40°] gives the player ~320° of free turning but keeps them out of
+    // the stall pocket on either side.
+    if (this.mode === 'half-pipe') {
+      if (this.heading >  this.HP_HEADING_MAX) this.heading = this.HP_HEADING_MAX;
+      if (this.heading <  this.HP_HEADING_MIN) this.heading = this.HP_HEADING_MIN;
     }
 
     this.rider.root.rotation.x = this.activeSlope;
