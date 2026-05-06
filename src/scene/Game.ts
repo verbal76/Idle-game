@@ -74,8 +74,13 @@ export class Game {
   private readonly viewBehind = 1;
   private readonly viewSide = 2;
 
-  private readonly slopeRad = 0.21;
-  private readonly halfPipeSlopeRad = 0.28;
+  // Base slope grades. Bumped from 0.21/0.28 so both modes actually
+  // feel like a descent — old values (12°/16°) read as nearly-flat from
+  // the FollowCamera angle. New values: 20°/23° baseline with downhill
+  // segments randomly scaled 0.6x-1.7x for a 12°-34° range, plenty of
+  // visible variation between mellow pitches and steep sections.
+  private readonly slopeRad = 0.35;          // ~20° — solid blue / black-diamond baseline
+  private readonly halfPipeSlopeRad = 0.40;  // ~23° — pipe descends visibly
   private cliffs = new Map<number, number>();
 
   private readonly HP_PIPE_HALF = 9.0;          // distance from centerline to lip (= HP_PIPE_WIDTH / 2)
@@ -434,22 +439,25 @@ export class Game {
     const baseY = last ? last.endY : 0;
 
     // Cliff drop at the segment boundary. First segment is at the rider's
-    // spawn — no drop there or they'd start mid-air. After ~150 m of run,
-    // ~35% of segment boundaries get a cliff (6-24 m drop) for jumps.
-    const cliffDrop = (last && segStartZ > 150 && this.rng.next01() < 0.35)
-      ? 6 + this.rng.next01() * 18
+    // spawn — no drop there or they'd start mid-air. After ~120 m of run,
+    // 50% of segment boundaries get a cliff. Drops range 8–32 m so some
+    // are little step-downs and some are real send-it-cliffs.
+    const cliffDrop = (last && segStartZ > 120 && this.rng.next01() < 0.50)
+      ? 8 + this.rng.next01() * 24
       : 0;
     const startY = baseY - cliffDrop;
 
-    // Slope angle varied around the base slopeRad. Mostly between 0.85x
-    // and 1.5x — gentle to noticeably steep. Occasional steeper segment
-    // for a "couloir" feel.
-    const slope = this.slopeRad * (0.85 + this.rng.next01() * 0.65);
+    // Slope angle varied around the base slopeRad. 0.6x-1.7x gives a
+    // 12°-34° range — some segments are mellow groomers, others are
+    // double-black couloir. Big swings between adjacent segments make
+    // the descent read as a real mountain, not a uniform ramp.
+    const slope = this.slopeRad * (0.6 + this.rng.next01() * 1.1);
 
     // Segment world-Z extent. Mesh height (along the tilted slope) needs
     // to be lengthZ / cos(slope) so its world-Z projection is exactly
-    // lengthZ — keeps segments seamlessly adjacent.
-    const lengthZ = 110 + this.rng.next01() * 220;
+    // lengthZ — keeps segments seamlessly adjacent. Shortened to 80–250 m
+    // so the player gets a slope/cliff change every few seconds.
+    const lengthZ = 80 + this.rng.next01() * 170;
     const meshHeight = lengthZ / Math.cos(slope);
     const endZ = segStartZ + lengthZ;
     const endY = startY - lengthZ * Math.tan(slope);
