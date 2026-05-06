@@ -1064,9 +1064,34 @@ export class Game {
     if (this.state === 'bailing') {
       this.speed *= Math.max(0, 1 - 1.2 * dt);
       this.rider.root.position.z += this.speed * dt;
-      this.rider.root.position.y = this.groundY
+
+      const newGround = this.groundY
         + this.surfaceY(this.rider.root.position.x, this.rider.root.position.z)
         + this.pipeOffsetY(this.rider.root.position.x);
+
+      // Same cliff-step detection as the normal grounded path: if the
+      // surface beneath us just dropped by CLIFF_STEP_M+, we're going
+      // off a lip, not falling through one. Let gravity pull the body
+      // down naturally so the camera doesn't chase a 30 m teleport
+      // through the cliff face mesh and end up underground.
+      const droppedOffCliff = this.prevGroundLevel !== null
+        && (this.prevGroundLevel - newGround) > this.CLIFF_STEP_M;
+      if (droppedOffCliff) this.verticalVelocity = 0;
+
+      const aboveGround = this.rider.root.position.y - newGround > 0.05;
+      if (aboveGround || droppedOffCliff) {
+        this.verticalVelocity -= this.gravity * dt;
+        this.rider.root.position.y += this.verticalVelocity * dt;
+        if (this.rider.root.position.y < newGround) {
+          this.rider.root.position.y = newGround;
+          this.verticalVelocity = 0;
+        }
+      } else {
+        this.rider.root.position.y = newGround;
+        this.verticalVelocity = 0;
+      }
+      this.prevGroundLevel = newGround;
+
       this.dustParticles.emitRate = 100;
       this.updateChunkStreaming();
       this.scene.render();
