@@ -84,13 +84,15 @@ async function runSession(
       onFell: (stats) => {
         const active = profiles.activeProfile;
         if (active) {
+          // stats.coins is now the snowflake count earned this run
+          // (1 ❄ per completed flip, since PR #16 removed yellow orb pickups).
           active.currency += stats.coins;
           if (stats.distanceMeters > active.longestDownhillMeters) {
             active.longestDownhillMeters = stats.distanceMeters;
           }
         }
         hud.fellStats.textContent =
-          `Distance: ${stats.distanceMeters} m  •  Coins: +${stats.coins}  •  Flips: ${stats.flips}`;
+          `Distance: ${stats.distanceMeters} m  •  +${stats.coins} ❄  •  Flips: ${stats.flips}`;
         hud.fellOverlay.style.display = 'flex';
       },
     }, upgrades);

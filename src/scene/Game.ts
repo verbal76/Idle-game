@@ -21,7 +21,7 @@ export interface GameCallbacks {
   onFell?: (stats: { distanceMeters: number; flips: number; spins: number; coins: number }) => void;
 }
 
-type RiderState = 'normal' | 'bailing' | 'recovering';
+type RiderState = 'normal' | 'bailing' | 'recovering' | 'grinding';
 
 interface SlopeSegment {
   frame: TransformNode;
@@ -41,7 +41,6 @@ interface ChunkData {
   features: AbstractMesh[];
   rocks: Array<{ x: number; z: number }>;
   kickers: Array<{ x: number; z: number; width: number; power: number }>;
-  coins: Array<{ mesh: Mesh; x: number; z: number; collected: boolean }>;
   cx: number;
   cz: number;
 }
@@ -56,7 +55,6 @@ export class Game {
   private snowMat!: StandardMaterial;
   private rockMat!: StandardMaterial;
   private kickerMat!: StandardMaterial;
-  private coinMat!: StandardMaterial;
   private trunkMat!: StandardMaterial;
   private foliageMat!: StandardMaterial;
   private mountainMat!: StandardMaterial;
@@ -85,12 +83,14 @@ export class Game {
   private readonly HP_PIPE_RADIUS = 4.0;        // = HP_PIPE_HALF - HP_FLAT_HALF
   private readonly HP_LIP_HEIGHT = 0.6;         // small vertical lip at the top
   private readonly HP_CONTEXT_WIDTH = 220;
-  // Heading clamp range on the halfpipe — symmetric forward cone of ±80°
-  // (10° buffer from the ±90° stall pocket where target = maxSpeed·cos²h
-  // hits zero). 160° total. Applied only while grounded; air spin is
-  // free, then heading normalizes via atan2 at the moment of landing.
-  private readonly HP_HEADING_MAX =  80 * Math.PI / 180;
-  private readonly HP_HEADING_MIN = -80 * Math.PI / 180;
+  // Heading clamp range on the halfpipe — symmetric forward cone of ±45°
+  // (45° buffer from the ±90° stall pocket; cos²(45°) = 0.5 so target
+  // speed at the clamp limit is 50% of max — usable, not stuck).
+  // Applied only while grounded; air spin is free for tricks. On clean
+  // landing the heading snaps back to 0 so the rider always lands
+  // facing forward, no matter how much they spun in the air.
+  private readonly HP_HEADING_MAX =  45 * Math.PI / 180;
+  private readonly HP_HEADING_MIN = -45 * Math.PI / 180;
 
   private speed = 0;
   private verticalVelocity = 0;
@@ -103,13 +103,23 @@ export class Game {
   private coinsCollected = 0;
   private fellAlready = false;
 
-  // Landing squat: legs scale.y → 0.25, arms uniform scale → 0.5, briefly,
-  // so the rider visibly takes the hit through their knees on every clean
-  // landing in either mode. Stored as the absolute timestamp at which the
-  // squat ends; updateLandingSquat() re-applies or releases the scaling
-  // each tick. SQUAT_MS picked to feel like an impact, not a stall.
+  // Landing squat. On clean landing the rider visibly absorbs the impact:
+  // legs squash to 0.25 of their height, arms shrink to 0.4, and the
+  // whole humanoid compresses 30% vertically. Stored as the absolute
+  // timestamp at which the squat ends; updateLandingSquat() reapplies
+  // or releases each tick. SQUAT_MS bumped from 220 → 380 ms so the
+  // animation is unmistakably visible at 60 fps (~23 frames).
   private landingSquatUntil = 0;
-  private readonly SQUAT_MS = 220;
+  private readonly SQUAT_MS = 380;
+
+  // Halfpipe lip grind. When the rider's X gets pinned to ±HP_PIPE_HALF
+  // while grounded, they snap onto the lip, head straight forward at a
+  // fixed speed, and stick-input becomes spin instead of carve. Tap
+  // jump to hop off the lip back into the pipe.
+  private grindSide: -1 | 0 | 1 = 0;
+  private readonly grindSpeed = 18;          // m/s along the lip
+  private readonly grindEjectVy = 6.5;       // upward kick on jump-off
+  private prevJumpHeld = false;              // edge-detect for jump-to-eject
 
   private heading = 0;
   private edgeAngle = 0;
@@ -193,7 +203,11 @@ export class Game {
     //   × snow (0.78, 0.82, 0.88) = (0.83, 0.72, 0.68)
     // R peak ~0.83 — colored snow with headroom, no white clipping.
     const hemi = new HemisphericLight('hemi', new Vector3(0, 1, 0), this.scene);
-    hemi.intensity = 0.40;
+    // Boost hemi in the halfpipe — the curved walls block the directional
+    // sun, so the inside of the pipe was reading too dim. ~60% more fill
+    // light just in halfpipe mode brightens the floor + walls without
+    // wrecking the dusk-warm look on downhill.
+    hemi.intensity = (mode === 'half-pipe') ? 0.65 : 0.40;
     hemi.diffuse    = new Color3(0.78, 0.72, 0.85);
     hemi.groundColor = new Color3(0.45, 0.30, 0.40);
     const sun = new DirectionalLight('sun', new Vector3(-0.45, -0.85, -0.25), this.scene);
@@ -247,7 +261,6 @@ export class Game {
 
   private get maxSpeed(): number { return 22 + this.upgrades.speed * 1.5; }
   private get jumpMaxScaled(): number { return this.jumpMax * (1 + this.upgrades.jump * 0.10); }
-  private get magnetRadius(): number { return 1.4 + this.upgrades.magnet * 0.5; }
   private get activeSlope(): number { return this.mode === 'half-pipe' ? this.halfPipeSlopeRad : this.slopeRad; }
 
   private cliffOffsetAt(cz: number): number {
@@ -313,8 +326,6 @@ export class Game {
     this.snowMat.emissiveColor = new Color3(0.08, 0.12, 0.18);
     this.rockMat     = mkMat(this.scene, 'rock',     new Color3(0.32, 0.35, 0.38));
     this.kickerMat   = mkMat(this.scene, 'kicker',   new Color3(0.28, 0.40, 0.62));
-    this.coinMat     = mkMat(this.scene, 'coin',     new Color3(1.00, 0.82, 0.18));
-    this.coinMat.emissiveColor = new Color3(0.45, 0.32, 0.0);
     this.trunkMat    = mkMat(this.scene, 'trunk',    new Color3(0.34, 0.22, 0.13));
     this.foliageMat  = mkMat(this.scene, 'foliage',  new Color3(0.18, 0.46, 0.24));
     this.mountainMat = mkMat(this.scene, 'mountain', new Color3(0.42, 0.46, 0.58));
@@ -716,7 +727,6 @@ export class Game {
     const features: AbstractMesh[] = [];
     const rocks: ChunkData['rocks'] = [];
     const kickers: ChunkData['kickers'] = [];
-    const coins: ChunkData['coins'] = [];
 
     // Visible cliff edge: a thin "snow-cornice" stripe sitting at the top
     // of the drop. Blue-tinted snow color so it reads as ice/lip against
@@ -834,19 +844,11 @@ export class Game {
         }
       }
 
-      const coinCount = this.rng.rangeInt(2, 6);
-      for (let i = 0; i < coinCount; i++) {
-        const lx = ox + this.rng.rangeFloat(-half + 1, half - 1);
-        const lz = oz + this.rng.rangeFloat(-half + 1, half - 1);
-        const coin = MeshBuilder.CreateSphere(`coin-${cx}-${cz}-${i}`, { diameter: 0.55 }, this.scene);
-        coin.material = this.coinMat;
-        coin.position.set(lx, this.surfaceY(lx, lz) + 1.0, lz);
-        features.push(coin);
-        coins.push({ mesh: coin, x: lx, z: lz, collected: false });
-      }
+      // Yellow orb coin pickups removed (PR #16). Snowflakes are now
+      // earned per completed flip instead.
     }
 
-    this.chunks.set(this.chunkKey(cx, cz), { ground, features, rocks, kickers, coins, cx, cz });
+    this.chunks.set(this.chunkKey(cx, cz), { ground, features, rocks, kickers, cx, cz });
   }
 
   private spawnHalfPipeChunk(cx: number, cz: number): void {
@@ -914,18 +916,10 @@ export class Game {
     const features: AbstractMesh[] = [pipe];
 
     const kickers: ChunkData['kickers'] = [];
-    const coins: ChunkData['coins'] = [];
 
     if (cz > 0) {
-      const coinCount = 5;
-      for (let i = 0; i < coinCount; i++) {
-        const lz = oz - half + (i + 1) * (this.chunkSize / (coinCount + 1));
-        const coin = MeshBuilder.CreateSphere(`hp-coin-${cz}-${i}`, { diameter: 0.55 }, this.scene);
-        coin.material = this.coinMat;
-        coin.position.set(ox, this.surfaceY(ox, lz) + 1.4, lz);
-        features.push(coin);
-        coins.push({ mesh: coin, x: ox, z: lz, collected: false });
-      }
+      // Yellow orb coin pickups removed (PR #16). Snowflakes are now
+      // earned per completed flip instead.
       if (cz % 2 === 1) {
         const lz = oz + this.rng.rangeFloat(-half + 5, half - 5);
         // Halfpipe kicker width tripled (4 → 12). HP_PIPE_HALF is 9, so a
@@ -941,7 +935,7 @@ export class Game {
     }
 
     this.chunks.set(this.chunkKey(cx, cz), {
-      ground: context, features, rocks: [], kickers, coins, cx, cz
+      ground: context, features, rocks: [], kickers, cx, cz
     });
   }
 
@@ -1009,6 +1003,47 @@ export class Game {
         + this.pipeOffsetY(this.rider.root.position.x);
       this.dustParticles.emitRate = 100;
       this.updateChunkStreaming();
+      this.scene.render();
+      return;
+    }
+
+    // Lip grind. Once locked, X stays at ±HP_PIPE_HALF, Y stays at the
+    // top of the lip ledge, Z advances at a fixed grindSpeed, and
+    // stick-X becomes a visual spin (no carve). Tap jump to eject back
+    // into the pipe with an inward heading.
+    if (this.state === 'grinding') {
+      const r = this.rider.root.position;
+      r.x = this.grindSide * this.HP_PIPE_HALF;
+      const surfY = this.surfaceY(r.x, r.z);
+      r.y = this.groundY + surfY + this.HP_PIPE_RADIUS + this.HP_LIP_HEIGHT;
+      r.z += this.grindSpeed * dt;
+      this.speed = this.grindSpeed;
+
+      // Stick spin (visual only); tracks spinRotation so tricks count.
+      const gStickX = this.input.leftStick().x;
+      const dHeading = gStickX * this.airSpinRate * dt;
+      this.heading += dHeading;
+      this.spinRotation += dHeading;
+
+      // Edge-detect on jump press: only fire eject on the rising edge.
+      const jumpHeld = this.input.jumpHeld();
+      if (jumpHeld && !this.prevJumpHeld) {
+        this.state = 'normal';
+        this.verticalVelocity = this.grindEjectVy;
+        this.grounded = false;
+        // Heading turns inward (toward pipe center) so the rider arcs
+        // back into the bowl instead of flying off the outside.
+        this.heading = -this.grindSide * 0.7;
+        this.grindSide = 0;
+      }
+      this.prevJumpHeld = jumpHeld;
+
+      this.rider.root.rotation.x = this.activeSlope;
+      this.rider.heading.rotation.y = this.heading;
+      this.rider.lean.rotation.z = 0;
+      this.dustParticles.emitRate = 60;
+      this.updateChunkStreaming();
+      this.updateLandingSquat(now);
       this.scene.render();
       return;
     }
@@ -1107,7 +1142,12 @@ export class Game {
 
         if (this.isCleanLanding()) {
           if (Math.abs(this.flipRotation) > Math.PI * 1.5) {
-            this.flipsLanded += Math.round(Math.abs(this.flipRotation) / (Math.PI * 2));
+            const flipsThisLanding = Math.round(Math.abs(this.flipRotation) / (Math.PI * 2));
+            this.flipsLanded += flipsThisLanding;
+            // One snowflake earned per completed flip — the coinsCollected
+            // counter is now the live snowflake total (yellow orbs gone in
+            // PR #16; flips are the only way to earn currency).
+            this.coinsCollected += flipsThisLanding;
           }
           this.flipRotation = 0;
           this.rider.body.rotation.x = 0;
@@ -1117,11 +1157,13 @@ export class Game {
           }
           this.spinRotation = 0;
 
-          // Halfpipe: normalize heading after free air rotation so the
-          // ground clamp doesn't snap a multi-spin trick all the way back.
-          // 360° spin → ~0°, 270° spin → ~−90° (then clamps to −80°).
+          // Halfpipe: snap heading to 0 on clean landing. Air spin
+          // accumulated freely for trick visuals; the moment they touch
+          // down they're facing forward again. Predictable + avoids the
+          // "stuck sideways at the clamp limit" feeling after a 540°
+          // trick.
           if (this.mode === 'half-pipe') {
-            this.heading = Math.atan2(Math.sin(this.heading), Math.cos(this.heading));
+            this.heading = 0;
           }
 
           // Take the hit with the knees: brief squat on impact.
@@ -1144,6 +1186,18 @@ export class Game {
       const limit = this.HP_PIPE_HALF;
       if (this.rider.root.position.x >  limit) this.rider.root.position.x =  limit;
       if (this.rider.root.position.x < -limit) this.rider.root.position.x = -limit;
+
+      // Grind entry: rider's X is pinned to the lip AND they're grounded.
+      // Lock onto lip; from here the 'grinding' branch above runs each
+      // tick until they tap jump. Reset the jump-edge flag so the same
+      // press that put them onto the lip doesn't immediately eject.
+      if (this.grounded && Math.abs(this.rider.root.position.x) >= this.HP_PIPE_HALF - 0.001 && this.state === 'normal') {
+        this.state = 'grinding';
+        this.grindSide = this.rider.root.position.x > 0 ? 1 : -1;
+        this.heading = 0;
+        this.edgeAngle = 0;
+        this.prevJumpHeld = this.input.jumpHeld();
+      }
     }
 
     if (this.grounded) {
@@ -1156,10 +1210,6 @@ export class Game {
       } else {
         this.rider.root.position.y = groundLevel;
       }
-    }
-
-    for (const chunk of this.chunks.values()) {
-      for (const c of chunk.coins) if (!c.collected) c.mesh.rotation.y += dt * 2;
     }
 
     this.checkInteractions();
@@ -1222,31 +1272,24 @@ export class Game {
   // checks. Cheap.
   private updateLandingSquat(now: number): void {
     const active = now < this.landingSquatUntil;
-    const legY  = active ? 0.25 : 1;
-    const armS  = active ? 0.5  : 1;
-    if (this.rider.leftLeg.scaling.y  !== legY) this.rider.leftLeg.scaling.y  = legY;
-    if (this.rider.rightLeg.scaling.y !== legY) this.rider.rightLeg.scaling.y = legY;
-    if (this.rider.leftArm.scaling.x  !== armS) this.rider.leftArm.scaling.set(armS, armS, armS);
-    if (this.rider.rightArm.scaling.x !== armS) this.rider.rightArm.scaling.set(armS, armS, armS);
+    const legY = active ? 0.25 : 1;
+    const armS = active ? 0.4  : 1;
+    const bodY = active ? 0.70 : 1;   // whole humanoid compresses 30%
+    // Use Vector3.set() (not direct .y assignment) so Babylon picks up
+    // the scale change on the world matrix every frame.
+    this.rider.leftLeg.scaling.set(1, legY, 1);
+    this.rider.rightLeg.scaling.set(1, legY, 1);
+    this.rider.leftArm.scaling.set(armS, armS, armS);
+    this.rider.rightArm.scaling.set(armS, armS, armS);
+    this.rider.humanoid.scaling.set(1, bodY, 1);
   }
 
   private checkInteractions(): void {
     if (this.fellAlready) return;
     const r = this.rider.root.position;
     const invulnerable = this.state !== 'normal';
-    const magnetSq = this.magnetRadius * this.magnetRadius;
 
     for (const chunk of this.chunks.values()) {
-      for (const c of chunk.coins) {
-        if (c.collected) continue;
-        const dx = c.x - r.x;
-        const dz = c.z - r.z;
-        if (dx * dx + dz * dz < magnetSq && Math.abs(r.y - this.surfaceY(c.x, c.z)) < 2.0) {
-          c.collected = true;
-          c.mesh.dispose();
-          this.coinsCollected += 1;
-        }
-      }
       if (this.grounded && !invulnerable) {
         for (const k of chunk.kickers) {
           const dx = Math.abs(k.x - r.x);

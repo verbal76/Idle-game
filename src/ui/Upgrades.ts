@@ -9,10 +9,13 @@ export interface UpgradeDef {
   maxLevel: number;
 }
 
+// First upgrade costs 10 ❄ (one snowflake per flip → ten flips = first
+// upgrade). Each subsequent purchase doubles the cost: 10, 20, 40, 80, 160.
+// Coins are gone (PR #16) so the magnet upgrade is dropped from the menu;
+// the field stays in the save type for back-compat with existing profiles.
 export const UPGRADES: UpgradeDef[] = [
-  { id: 'speed',  label: 'Top Speed',   description: '+1.5 m/s per level',     baseCost: 50,  costMul: 2.0, maxLevel: 5 },
-  { id: 'jump',   label: 'Jump Power',  description: '+10% jump per level',    baseCost: 50,  costMul: 2.0, maxLevel: 5 },
-  { id: 'magnet', label: 'Coin Magnet', description: '+0.5 m radius per level', baseCost: 100, costMul: 2.0, maxLevel: 5 },
+  { id: 'speed',  label: 'Top Speed',   description: '+1.5 m/s per level',  baseCost: 10, costMul: 2.0, maxLevel: 5 },
+  { id: 'jump',   label: 'Jump Power',  description: '+10% jump per level', baseCost: 10, costMul: 2.0, maxLevel: 5 },
 ];
 
 export function costForNext(def: UpgradeDef, currentLevel: number): number {
