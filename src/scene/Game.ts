@@ -1183,14 +1183,20 @@ export class Game {
     // air — particles are a ground effect.
     this.dustParticles.emitRate = this.grounded ? (30 + carveIntensity * 100) : 0;
 
-    // Pin the trail to the snow surface beneath the rider's XZ. Decoupled
-    // from rider.root so jumps don't drag the trail into the sky — the
-    // trail is the carve mark on the snow, not a comet tail.
+    // Pin the trail to the snow surface beneath the rider's XZ while
+    // grounded; pause recording while airborne so jumps leave a clean
+    // gap in the snow marks. start() / stop() are idempotent — calling
+    // each frame is fine.
     if (this.trailAnchor) {
-      const rx = this.rider.root.position.x;
-      const rz = this.rider.root.position.z;
-      const surfY = this.groundY + this.surfaceY(rx, rz) + this.pipeOffsetY(rx);
-      this.trailAnchor.position.set(rx, surfY + 0.02, rz);
+      if (this.grounded) {
+        const rx = this.rider.root.position.x;
+        const rz = this.rider.root.position.z;
+        const surfY = this.groundY + this.surfaceY(rx, rz) + this.pipeOffsetY(rx);
+        this.trailAnchor.position.set(rx, surfY + 0.02, rz);
+        this.trail.start();
+      } else {
+        this.trail.stop();
+      }
     }
 
     this.updateChunkStreaming();
