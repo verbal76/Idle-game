@@ -173,6 +173,7 @@ export class Game {
 
   private dustParticles!: ParticleSystem;
   private trail!: TrailMesh;
+  private trailAnchor?: TransformNode;
   private mountainAnchor!: TransformNode;
   private followTarget!: Mesh;
   private sky?: Mesh;
@@ -781,9 +782,14 @@ export class Game {
   }
 
   private buildSnowTrail(): void {
+    // Anchor is NOT parented to rider.root anymore. We re-position it
+    // every tick to (rider.x, snow-surface-Y + 2 cm, rider.z) so the
+    // trail reads as marks left in the snow. When the rider jumps,
+    // the trail stays at ground level instead of lifting into the sky
+    // with them.
     const anchor = new TransformNode('trail-anchor', this.scene);
-    anchor.parent = this.rider.root;
     anchor.position.set(0, 0.02, 0);
+    this.trailAnchor = anchor;
     // autoStart=false so the trail doesn't record its first frame at
     // the spawn pose before camera/world matrices are settled. Without
     // this, all 80 ring segments collapse onto the spawn point and the
@@ -1333,7 +1339,20 @@ export class Game {
     }
 
     const carveIntensity = Math.min(1, Math.abs(sinH));
-    this.dustParticles.emitRate = this.grounded ? (8 + carveIntensity * 70) : 0;
+    // Floor bumped from 8 to 30 (idle ground spray clearly visible) and
+    // ceiling from 78 to 130 (carve hard for a real plume). 0 in the
+    // air — particles are a ground effect.
+    this.dustParticles.emitRate = this.grounded ? (30 + carveIntensity * 100) : 0;
+
+    // Pin the trail to the snow surface beneath the rider's XZ. Decoupled
+    // from rider.root so jumps don't drag the trail into the sky — the
+    // trail is the carve mark on the snow, not a comet tail.
+    if (this.trailAnchor) {
+      const rx = this.rider.root.position.x;
+      const rz = this.rider.root.position.z;
+      const surfY = this.groundY + this.surfaceY(rx, rz) + this.pipeOffsetY(rx);
+      this.trailAnchor.position.set(rx, surfY + 0.02, rz);
+    }
 
     this.updateChunkStreaming();
 
