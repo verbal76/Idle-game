@@ -15,6 +15,8 @@ declare global {
   }
 }
 
+type RunMode = Exclude<MenuChoice, 'switch-profile' | 'upgrades'>;
+
 function showError(prefix: string, err: unknown): void {
   const msg = (err && (err as { stack?: string }).stack) || String(err);
   const safe = String(msg).replace(/[&<>"']/g, ch =>
@@ -37,25 +39,39 @@ async function bootstrap(): Promise<void> {
   const profiles = new ProfileService(new IndexedDbStore());
   await profiles.init();
 
+  // pendingMode lets the pause-menu Switch Style button start the next
+  // run directly in the other mode without bouncing back through the
+  // main menu.
+  let pendingMode: RunMode | null = null;
+
   while (true) {
-    setOrientation('default');
+    let mode: RunMode;
 
-    if (!profiles.activeProfile) await showProfileSelect(screen, profiles);
+    if (pendingMode) {
+      mode = pendingMode;
+      pendingMode = null;
+    } else {
+      setOrientation('default');
 
-    const choice: MenuChoice = await showMainMenu(screen, profiles);
-    if (choice === 'switch-profile') {
-      await showProfileSelect(screen, profiles);
-      continue;
-    }
-    if (choice === 'upgrades') {
-      await showUpgrades(screen, profiles);
-      await profiles.save();
-      continue;
+      if (!profiles.activeProfile) await showProfileSelect(screen, profiles);
+
+      const choice: MenuChoice = await showMainMenu(screen, profiles);
+      if (choice === 'switch-profile') {
+        await showProfileSelect(screen, profiles);
+        continue;
+      }
+      if (choice === 'upgrades') {
+        await showUpgrades(screen, profiles);
+        await profiles.save();
+        continue;
+      }
+      mode = choice;
     }
 
     setOrientation('landscape');
     try {
-      await runSession(screen, canvas, choice, profiles);
+      const next = await runSession(screen, canvas, mode, profiles);
+      if (next) pendingMode = next;
     } finally {
       await profiles.save();
     }
@@ -65,15 +81,19 @@ async function bootstrap(): Promise<void> {
 async function runSession(
   screen: HTMLElement,
   canvas: HTMLCanvasElement,
-  mode: Exclude<MenuChoice, 'switch-profile' | 'upgrades'>,
+  mode: RunMode,
   profiles: ProfileService
-): Promise<void> {
-  return new Promise<void>((resolve) => {
+): Promise<RunMode | null> {
+  return new Promise<RunMode | null>((resolve) => {
     screen.innerHTML = '';
     const hud = buildHUD(screen);
     const dpad = new ArrowPadInput(hud.leftBtn, hud.rightBtn);
     const buttons = new ActionButtons(hud.jumpBtn, hud.flipBtn);
     const upgrades = profiles.activeProfile!.upgrades ?? { speed: 0, jump: 0, magnet: 0 };
+
+    // Label the Switch Style button to indicate the destination mode,
+    // not the current one. Reads as a target the player is choosing.
+    hud.switchBtn.textContent = mode === 'half-pipe' ? 'Switch to Downhill' : 'Switch to Half-pipe';
 
     const game = new Game(canvas, mode, {
       leftStick: () => dpad.left,
@@ -81,16 +101,9 @@ async function runSession(
       flipHeld: () => buttons.flipHeld,
     }, {
       onScore: (label) => { hud.score.textContent = label; },
+      // onFell only paints the overlay. Currency is credited in finish()
+      // below — that way Quit and Switch Style also keep what you earned.
       onFell: (stats) => {
-        const active = profiles.activeProfile;
-        if (active) {
-          // stats.coins is now the snowflake count earned this run
-          // (1 ❄ per completed flip, since PR #16 removed yellow orb pickups).
-          active.currency += stats.coins;
-          if (stats.distanceMeters > active.longestDownhillMeters) {
-            active.longestDownhillMeters = stats.distanceMeters;
-          }
-        }
         hud.fellStats.textContent =
           `Distance: ${stats.distanceMeters} m  •  +${stats.coins} ❄  •  Flips: ${stats.flips}`;
         hud.fellOverlay.style.display = 'flex';
@@ -98,11 +111,26 @@ async function runSession(
     }, upgrades);
     game.start();
 
-    const finish = () => {
+    // finish() is the single exit point — natural fall, quit, or switch.
+    // Pulls live snowflake/distance stats from the game so the player
+    // always keeps what they earned regardless of how the run ends.
+    let finished = false;
+    const finish = (next: RunMode | null) => {
+      if (finished) return;
+      finished = true;
+
+      const stats = game.getRunStats();
+      const active = profiles.activeProfile;
+      if (active) {
+        active.currency += stats.coins;
+        if (stats.distanceMeters > active.longestDownhillMeters) {
+          active.longestDownhillMeters = stats.distanceMeters;
+        }
+      }
       game.dispose();
       dpad.detach();
       buttons.detach();
-      resolve();
+      resolve(next);
     };
 
     hud.pauseBtn.addEventListener('click', () => {
@@ -113,8 +141,11 @@ async function runSession(
       hud.pauseMenu.style.display = 'none';
       game.resume();
     });
-    hud.quitBtn.addEventListener('click', finish);
-    hud.fellOkBtn.addEventListener('click', finish);
+    hud.switchBtn.addEventListener('click', () => {
+      finish(mode === 'half-pipe' ? 'downhill' : 'half-pipe');
+    });
+    hud.quitBtn.addEventListener('click', () => finish(null));
+    hud.fellOkBtn.addEventListener('click', () => finish(null));
   });
 }
 
