@@ -129,10 +129,12 @@ export class Game {
   private readonly HP_PIPE_RADIUS = 4.0;        // = HP_PIPE_HALF - HP_FLAT_HALF
   private readonly HP_LIP_HEIGHT = 0.6;         // small vertical lip at the top
   private readonly HP_CONTEXT_WIDTH = 220;
-  // Heading clamp range on the halfpipe — keeps the rider out of the
-  // stall pocket where target = maxSpeed·cos²h ≈ 0. ~320° of free turning.
-  private readonly HP_HEADING_MAX =  40 * Math.PI / 180;
-  private readonly HP_HEADING_MIN = -280 * Math.PI / 180;
+  // Heading clamp range on the halfpipe — symmetric forward cone of ±80°
+  // (10° buffer from the ±90° stall pocket where target = maxSpeed·cos²h
+  // hits zero). 160° total. Applied only while grounded; air spin is
+  // free, then heading normalizes via atan2 at the moment of landing.
+  private readonly HP_HEADING_MAX =  80 * Math.PI / 180;
+  private readonly HP_HEADING_MIN = -80 * Math.PI / 180;
 
   private speed = 0;
   private verticalVelocity = 0;
@@ -144,6 +146,14 @@ export class Game {
   private spinsLanded = 0;
   private coinsCollected = 0;
   private fellAlready = false;
+
+  // Landing squat: legs scale.y → 0.25, arms uniform scale → 0.5, briefly,
+  // so the rider visibly takes the hit through their knees on every clean
+  // landing in either mode. Stored as the absolute timestamp at which the
+  // squat ends; updateLandingSquat() re-applies or releases the scaling
+  // each tick. SQUAT_MS picked to feel like an impact, not a stall.
+  private landingSquatUntil = 0;
+  private readonly SQUAT_MS = 220;
 
   private heading = 0;
   private edgeAngle = 0;
@@ -1195,12 +1205,13 @@ export class Game {
       this.spinRotation += spinDelta;
     }
 
-    // Halfpipe heading clamp. Beyond +40° / -280° the rider's forward speed
-    // collapses (target = maxSpeed·cos²h hits its zero at ±90°), and they
-    // just stall facing the wall. Capping the heading range to [-280°,
-    // +40°] gives the player ~320° of free turning but keeps them out of
-    // the stall pocket on either side.
-    if (this.mode === 'half-pipe') {
+    // Halfpipe heading clamp — symmetric forward cone ±80° (10° buffer
+    // from the ±90° stall pocket where target = maxSpeed·cos²h ≈ 0).
+    // GROUND ONLY: in the air the rider can spin freely for tricks; on
+    // landing the heading is normalized to (-π, +π] via atan2 (see the
+    // landing branch below) so the post-landing clamp doesn't snap a
+    // 360° spin all the way back to 80°.
+    if (this.mode === 'half-pipe' && this.grounded) {
       if (this.heading >  this.HP_HEADING_MAX) this.heading = this.HP_HEADING_MAX;
       if (this.heading <  this.HP_HEADING_MIN) this.heading = this.HP_HEADING_MIN;
     }
@@ -1260,6 +1271,16 @@ export class Game {
             this.spinsLanded += Math.floor(Math.abs(this.spinRotation) / (Math.PI * 2));
           }
           this.spinRotation = 0;
+
+          // Halfpipe: normalize heading after free air rotation so the
+          // ground clamp doesn't snap a multi-spin trick all the way back.
+          // 360° spin → ~0°, 270° spin → ~−90° (then clamps to −80°).
+          if (this.mode === 'half-pipe') {
+            this.heading = Math.atan2(Math.sin(this.heading), Math.cos(this.heading));
+          }
+
+          // Take the hit with the knees: brief squat on impact.
+          this.landingSquatUntil = performance.now() + this.SQUAT_MS;
         } else {
           this.startBail();
           this.scene.render();
@@ -1331,8 +1352,23 @@ export class Game {
       this.callbacks.onDebugTick(this.buildDebugSnapshot());
     }
 
+    this.updateLandingSquat(now);
+
     void this.trail;
     this.scene.render();
+  }
+
+  // Apply or release the landing squat scaling. Called every tick — the
+  // active branch costs 6 scalar writes, idle branch is 4 equality
+  // checks. Cheap.
+  private updateLandingSquat(now: number): void {
+    const active = now < this.landingSquatUntil;
+    const legY  = active ? 0.25 : 1;
+    const armS  = active ? 0.5  : 1;
+    if (this.rider.leftLeg.scaling.y  !== legY) this.rider.leftLeg.scaling.y  = legY;
+    if (this.rider.rightLeg.scaling.y !== legY) this.rider.rightLeg.scaling.y = legY;
+    if (this.rider.leftArm.scaling.x  !== armS) this.rider.leftArm.scaling.set(armS, armS, armS);
+    if (this.rider.rightArm.scaling.x !== armS) this.rider.rightArm.scaling.set(armS, armS, armS);
   }
 
   private checkInteractions(): void {
