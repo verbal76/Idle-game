@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { BackHandler, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -62,6 +62,11 @@ function handleMessage(event: WebViewMessageEvent): void {
     void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
   } else if (data === 'orientation:default') {
     void ScreenOrientation.unlockAsync();
+  } else if (data === 'quit:app') {
+    // Quit Game button on the main menu — close the app on Android.
+    // exitApp is a no-op on iOS by design (Apple HIG forbids self-
+    // termination), but this build is android-only per app.json.
+    BackHandler.exitApp();
   }
 }
 

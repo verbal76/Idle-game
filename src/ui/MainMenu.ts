@@ -1,6 +1,6 @@
 import { ProfileService } from '../profiles/ProfileService';
 
-export type MenuChoice = 'half-pipe' | 'downhill' | 'switch-profile' | 'upgrades' | 'settings';
+export type MenuChoice = 'half-pipe' | 'downhill' | 'switch-profile' | 'upgrades' | 'settings' | 'quit';
 
 export function showMainMenu(root: HTMLElement, profiles: ProfileService): Promise<MenuChoice> {
   return new Promise<MenuChoice>((resolve) => {
@@ -8,14 +8,14 @@ export function showMainMenu(root: HTMLElement, profiles: ProfileService): Promi
     root.innerHTML = `
       <div class="fullscreen-panel">
         <button class="gear-btn corner" id="menu-settings" aria-label="Settings">⚙</button>
-        <h1>BOARDER</h1>
-        <p class="muted">Welcome back, ${escapeHtml(p.name)} — ${p.currency} ❄</p>
+        <h1>Idle Boarder</h1>
+        <p class="muted">${escapeHtml(p.name)} — ${p.currency} ❄</p>
         <div class="list">
           <button id="downhill">Downhill (idle)</button>
           <button id="half-pipe">Half-pipe</button>
           <button id="upgrades">Upgrades</button>
           <button id="switch">Switch profile</button>
-          <button id="settings">Settings</button>
+          <button id="quit" class="danger">Quit game</button>
         </div>
       </div>
     `;
@@ -23,7 +23,7 @@ export function showMainMenu(root: HTMLElement, profiles: ProfileService): Promi
     root.querySelector<HTMLButtonElement>('#half-pipe')!.addEventListener('click', () => resolve('half-pipe'));
     root.querySelector<HTMLButtonElement>('#upgrades')!.addEventListener('click', () => resolve('upgrades'));
     root.querySelector<HTMLButtonElement>('#switch')!.addEventListener('click', () => resolve('switch-profile'));
-    root.querySelector<HTMLButtonElement>('#settings')!.addEventListener('click', () => resolve('settings'));
+    root.querySelector<HTMLButtonElement>('#quit')!.addEventListener('click', () => resolve('quit'));
     root.querySelector<HTMLButtonElement>('#menu-settings')!.addEventListener('click', () => resolve('settings'));
   });
 }
