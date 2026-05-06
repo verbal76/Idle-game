@@ -155,6 +155,7 @@ export class Game {
   private trailAnchor?: TransformNode;
   private mountainAnchor!: TransformNode;
   private followTarget!: Mesh;
+  private camera!: FollowCamera;
   private slopeSegments: SlopeSegment[] = [];
   private readonly aheadMargin = 800;   // generate segments up to this far ahead of rider
   private readonly behindMargin = 200;  // dispose segments this far behind rider
@@ -583,7 +584,29 @@ export class Game {
     cam.rotationOffset = 180;
     cam.cameraAcceleration = 0.20;
     cam.maxCameraSpeed = 100;
+    this.camera = cam;
     this.scene.activeCamera = cam;
+
+    // Camera-underground guard. FollowCamera trails the rider 13 m back
+    // in -Z; when the rider arcs off a cliff lip via the bail-state
+    // gravity loop, that trailing position is still inside the upper
+    // segment's geometry while the rider's Y is below the cliff. The
+    // camera then renders looking through the cliff face from the back.
+    // Clamp Y to the surface beneath the camera's own XZ + a small
+    // margin so the camera always sits above visible terrain.
+    this.scene.registerBeforeRender(() => this.clampCameraAboveGround());
+  }
+
+  private clampCameraAboveGround(): void {
+    if (!this.camera) return;
+    const cp = this.camera.position;
+    // Sample the surface at the camera's own XZ. pipeOffsetY adds the
+    // half-pipe lip elevation; surfaceY supplies the slope/segment Y.
+    const surfHere = this.groundY + this.surfaceY(cp.x, cp.z) + this.pipeOffsetY(cp.x);
+    const margin = 1.5;
+    if (cp.y < surfHere + margin) {
+      cp.y = surfHere + margin;
+    }
   }
 
   private buildSky(): void {
