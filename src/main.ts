@@ -6,6 +6,7 @@ import { showMainMenu, MenuChoice } from './ui/MainMenu';
 import { showUpgrades } from './ui/Upgrades';
 import { showSettings } from './ui/Settings';
 import { showAbout } from './ui/About';
+import { showContinuePrompt } from './ui/ContinuePrompt';
 import { buildHUD } from './ui/HUD';
 import { ArrowPadInput } from './input/ArrowPadInput';
 import { ActionButtons } from './input/ActionButtons';
@@ -17,7 +18,7 @@ declare global {
   }
 }
 
-type RunMode = Exclude<MenuChoice, 'switch-profile' | 'upgrades' | 'settings'>;
+type RunMode = Exclude<MenuChoice, 'switch-profile' | 'upgrades' | 'settings' | 'quit'>;
 
 function showError(prefix: string, err: unknown): void {
   const msg = (err && (err as { stack?: string }).stack) || String(err);
@@ -46,6 +47,13 @@ async function bootstrap(): Promise<void> {
   // main menu.
   let pendingMode: RunMode | null = null;
 
+  // Skip the load-time continue prompt the first time we see an active
+  // profile (the active id was restored by profiles.init()). On
+  // subsequent loops the player has already chosen, so the main menu
+  // is enough — we don't want to re-prompt every time they back out
+  // of a run.
+  let promptedAtLoad = false;
+
   while (true) {
     let mode: RunMode;
 
@@ -55,7 +63,19 @@ async function bootstrap(): Promise<void> {
     } else {
       setOrientation('default');
 
-      if (!profiles.activeProfile) await showProfileSelect(screen, profiles);
+      if (!profiles.activeProfile) {
+        await showProfileSelect(screen, profiles);
+        promptedAtLoad = true;
+      } else if (!promptedAtLoad) {
+        // First view of the saved profile this session: confirm the
+        // player wants to keep going as them, or send them to profile
+        // select if they want to swap.
+        const choice = await showContinuePrompt(screen, profiles);
+        promptedAtLoad = true;
+        if (choice === 'switch') {
+          await showProfileSelect(screen, profiles);
+        }
+      }
 
       const choice: MenuChoice = await showMainMenu(screen, profiles);
       if (choice === 'switch-profile') {
@@ -70,6 +90,13 @@ async function bootstrap(): Promise<void> {
       if (choice === 'settings') {
         await showSettings(screen);
         continue;
+      }
+      if (choice === 'quit') {
+        // Native side handles the exit; web side stops the loop so we
+        // don't keep painting menus while the WebView tears down.
+        await profiles.save();
+        window.ReactNativeWebView?.postMessage('quit:app');
+        return;
       }
       mode = choice;
     }

@@ -8,7 +8,7 @@ export async function showProfileSelect(root: HTMLElement, profiles: ProfileServ
       root.innerHTML = `
         <div class="fullscreen-panel">
           <button class="gear-btn corner" id="ps-settings" aria-label="Settings">⚙</button>
-          <h1>BOARDER</h1>
+          <h1>Idle Boarder</h1>
           <p class="muted">Pick a profile</p>
           <div class="list" id="profile-list"></div>
           <div class="row">
