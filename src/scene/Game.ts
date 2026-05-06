@@ -1219,6 +1219,18 @@ export class Game {
         this.edgeAngle = 0;
         this.prevJumpHeld = this.input.jumpHeld();
       }
+    } else {
+      // Downhill: clamp X to the floor's skiable range. The procedural
+      // segment chain has a 600 m wide floor (X = ±300) flanked by V-shape
+      // mountain walls that ramp up. The walls are visual meshes only —
+      // surfaceY is uniform across X — so without this clamp the rider
+      // could carve past X=300 into the wall area, end up "grounded" on
+      // a phantom floor below the visible wall surface, and the camera
+      // would follow them under the mesh. ±295 leaves a 5 m safety
+      // margin from the wall's inner edge.
+      const limit = 295;
+      if (this.rider.root.position.x >  limit) this.rider.root.position.x =  limit;
+      if (this.rider.root.position.x < -limit) this.rider.root.position.x = -limit;
     }
 
     if (this.grounded) {
