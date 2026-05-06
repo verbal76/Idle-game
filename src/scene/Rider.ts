@@ -1,6 +1,9 @@
 import {
-  AbstractMesh, Color3, Mesh, MeshBuilder, Scene, StandardMaterial, TransformNode
+  AbstractMesh, Color3, Mesh, MeshBuilder, Scene, StandardMaterial, Texture, TransformNode
 } from '@babylonjs/core';
+import objText from '../assets/character.obj?raw';
+import textureUrl from '../assets/character-texture.png';
+import { loadObjGroups } from './loadObj';
 
 export interface RiderRig {
   root: TransformNode;       // world position + slope-tilt (rotation.x)
@@ -10,13 +13,15 @@ export interface RiderRig {
   humanoid: TransformNode;
   board: Mesh;
   parts: AbstractMesh[];
-  // Exposed for the landing squat animation: shorten legs to ¼ height
-  // and arms to ½ size for a brief moment on impact.
-  leftLeg: Mesh;
-  rightLeg: Mesh;
-  leftArm: Mesh;
-  rightArm: Mesh;
 }
+
+// OBJ character bounds: X ±0.8, Y 0..2.7, Z ±0.4. Existing rig was
+// tuned around a ~1.7 m boarder. Scale 0.63 keeps cameras / dust /
+// trail offsets unchanged.
+const CHARACTER_SCALE = 0.63;
+// After scaling, OBJ feet (local Y=0) need to sit at the snowboard's
+// top face. Board sits at body-Y 0.13 with height 0.06 → top at 0.16.
+const FEET_Y = 0.16;
 
 export function buildRider(scene: Scene): RiderRig {
   // Hierarchy (outer → inner): root → heading → lean → body → humanoid.
@@ -32,93 +37,56 @@ export function buildRider(scene: Scene): RiderRig {
   body.parent = lean;
   const humanoid = new TransformNode('rider-humanoid', scene);
   humanoid.parent = body;
+  // Snowboarder rides sideways on the board: -90° around Y so the
+  // character's facing axis lines up perpendicular to direction of
+  // travel. Same convention as the legacy procedural rig.
   humanoid.rotation.y = -Math.PI / 2;
 
-  const skin    = mat(scene, 'skin',    new Color3(0.96, 0.82, 0.70));
-  const jacket  = mat(scene, 'jacket',  new Color3(0.94, 0.42, 0.18));
-  const jacketDark = mat(scene, 'jacket-dark', new Color3(0.62, 0.26, 0.10));
-  const pants   = mat(scene, 'pants',   new Color3(0.10, 0.18, 0.32));
-  const board   = mat(scene, 'board',   new Color3(0.07, 0.08, 0.10));
-  const beanie  = mat(scene, 'beanie',  new Color3(0.12, 0.20, 0.36));
-  const boot    = mat(scene, 'boot',    new Color3(0.12, 0.10, 0.10));
-  const glove   = mat(scene, 'glove',   new Color3(0.08, 0.12, 0.20));
-  const binding = mat(scene, 'binding', new Color3(0.45, 0.45, 0.50));
-  const goggle  = mat(scene, 'goggle',  new Color3(0.06, 0.08, 0.12));
-  goggle.emissiveColor = new Color3(0.25, 0.45, 0.65);
+  // Single shared material for the whole character — Kenney's atlas
+  // packs head/torso/arms/legs into one texture-d.png with per-face
+  // UV regions. Specular off so the look reads as flat-shaded plastic
+  // (matches the menu hero render).
+  const charMat = new StandardMaterial('character-mat', scene);
+  // OBJ vt coords use V=0 at the bottom (Wavefront / OpenGL convention).
+  // PNG decode in HTML stores pixels Y=0 at the top, so Babylon's
+  // default invertY=true is correct here — it flips the decoded image
+  // so V=0 maps to the PNG's bottom row, matching the OBJ.
+  charMat.diffuseTexture = new Texture(textureUrl, scene);
+  charMat.specularColor = new Color3(0, 0, 0);
+  // Some OBJ exporters emit inconsistent face winding; show both sides
+  // so a flipped triangle doesn't punch a hole in the body.
+  charMat.backFaceCulling = false;
 
   const parts: AbstractMesh[] = [];
-  const T = 24; // tessellation bump for smoother bodies
-
-  // Origin convention: root (= rig pivot) sits at the BOTTOM of the snowboard,
-  // i.e. at the snow surface. Slope tilt rotates around root, so the board
-  // stays planted while the body leans with the descent. Every part's local
-  // Y is offset upward from where the rig used to live (root = body-center).
-  const Y0 = 0.85; // legacy body-center → board-bottom delta
-
-  // Torso
-  parts.push(attach(MeshBuilder.CreateCapsule('torso', { height: 0.7, radius: 0.24, tessellation: T }, scene),
-    humanoid, jacket, 0, Y0 + 0.05, 0));
-  parts.push(attach(MeshBuilder.CreateBox('jacket-stripe', { width: 0.50, height: 0.06, depth: 0.34 }, scene),
-    humanoid, jacketDark, 0, Y0 - 0.12, 0));
-
-  // Head + beanie + goggles
-  parts.push(attach(MeshBuilder.CreateSphere('head', { diameter: 0.32, segments: T }, scene),
-    humanoid, skin, 0, Y0 + 0.55, 0));
-  parts.push(attach(MeshBuilder.CreateSphere('beanie', { diameter: 0.36, segments: T, slice: 0.55 }, scene),
-    humanoid, beanie, 0, Y0 + 0.66, 0));
-  parts.push(attach(MeshBuilder.CreateBox('goggles', { width: 0.30, height: 0.07, depth: 0.20 }, scene),
-    humanoid, goggle, 0, Y0 + 0.55, 0.13));
-
-  // Arms with glove on the end
-  let leftArm: Mesh | null = null;
-  let rightArm: Mesh | null = null;
-  for (const side of [-1, 1] as const) {
-    const arm = MeshBuilder.CreateCapsule(`arm-${side}`,
-      { height: 0.55, radius: 0.080, tessellation: T }, scene);
-    parts.push(attach(arm, humanoid, jacket, 0.30 * side, Y0 + 0.05, 0));
-    arm.rotation.z = -0.18 * side;
-    if (side === -1) leftArm = arm; else rightArm = arm;
-    parts.push(attach(MeshBuilder.CreateSphere(`glove-${side}`,
-      { diameter: 0.20, segments: T }, scene),
-      humanoid, glove, 0.34 * side, Y0 - 0.21, 0));
+  const groups = loadObjGroups(objText, scene, 'character');
+  for (const [, mesh] of groups) {
+    mesh.material = charMat;
+    mesh.parent = humanoid;
+    mesh.scaling.setAll(CHARACTER_SCALE);
+    mesh.position.y = FEET_Y;
+    parts.push(mesh);
   }
 
-  // Legs with chunky boots
-  let leftLeg: Mesh | null = null;
-  let rightLeg: Mesh | null = null;
-  for (const side of [-1, 1] as const) {
-    const leg = MeshBuilder.CreateCapsule(`leg-${side}`,
-      { height: 0.42, radius: 0.105, tessellation: T }, scene);
-    parts.push(attach(leg, humanoid, pants, 0.12 * side, Y0 - 0.45, 0));
-    if (side === -1) leftLeg = leg; else rightLeg = leg;
-    parts.push(attach(MeshBuilder.CreateBox(`boot-${side}`,
-      { width: 0.20, height: 0.16, depth: 0.34 }, scene),
-      humanoid, boot, 0.12 * side, Y0 - 0.70, 0));
-  }
-
-  // Snowboard: now sits at root level (top face at root.y, bottom at root.y - 0.03)
+  // Procedural snowboard kept from the legacy rig — OBJ doesn't include
+  // a board. Lives under `body` so flips rotate the board with the rider.
+  const boardMat = mat(scene, 'board', new Color3(0.07, 0.08, 0.10));
   const snowboard = MeshBuilder.CreateBox('snowboard',
     { width: 0.36, height: 0.06, depth: 1.5 }, scene);
-  parts.push(attach(snowboard, body, board, 0, Y0 - 0.72, 0));
+  parts.push(attach(snowboard, body, boardMat, 0, 0.13, 0));
   parts.push(attach(MeshBuilder.CreateBox('board-tip',
     { width: 0.28, height: 0.05, depth: 0.18 }, scene),
-    body, board, 0, Y0 - 0.71, 0.78));
+    body, boardMat, 0, 0.14, 0.78));
   parts.push(attach(MeshBuilder.CreateBox('board-tail',
     { width: 0.28, height: 0.05, depth: 0.18 }, scene),
-    body, board, 0, Y0 - 0.71, -0.78));
-
-  // Snowboard bindings
+    body, boardMat, 0, 0.14, -0.78));
+  const bindingMat = mat(scene, 'binding', new Color3(0.45, 0.45, 0.50));
   for (const sign of [-1, 1] as const) {
     parts.push(attach(MeshBuilder.CreateBox(`binding-${sign}`,
       { width: 0.24, height: 0.10, depth: 0.30 }, scene),
-      body, binding, 0, Y0 - 0.66, sign * 0.30));
+      body, bindingMat, 0, 0.19, sign * 0.30));
   }
 
-  return {
-    root, heading, lean, body, humanoid, board: snowboard, parts,
-    leftLeg: leftLeg!, rightLeg: rightLeg!,
-    leftArm: leftArm!, rightArm: rightArm!,
-  };
+  return { root, heading, lean, body, humanoid, board: snowboard, parts };
 }
 
 function mat(scene: Scene, name: string, color: Color3): StandardMaterial {

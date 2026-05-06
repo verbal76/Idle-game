@@ -21,6 +21,14 @@ html, body {
   backdrop-filter: blur(8px);
   padding: env(safe-area-inset-top, 16px) env(safe-area-inset-right, 16px) env(safe-area-inset-bottom, 16px) env(safe-area-inset-left, 16px);
 }
+/* Menu / lobby screens use the snowboard hero illustration as a
+   background. Dark gradient overlay keeps button text readable. */
+.fullscreen-panel.menu-bg {
+  background:
+    linear-gradient(rgba(11, 19, 32, 0.55), rgba(11, 19, 32, 0.78)),
+    url('./assets/menu-bg.png') center/cover no-repeat;
+  backdrop-filter: none;
+}
 .fullscreen-panel h1 { font-size: 30px; letter-spacing: 0.08em; font-weight: 700; }
 .fullscreen-panel button {
   background: #2a4f7f; color: #fff; border: 0;

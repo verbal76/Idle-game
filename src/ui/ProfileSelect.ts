@@ -6,7 +6,7 @@ export async function showProfileSelect(root: HTMLElement, profiles: ProfileServ
   return new Promise<void>((resolve) => {
     const render = () => {
       root.innerHTML = `
-        <div class="fullscreen-panel">
+        <div class="fullscreen-panel menu-bg">
           <button class="gear-btn corner" id="ps-settings" aria-label="Settings">⚙</button>
           <h1>Idle Boarder</h1>
           <p class="muted">Pick a profile</p>

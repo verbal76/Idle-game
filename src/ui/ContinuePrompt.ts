@@ -11,7 +11,7 @@ export function showContinuePrompt(root: HTMLElement, profiles: ProfileService):
     const p = profiles.activeProfile!;
     const lastPlayed = p.lastPlayedMs ? new Date(p.lastPlayedMs).toLocaleString() : 'unknown';
     root.innerHTML = `
-      <div class="fullscreen-panel">
+      <div class="fullscreen-panel menu-bg">
         <h1>Idle Boarder</h1>
         <p class="muted">Last player: ${escapeHtml(p.name)}</p>
         <p class="muted">Last played: ${escapeHtml(lastPlayed)}</p>

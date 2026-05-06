@@ -1390,15 +1390,12 @@ export class Game {
   // checks. Cheap.
   private updateLandingSquat(now: number): void {
     const active = now < this.landingSquatUntil;
-    const legY = active ? 0.25 : 1;
-    const armS = active ? 0.4  : 1;
-    const bodY = active ? 0.70 : 1;   // whole humanoid compresses 30%
-    // Use Vector3.set() (not direct .y assignment) so Babylon picks up
-    // the scale change on the world matrix every frame.
-    this.rider.leftLeg.scaling.set(1, legY, 1);
-    this.rider.rightLeg.scaling.set(1, legY, 1);
-    this.rider.leftArm.scaling.set(armS, armS, armS);
-    this.rider.rightArm.scaling.set(armS, armS, armS);
+    // Whole-character vertical compression on impact. Per-limb squashes
+    // were dropped with the OBJ rider — its leg/arm meshes don't have
+    // origin-at-joint, so axis-scaling them moved the limbs in space
+    // instead of squashing them in place. The humanoid Y-scale alone
+    // still reads as a knee-bend at 60 fps.
+    const bodY = active ? 0.70 : 1;
     this.rider.humanoid.scaling.set(1, bodY, 1);
   }
 

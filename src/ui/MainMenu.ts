@@ -6,7 +6,7 @@ export function showMainMenu(root: HTMLElement, profiles: ProfileService): Promi
   return new Promise<MenuChoice>((resolve) => {
     const p = profiles.activeProfile!;
     root.innerHTML = `
-      <div class="fullscreen-panel">
+      <div class="fullscreen-panel menu-bg">
         <button class="gear-btn corner" id="menu-settings" aria-label="Settings">⚙</button>
         <h1>Idle Boarder</h1>
         <p class="muted">${escapeHtml(p.name)} — ${p.currency} ❄</p>
