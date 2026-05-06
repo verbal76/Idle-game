@@ -10,6 +10,12 @@ export interface RiderRig {
   humanoid: TransformNode;
   board: Mesh;
   parts: AbstractMesh[];
+  // Exposed for the landing squat animation: shorten legs to ¼ height
+  // and arms to ½ size for a brief moment on impact.
+  leftLeg: Mesh;
+  rightLeg: Mesh;
+  leftArm: Mesh;
+  rightArm: Mesh;
 }
 
 export function buildRider(scene: Scene): RiderRig {
@@ -64,21 +70,27 @@ export function buildRider(scene: Scene): RiderRig {
     humanoid, goggle, 0, Y0 + 0.55, 0.13));
 
   // Arms with glove on the end
+  let leftArm: Mesh | null = null;
+  let rightArm: Mesh | null = null;
   for (const side of [-1, 1] as const) {
     const arm = MeshBuilder.CreateCapsule(`arm-${side}`,
       { height: 0.55, radius: 0.080, tessellation: T }, scene);
     parts.push(attach(arm, humanoid, jacket, 0.30 * side, Y0 + 0.05, 0));
     arm.rotation.z = -0.18 * side;
+    if (side === -1) leftArm = arm; else rightArm = arm;
     parts.push(attach(MeshBuilder.CreateSphere(`glove-${side}`,
       { diameter: 0.20, segments: T }, scene),
       humanoid, glove, 0.34 * side, Y0 - 0.21, 0));
   }
 
   // Legs with chunky boots
+  let leftLeg: Mesh | null = null;
+  let rightLeg: Mesh | null = null;
   for (const side of [-1, 1] as const) {
-    parts.push(attach(MeshBuilder.CreateCapsule(`leg-${side}`,
-      { height: 0.42, radius: 0.105, tessellation: T }, scene),
-      humanoid, pants, 0.12 * side, Y0 - 0.45, 0));
+    const leg = MeshBuilder.CreateCapsule(`leg-${side}`,
+      { height: 0.42, radius: 0.105, tessellation: T }, scene);
+    parts.push(attach(leg, humanoid, pants, 0.12 * side, Y0 - 0.45, 0));
+    if (side === -1) leftLeg = leg; else rightLeg = leg;
     parts.push(attach(MeshBuilder.CreateBox(`boot-${side}`,
       { width: 0.20, height: 0.16, depth: 0.34 }, scene),
       humanoid, boot, 0.12 * side, Y0 - 0.70, 0));
@@ -102,7 +114,11 @@ export function buildRider(scene: Scene): RiderRig {
       body, binding, 0, Y0 - 0.66, sign * 0.30));
   }
 
-  return { root, heading, lean, body, humanoid, board: snowboard, parts };
+  return {
+    root, heading, lean, body, humanoid, board: snowboard, parts,
+    leftLeg: leftLeg!, rightLeg: rightLeg!,
+    leftArm: leftArm!, rightArm: rightArm!,
+  };
 }
 
 function mat(scene: Scene, name: string, color: Color3): StandardMaterial {
