@@ -6,7 +6,10 @@ import {
 import type { StickValue } from '../input/TwinStickInput';
 import type { UpgradeLevels } from '../profiles/IndexedDbStore';
 import { buildRider, RiderRig } from './Rider';
+import { loadObjByMaterial } from './loadObj';
 import { SeedRng } from '../world/SeedRng';
+import treeBasicObj from '../assets/tree-pine-basic.obj?raw';
+import treeDetailedObj from '../assets/tree-pine-detailed.obj?raw';
 
 export type GameMode = 'half-pipe' | 'downhill';
 
@@ -57,13 +60,19 @@ export class Game {
   private snowMat!: StandardMaterial;
   private rockMat!: StandardMaterial;
   private kickerMat!: StandardMaterial;
+  // Kenney pine tree materials. MTL: Kd 0.8 0.4627 0.3686 (woodBarkDark
+  // — peachy bark) and Kd 0.1686 0.6510 0.6667 (leafsDark — teal pine
+  // needles). Replaces the previous brown/green procedural tree colors.
   private trunkMat!: StandardMaterial;
   private foliageMat!: StandardMaterial;
   private mountainMat!: StandardMaterial;
   private cliffMat!: StandardMaterial;
 
-  private trunkTemplate!: Mesh;
-  private foliageTemplate!: Mesh;
+  // Two pine variants — `basic` (~2-tier silhouette) and `detailed`
+  // (more layered cone). spawnTree picks per-spawn so the slope mixes
+  // both styles evenly. Each entry holds the trunk + foliage Meshes
+  // produced by loadObjByMaterial; instances share GPU buffers.
+  private treeTemplates!: Array<{ trunk: Mesh; foliage: Mesh }>;
 
   private chunks = new Map<string, ChunkData>();
   private readonly chunkSize = 80;
@@ -361,8 +370,10 @@ export class Game {
     this.snowMat.emissiveColor = new Color3(0.08, 0.12, 0.18);
     this.rockMat     = mkMat(this.scene, 'rock',     new Color3(0.32, 0.35, 0.38));
     this.kickerMat   = mkMat(this.scene, 'kicker',   new Color3(0.28, 0.40, 0.62));
-    this.trunkMat    = mkMat(this.scene, 'trunk',    new Color3(0.34, 0.22, 0.13));
-    this.foliageMat  = mkMat(this.scene, 'foliage',  new Color3(0.18, 0.46, 0.24));
+    // Pine bark / needles colors lifted from Kenney's MTL files for the
+    // tree_pineTallA models so the in-engine look matches the source art.
+    this.trunkMat    = mkMat(this.scene, 'trunk',    new Color3(0.8000, 0.4627, 0.3686));
+    this.foliageMat  = mkMat(this.scene, 'foliage',  new Color3(0.1686, 0.6510, 0.6667));
     this.mountainMat = mkMat(this.scene, 'mountain', new Color3(0.42, 0.46, 0.58));
     // Cliff cornice line: cool ice-blue that reads against warm dusk snow.
     this.cliffMat = mkMat(this.scene, 'cliff', new Color3(0.55, 0.78, 0.95));
@@ -370,19 +381,27 @@ export class Game {
   }
 
   private buildTreeTemplates(): void {
-    const trunk = MeshBuilder.CreateCylinder('trunk-template', {
-      diameterTop: 0.22, diameterBottom: 0.34, height: 1.4, tessellation: 8
-    }, this.scene);
-    trunk.material = this.trunkMat;
-    trunk.setEnabled(false);
-    this.trunkTemplate = trunk;
-
-    const foliage = MeshBuilder.CreateCylinder('foliage-template', {
-      diameterTop: 0.05, diameterBottom: 1.7, height: 2.6, tessellation: 8
-    }, this.scene);
-    foliage.material = this.foliageMat;
-    foliage.setEnabled(false);
-    this.foliageTemplate = foliage;
+    // Load both Kenney pine variants once and cache trunk + foliage
+    // template Meshes per variant. spawnTree creates instances off these
+    // so the GPU only stores the verts twice (basic + detailed) no
+    // matter how many trees populate a chunk.
+    this.treeTemplates = [];
+    const variants: Array<[string, string]> = [
+      [treeBasicObj,    'pine-basic'],
+      [treeDetailedObj, 'pine-detailed'],
+    ];
+    for (const [objText, prefix] of variants) {
+      const meshes = loadObjByMaterial(objText, this.scene, prefix);
+      const trunk   = meshes.get('woodBarkDark')!;
+      const foliage = meshes.get('leafsDark')!;
+      trunk.material   = this.trunkMat;
+      foliage.material = this.foliageMat;
+      // Templates stay loaded but invisible; createInstance() yields
+      // independent InstancedMesh nodes that draw normally.
+      trunk.isVisible = false;
+      foliage.isVisible = false;
+      this.treeTemplates.push({ trunk, foliage });
+    }
   }
 
   private buildBackgroundMountains(): void {
@@ -563,14 +582,24 @@ export class Game {
   }
 
   private spawnTree(x: number, z: number, scale: number, name: string): AbstractMesh[] {
-    const trunkH = 1.4 * scale;
     const baseY = this.surfaceY(x, z);
-    const trunk = this.trunkTemplate.createInstance(`trunk-${name}`);
-    trunk.scaling.setAll(scale);
-    trunk.position.set(x, baseY + trunkH / 2, z);
-    const foliage = this.foliageTemplate.createInstance(`foliage-${name}`);
-    foliage.scaling.setAll(scale);
-    foliage.position.set(x, baseY + trunkH + 1.0 * scale, z);
+    // Pick basic vs detailed per spawn so the slope mixes both styles.
+    const variant = this.treeTemplates[this.rng.next01() < 0.5 ? 0 : 1];
+    // Source OBJ is ~1.0 m tall; multiplier brings it into the same
+    // 3-6 m visual range the procedural trunk + cone occupied. Caller's
+    // `scale` (0.9-1.6) is preserved as the per-tree variation factor.
+    const TREE_BASE = 3.5;
+    const treeScale = scale * TREE_BASE;
+    const trunk = variant.trunk.createInstance(`trunk-${name}`);
+    trunk.scaling.setAll(treeScale);
+    trunk.position.set(x, baseY, z);
+    const foliage = variant.foliage.createInstance(`foliage-${name}`);
+    foliage.scaling.setAll(treeScale);
+    foliage.position.set(x, baseY, z);
+    // Random Y rotation so neighbours don't read as repeated stamps.
+    const yaw = this.rng.next01() * Math.PI * 2;
+    trunk.rotation.y = yaw;
+    foliage.rotation.y = yaw;
     return [trunk, foliage];
   }
 
