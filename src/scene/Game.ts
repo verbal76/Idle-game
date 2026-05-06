@@ -241,11 +241,15 @@ export class Game {
 
     this.buildSharedMaterials();
     this.rider = buildRider(this.scene);
-    this.rider.root.position.set(0, this.groundY + this.surfaceY(0, 0), 0);
+    this.rider.root.position.set(0, this.groundY + this.surfaceY(0, 0) + this.pipeOffsetY(0), 0);
 
     this.buildTreeTemplates();
     this.buildBackgroundMountains();
-    this.buildSlopeFloor();
+    // Procedural slope segments are downhill-only. Halfpipe builds its
+    // own pipe ribbons via spawnHalfPipeChunk; the slope-segment chain
+    // would land massive snow walls inside the pipe and the rider would
+    // fall through them.
+    if (this.mode !== 'half-pipe') this.buildSlopeFloor();
     this.buildSky();
     this.buildCamera();
     this.buildSnowDust();
@@ -926,7 +930,10 @@ export class Game {
         const isMega = kickerRoll < 0.10;
         const lx = ox + this.rng.rangeFloat(-half + 4, half - 4);
         const lz = oz + this.rng.rangeFloat(-half + 4, half - 4);
-        const w = isMega ? 6 : 4.5;
+        // Widths tripled (4.5/6 → 13.5/18) so jumps are forgiving — the
+        // central skiable strip is ±300 m, kickers don't crowd it. Hit
+        // boxes scale with `width` so collision auto-extends.
+        const w = isMega ? 18 : 13.5;
         const h = isMega ? 1.2 : 0.6;
         const d = isMega ? 6 : 4;
         const kicker = MeshBuilder.CreateBox(`kicker-${cx}-${cz}`, { width: w, height: h, depth: d }, this.scene);
@@ -962,8 +969,8 @@ export class Game {
           features.push(rock);
           rocks.push({ x: lx, z: lz });
         } else {
-          // kicker — opt-in jump instead of dodge
-          const w = 4.5, h = 0.6, d = 4;
+          // kicker — opt-in jump instead of dodge. Width tripled (4.5 → 13.5).
+          const w = 13.5, h = 0.6, d = 4;
           const kicker = MeshBuilder.CreateBox(`kicker-line-${cx}-${cz}-${i}`, {
             width: w, height: h, depth: d
           }, this.scene);
@@ -1001,7 +1008,10 @@ export class Game {
     }, this.scene);
     context.material = this.snowMat;
     context.position.set(ox, cy, oz);
-    context.rotation.x = -this.activeSlope;
+    // rotation was -activeSlope (tilts uphill); the slope descends in +Z
+    // so floor must tilt +activeSlope. Was producing a "sky-floating"
+    // halfpipe the rider fell through.
+    context.rotation.x = this.activeSlope;
 
     const FLAT = this.HP_FLAT_HALF;
     const R = this.HP_PIPE_RADIUS;
@@ -1029,7 +1039,8 @@ export class Game {
     }, this.scene);
     pipe.material = this.snowMat;
     pipe.position.set(ox, cy, oz);
-    pipe.rotation.x = -this.activeSlope;
+    // Same rotation flip as the context above — was tilting uphill.
+    pipe.rotation.x = this.activeSlope;
 
     const features: AbstractMesh[] = [pipe];
 
@@ -1048,12 +1059,15 @@ export class Game {
       }
       if (cz % 2 === 1) {
         const lz = oz + this.rng.rangeFloat(-half + 5, half - 5);
-        const kicker = MeshBuilder.CreateBox(`hp-kicker-${cz}`, { width: 4, height: 0.8, depth: 4 }, this.scene);
+        // Halfpipe kicker width tripled (4 → 12). HP_PIPE_HALF is 9, so a
+        // 12-wide kicker spans the full skiable floor and overlaps onto
+        // the curved walls — easier to hit at any X.
+        const kicker = MeshBuilder.CreateBox(`hp-kicker-${cz}`, { width: 12, height: 0.8, depth: 4 }, this.scene);
         kicker.material = this.kickerMat;
         kicker.position.set(ox, this.surfaceY(ox, lz) + 0.4, lz);
         kicker.rotation.x = -0.40 - this.activeSlope;
         features.push(kicker);
-        kickers.push({ x: ox, z: lz, width: 4, power: 7.5 });
+        kickers.push({ x: ox, z: lz, width: 12, power: 7.5 });
       }
     }
 
