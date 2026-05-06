@@ -96,8 +96,6 @@ export function buildObjMesh(group: { name: string; faces: number[][][] }, srcPo
 // Convenience: parse + build per group in one shot. Returns a map of
 // group-name → Mesh for the caller to wire into a rig.
 export function loadObjGroups(text: string, scene: Scene, namePrefix: string): Map<string, Mesh> {
-  // Walk once to grab raw arrays + groups together (parseObjGroups alone
-  // doesn't emit them in a usable shape, so we re-collect here).
   const positions: number[][] = [];
   const uvs: number[][] = [];
   const normals: number[][] = [];
@@ -131,6 +129,50 @@ export function loadObjGroups(text: string, scene: Scene, namePrefix: string): M
   const out = new Map<string, Mesh>();
   for (const g of groups) {
     out.set(g.name, buildObjMesh(g, positions, uvs, normals, scene, namePrefix));
+  }
+  return out;
+}
+
+// Variant for OBJs that put one logical model in a single `g` group
+// but split faces across multiple materials via `usemtl` (e.g. Kenney
+// pine trees: one tree, two materials — woodBarkDark for the trunk
+// and leafsDark for the foliage). Returns a map of material-name →
+// Mesh so callers can wire each part to its corresponding Babylon
+// material (or skip per-material handling).
+export function loadObjByMaterial(text: string, scene: Scene, namePrefix: string): Map<string, Mesh> {
+  const positions: number[][] = [];
+  const uvs: number[][] = [];
+  const normals: number[][] = [];
+  const bins = new Map<string, { name: string; faces: number[][][] }>();
+  let currentMat = 'default';
+
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const parts = trimmed.split(/\s+/);
+    const tag = parts[0];
+    if (tag === 'v') positions.push([+parts[1], +parts[2], +parts[3]]);
+    else if (tag === 'vt') uvs.push([+parts[1], +parts[2]]);
+    else if (tag === 'vn') normals.push([+parts[1], +parts[2], +parts[3]]);
+    else if (tag === 'usemtl') {
+      currentMat = parts.slice(1).join(' ');
+    } else if (tag === 'f') {
+      let bin = bins.get(currentMat);
+      if (!bin) {
+        bin = { name: currentMat, faces: [] };
+        bins.set(currentMat, bin);
+      }
+      const face: number[][] = parts.slice(1).map(spec => {
+        const [v, vt, vn] = spec.split('/').map(s => s ? +s - 1 : -1);
+        return [v, vt, vn];
+      });
+      bin.faces.push(face);
+    }
+  }
+
+  const out = new Map<string, Mesh>();
+  for (const [name, bin] of bins) {
+    out.set(name, buildObjMesh(bin, positions, uvs, normals, scene, namePrefix));
   }
   return out;
 }
