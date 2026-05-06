@@ -250,6 +250,19 @@ export class Game {
   pause(): void { this.running = false; }
   resume(): void { if (!this.fellAlready) this.running = true; }
 
+  // Live stats for the current run. Used when the player quits or
+  // switches style from the pause menu so snowflakes earned this run
+  // can be credited to the profile (the game wouldn't otherwise reach
+  // onFell on a manual exit).
+  getRunStats(): { distanceMeters: number; flips: number; spins: number; coins: number } {
+    return {
+      distanceMeters: Math.max(0, Math.floor(this.rider.root.position.z)),
+      flips: this.flipsLanded,
+      spins: this.spinsLanded,
+      coins: this.coinsCollected,
+    };
+  }
+
   dispose(): void {
     window.removeEventListener('resize', this.onResize);
     this.engine.stopRenderLoop();

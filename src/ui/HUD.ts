@@ -8,6 +8,7 @@ export interface HUDRefs {
   flipBtn: HTMLElement;
   pauseMenu: HTMLElement;
   resumeBtn: HTMLButtonElement;
+  switchBtn: HTMLButtonElement;
   quitBtn: HTMLButtonElement;
   fellOverlay: HTMLElement;
   fellStats: HTMLElement;
@@ -33,6 +34,7 @@ export function buildHUD(root: HTMLElement): HUDRefs {
         <h1>Paused</h1>
         <div class="list">
           <button id="resume">Resume</button>
+          <button id="switch-style">Switch Style</button>
           <button id="quit" class="danger">Quit run</button>
         </div>
       </div>
@@ -55,6 +57,7 @@ export function buildHUD(root: HTMLElement): HUDRefs {
     flipBtn:     root.querySelector<HTMLElement>('#flip')!,
     pauseMenu:   root.querySelector<HTMLElement>('#pause-menu')!,
     resumeBtn:   root.querySelector<HTMLButtonElement>('#resume')!,
+    switchBtn:   root.querySelector<HTMLButtonElement>('#switch-style')!,
     quitBtn:     root.querySelector<HTMLButtonElement>('#quit')!,
     fellOverlay: root.querySelector<HTMLElement>('#fell-overlay')!,
     fellStats:   root.querySelector<HTMLElement>('#fell-stats')!,
