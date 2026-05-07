@@ -1780,18 +1780,25 @@ export class Game {
       const groundLevel = this.groundY
         + this.surfaceY(this.rider.root.position.x, this.rider.root.position.z)
         + this.pipeOffsetY(this.rider.root.position.x);
-      if (this.rider.root.position.y - groundLevel > 0.4) {
-        // Detect cliff-edge step-down: groundLevel just dropped by
-        // CLIFF_STEP_M+ from one frame to the next. The rider is going
-        // off a lip — let gravity take over from their current Y rather
-        // than zeroing vy and snapping them to the lower surface (which
-        // would put them on phantom ground beneath the visible cliff
-        // face). Air-spin works the same as a kicker launch.
-        const droppedOffCliff = this.prevGroundLevel !== null
-          && (this.prevGroundLevel - groundLevel) > this.CLIFF_STEP_M;
+      // Cliff-edge detection: if groundLevel dropped > CLIFF_STEP_M
+      // frame-to-frame, the rider is going off a lip — let gravity
+      // take over from their current Y so they arc off naturally
+      // instead of snapping to the lower surface (which would put
+      // them on phantom ground beneath the visible cliff face).
+      const droppedOffCliff = this.prevGroundLevel !== null
+        && (this.prevGroundLevel - groundLevel) > this.CLIFF_STEP_M;
+      if (droppedOffCliff) {
         this.grounded = false;
-        if (!droppedOffCliff) this.verticalVelocity = 0;
+        // verticalVelocity unchanged → natural arc off the lip.
       } else {
+        // Stay grounded. Snap Y to the current ground regardless of
+        // how far the rider drifted above between frames — high-speed
+        // sliding down a slope can put them several cm above their
+        // last snapped Y in a single dt, and the previous "go airborne
+        // if rider.y - groundLevel > 0.4" rule was firing on every
+        // such drift, producing the spurious "bounce back into the
+        // air" the user reported. Real cliffs are caught by the check
+        // above; everything else is normal slope tracking.
         this.rider.root.position.y = groundLevel;
       }
       this.prevGroundLevel = groundLevel;
