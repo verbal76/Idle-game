@@ -11,6 +11,10 @@ export interface RiderRig {
   lean: TransformNode;
   body: TransformNode;
   humanoid: TransformNode;
+  // Upper body (torso + head + arms) lives under `waist` so it can bend
+  // into a turn independently from the legs (which stay parented to
+  // humanoid for board-stance stability).
+  waist: TransformNode;
   board: Mesh;
   parts: AbstractMesh[];
   // Per-limb refs for tick-time animation: arm-swing idle and head
@@ -28,6 +32,11 @@ const CHARACTER_SCALE = 0.63;
 // After scaling, OBJ feet (local Y=0) need to sit at the snowboard's
 // top face. Board sits at body-Y 0.13 with height 0.06 → top at 0.16.
 const FEET_Y = 0.16;
+// Visual waistline: top of legs (OBJ Y=1) maps to humanoid Y =
+// FEET_Y + CHARACTER_SCALE * 1.0 = 0.79. Used as the pivot for the
+// upper-body bend so torso/head/arms tip into the turn around the
+// hips while the legs stay planted on the board.
+const WAIST_Y = FEET_Y + CHARACTER_SCALE * 1.0;
 
 export function buildRider(scene: Scene): RiderRig {
   // Hierarchy (outer → inner): root → heading → lean → body → humanoid.
@@ -48,26 +57,39 @@ export function buildRider(scene: Scene): RiderRig {
   // travel. Same convention as the legacy procedural rig.
   humanoid.rotation.y = -Math.PI / 2;
 
-  // Single shared material for the whole character — Kenney's atlas
-  // packs head/torso/arms/legs into one texture-d.png with per-face
-  // UV regions. Specular off so the look reads as flat-shaded plastic
-  // (matches the menu hero render).
+  // Waist node — sits between humanoid and the upper-body meshes so
+  // the torso/head/arms can bend into a turn without dragging the
+  // legs along. Pivot on the waistline (humanoid Y = 0.79); rotating
+  // waist.z bends the upper body around the hips.
+  const waist = new TransformNode('rider-waist', scene);
+  waist.parent = humanoid;
+  waist.setPivotPoint(new Vector3(0, WAIST_Y, 0));
+
+  // Kenney atlas — applied to head, torso, arms (where the UVs land
+  // inside [0, 1] and sample correctly). The leg groups' vt entries
+  // go negative (exporter quirk) and tile into the wrong atlas cells
+  // under Babylon's default WRAP mode, which made the legs blend into
+  // the jacket and hid the body silhouette in-game. Overriding the
+  // legs with a solid dark-pants color restores the upper/lower body
+  // contrast without touching the textured upper body.
   const charMat = new StandardMaterial('character-mat', scene);
   // OBJ vt coords use V=0 at the bottom (Wavefront / OpenGL convention).
-  // PNG decode in HTML stores pixels Y=0 at the top, so Babylon's
-  // default invertY=true is correct here — it flips the decoded image
-  // so V=0 maps to the PNG's bottom row, matching the OBJ.
+  // Babylon's default invertY=true flips the decoded PNG so V=0 maps to
+  // the PNG's bottom row, matching the OBJ.
   charMat.diffuseTexture = new Texture(textureUrl, scene);
   charMat.specularColor = new Color3(0, 0, 0);
-  // Some OBJ exporters emit inconsistent face winding; show both sides
-  // so a flipped triangle doesn't punch a hole in the body.
   charMat.backFaceCulling = false;
+  const pantsMat  = mat(scene, 'rider-pants',  new Color3(0.10, 0.18, 0.32));
+  const bootMat   = mat(scene, 'rider-boot',   new Color3(0.12, 0.10, 0.10));
+
+  const upperBody = new Set(['head', 'torso', 'arm-left', 'arm-right']);
+  const isLeg = (name: string) => name === 'leg-left' || name === 'leg-right';
 
   const parts: AbstractMesh[] = [];
   const groups = loadObjGroups(objText, scene, 'character');
-  for (const [, mesh] of groups) {
-    mesh.material = charMat;
-    mesh.parent = humanoid;
+  for (const [name, mesh] of groups) {
+    mesh.material = isLeg(name) ? pantsMat : charMat;
+    mesh.parent = upperBody.has(name) ? waist : humanoid;
     mesh.scaling.setAll(CHARACTER_SCALE);
     mesh.position.y = FEET_Y;
     parts.push(mesh);
@@ -104,8 +126,15 @@ export function buildRider(scene: Scene): RiderRig {
       { width: 0.24, height: 0.10, depth: 0.30 }, scene),
       body, bindingMat, 0, 0.19, sign * 0.30));
   }
+  // Boots cover the foot-binding gap and tie the legs visually onto the
+  // board — important now that the legs render in flat dark blue.
+  for (const sign of [-1, 1] as const) {
+    parts.push(attach(MeshBuilder.CreateBox(`boot-${sign}`,
+      { width: 0.18, height: 0.10, depth: 0.36 }, scene),
+      body, bootMat, 0, 0.22, sign * 0.30));
+  }
 
-  return { root, heading, lean, body, humanoid, board: snowboard, parts, head, leftArm, rightArm };
+  return { root, heading, lean, body, humanoid, waist, board: snowboard, parts, head, leftArm, rightArm };
 }
 
 function mat(scene: Scene, name: string, color: Color3): StandardMaterial {

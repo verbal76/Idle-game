@@ -1250,6 +1250,11 @@ export class Game {
     this.rider.root.rotation.x = this.activeSlope;
     this.rider.heading.rotation.y = this.heading;
     this.rider.lean.rotation.z = -this.edgeAngle;
+    // Waist bend: upper body tilts ~40% further than the legs, so the
+    // boarder visibly creases at the hips into the turn instead of
+    // leaning as a single rigid stick. Sign matches the lean so the
+    // bend is in the same direction as the carve.
+    this.rider.waist.rotation.z = -this.edgeAngle * 0.4;
 
     // Head counter-rotation: cancel both humanoid's fixed -π/2 yaw and
     // the body heading so the boarder always looks down the fall line
@@ -1258,25 +1263,36 @@ export class Game {
     // around the neck instead of the OBJ origin.
     this.rider.head.rotation.y = Math.PI / 2 - this.heading;
 
-    // Arm-swing idle. Subtle ±11° pendulum at ~1.5 Hz that makes the
-    // boarder read as alive instead of frozen on the board. Skipped in
-    // bail (rider is laid out sideways) and grind (locked stance) —
-    // those branches short-circuit before reaching this code anyway,
-    // so a state guard keeps post-bail/grind transitions clean.
+    // Arm-swing idle. Pendulum is gated into ~1.5 s bursts every ~9 s
+    // so the boarder reads as alive when he moves but doesn't twitch
+    // constantly. The smooth ramp-down (rotation.z *= 0.85) decays
+    // any residual swing back to neutral between bursts. Skipped in
+    // bail / grind because those branches short-circuit before this.
     if (this.state === 'normal') {
-      const swing = Math.sin(now * 0.003 * Math.PI) * 0.20;
-      this.rider.leftArm.rotation.z  =  swing;
-      this.rider.rightArm.rotation.z = -swing;
+      const cycleSec = (now * 0.001) % 9;
+      const inBurst = cycleSec < 1.5;
+      if (inBurst) {
+        const swing = Math.sin(now * 0.003 * Math.PI) * 0.18;
+        this.rider.leftArm.rotation.z  =  swing;
+        this.rider.rightArm.rotation.z = -swing;
+      } else {
+        this.rider.leftArm.rotation.z  *= 0.85;
+        this.rider.rightArm.rotation.z *= 0.85;
+      }
     }
 
     const cosH = Math.cos(this.heading);
     const sinH = Math.sin(this.heading);
     // Board perpendicular to fall line == brakes: cos² → 0 at 90°.
-    // Active brake decay scales with how sideways the board is.
-    const targetSpeed = this.maxSpeed * cosH * cosH;
+    // Per-user feedback the carve speed-loss was overly punishing;
+    // halve the speed drop with `0.5 + 0.5 * cos²` so the slowest
+    // possible target stays at 50% of max instead of 0%. Brake-rate
+    // multiplier on sin² also halved (was 6 → 3) so the catch toward
+    // target is gentler at high carve angles.
+    const targetSpeed = this.maxSpeed * (0.5 + 0.5 * cosH * cosH);
     if (this.grounded) {
       const brake = Math.abs(sinH);
-      const brakeRate = this.speedCatch + brake * brake * 6.0;
+      const brakeRate = this.speedCatch + brake * brake * 3.0;
       this.speed += (targetSpeed - this.speed) * Math.min(1, brakeRate * dt);
     } else {
       this.speed += (targetSpeed - this.speed) * Math.min(1, this.speedCatch * 0.3 * dt);
