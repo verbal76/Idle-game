@@ -202,6 +202,15 @@ export class Game {
   // or releases each tick. SQUAT_MS bumped from 220 → 380 ms so the
   // animation is unmistakably visible at 60 fps (~23 frames).
   private landingSquatUntil = 0;
+  // Random idle-event scheduler. While riding normally, every 3-7 s
+  // pick a small "alive" event — arm sway, single-arm flick, brief
+  // squat, brief waist flex — that runs for 0.7-1.3 s with a sin-bell
+  // envelope. Avoids the previous stiff "constant 9-second arm swing"
+  // loop while still letting the rider read as a person, not a stick.
+  private idleEventStart = 0;
+  private idleEventEnd = 0;
+  private idleEventKind = 0;       // index into the event lookup table
+  private idleEventAmp = 0;        // peak amplitude of the current event
   private readonly SQUAT_MS = 380;
   // Set on a clean landing or bail. While now < impactBurstUntil the
   // dust emit rate bumps to BURST_EMIT for a one-shot plume; the regular
@@ -606,6 +615,17 @@ export class Game {
     const rampConcreteMat = mkMat(this.scene, 'ramp-concrete', new Color3(0.78, 0.78, 0.80));
     const rampMetalMat    = mkMat(this.scene, 'ramp-metal',    new Color3(0.32, 0.36, 0.42));
     const rampRoofMat     = mkMat(this.scene, 'ramp-roof',     new Color3(0.55, 0.58, 0.62));
+    // Kenney's wallbroofslantdetailed.obj is a half-roof / lean-to: it
+    // has a tall right wall and a slanted roof, but the underside is
+    // OPEN (no floor face — these polys live on the building's
+    // exterior). With default backFaceCulling=true the camera angle
+    // sometimes lands inside the open underside, exposing rafters
+    // and giving the "hollow ramp" look the user reported. Forcing
+    // backFaceCulling off makes every polygon double-sided so the
+    // ramp reads as a solid wedge from any angle.
+    rampConcreteMat.backFaceCulling = false;
+    rampMetalMat.backFaceCulling    = false;
+    rampRoofMat.backFaceCulling     = false;
     const concrete = rampMeshes.get('concrete')!;
     const metal    = rampMeshes.get('wall_metal')!;
     const roof     = rampMeshes.get('roof_plates')!;
@@ -844,14 +864,31 @@ export class Game {
   // every returned node into chunk.features so disposeChunk cleans
   // them up on chunk roll.
   private spawnRamp(x: number, baseY: number, z: number, width: number, slopeTilt: number, name: string): AbstractMesh[] {
-    const scale = width / this.rampTemplate.nativeSize;
+    // OBJ-local: the slant rises along +X (low at X=-0.5, high at X=+0.5),
+    // OBJ Z runs perpendicular at ±0.57, OBJ Y is up to 0.5. The rider
+    // moves world +Z, so we rotate the ramp -90° around Y to map the
+    // OBJ +X (slant high) onto world +Z (downhill / launch direction).
+    // After that rotation:
+    //   OBJ X (1.0 m) → world Z (depth, along rider motion)
+    //   OBJ Z (1.14 m) → world X (lateral, what the player calls width)
+    //   OBJ Y (0.5 m) → world Y (height)
+    // Caller's `width` is the desired world-X extent; scale = width / 1.14.
+    // Y is non-uniformly squished so a wide ramp doesn't tower over a
+    // ~1.7 m rider — sy = sxz * 0.4 keeps height proportional but
+    // capped (width 8 → height ~1.4 m).
+    const sxz = width / 1.14;
+    const sy = sxz * 0.4;
     const anchor = new TransformNode(`ramp-${name}`, this.scene);
     anchor.position.set(x, baseY, z);
-    anchor.scaling.setAll(scale);
-    // The OBJ slant rises from -Z toward +Z. Riders move +Z, so the
-    // approach face is at -Z (low side) and the launch lip is at +Z.
-    // Add the slope tilt so the ramp's base sits flat on the angled
-    // snow rather than tipping uphill.
+    anchor.scaling.set(sxz, sy, sxz);
+    // Yaw aligns slant with rider direction; pitch matches the snow
+    // surface tilt so the ramp's base sits flat on the angled slope
+    // instead of standing perpendicular to world Y. +π/2 around Y
+    // (was -π/2) — Babylon's left-handed rotation convention puts
+    // the slant low end at world -Z and the high end at world +Z
+    // with this sign, so the rider approaches the low side and
+    // launches off the high side.
+    anchor.rotation.y = Math.PI / 2;
     anchor.rotation.x = slopeTilt;
     const out: AbstractMesh[] = [];
     for (const sub of [this.rampTemplate.concrete, this.rampTemplate.metal, this.rampTemplate.roof]) {
@@ -1204,7 +1241,7 @@ export class Game {
         const lz = oz + this.rng.rangeFloat(-half + 4, half - 4);
         // Width drives the Kenney ramp's spawn-time scale + the
         // collision hit-box. Mega ramp = bigger launch power.
-        const w = isMega ? 9 : 6;
+        const w = isMega ? 14 : 10;
         features.push(...this.spawnRamp(lx, this.surfaceY(lx, lz), lz, w, this.activeSlope, `kicker-${cx}-${cz}`));
         kickers.push({ x: lx, z: lz, width: w, power: isMega ? 10.0 : 5.0 });
       }
@@ -1236,7 +1273,7 @@ export class Game {
           rocks.push({ x: lx, z: lz, radius: variant.radius });
         } else {
           // kicker — opt-in jump instead of dodge.
-          const w = 6;
+          const w = 10;
           features.push(...this.spawnRamp(lx, this.surfaceY(lx, lz), lz, w, this.activeSlope, `kicker-line-${cx}-${cz}-${i}`));
           kickers.push({ x: lx, z: lz, width: w, power: 6.0 });
         }
@@ -1284,6 +1321,30 @@ export class Game {
         const s = 0.85 + this.rng.next01() * 0.5;
         flower.scaling.setAll(s);
         features.push(flower);
+      }
+
+      // Cliff-edge boost ramp. Rare event (10% per cliff that lands in
+      // this chunk's Z range) — gives the rider a kicker right at the
+      // lip for an extra-air launch over the drop. The slope segment
+      // chain owns cliff geometry; we just look up any segment whose
+      // startZ falls in this chunk and whose startY drops by >1 m
+      // versus the previous segment's endY.
+      for (let i = 1; i < this.slopeSegments.length; i++) {
+        const prev = this.slopeSegments[i - 1];
+        const cur  = this.slopeSegments[i];
+        const cliffZ = cur.startZ;
+        if (cliffZ < oz - half || cliffZ >= oz + half) continue;
+        if (prev.endY - cur.startY < 1) continue; // not a real cliff
+        if (this.rng.next01() > 0.10) continue;   // very rarely
+        // Plant the ramp 2 m uphill of the lip on the upper segment.
+        const rampZ = cliffZ - 2;
+        const rampX = this.rng.rangeFloat(-12, 12);
+        const rampBaseY = this.surfaceY(rampX, rampZ);
+        const w = 12;
+        features.push(...this.spawnRamp(rampX, rampBaseY, rampZ, w, this.activeSlope, `cliff-ramp-${cx}-${cz}-${i}`));
+        // Boost is bigger than a regular kicker — landing into a cliff
+        // drop should feel like a real send.
+        kickers.push({ x: rampX, z: rampZ, width: w, power: 12.0 });
       }
     }
 
@@ -1363,13 +1424,12 @@ export class Game {
       let kickerLz: number | null = null;
       if (cz % 2 === 1) {
         const lz = oz + this.rng.rangeFloat(-half + 5, half - 5);
-        // Half-pipe ramp: ~5 m wide, sits at the centerline of the
-        // skiable floor. Smaller than the previous 12 m box but the
-        // Kenney ramp is detailed enough to read; rider can hit it at
-        // a range of X without the over-wide box.
-        const w = 5;
+        // Half-pipe ramp: 8 m wide so it spans most of the flat trough
+        // (HP_FLAT_HALF * 2 = 10 m) and the rider can hit it at a
+        // range of X without the over-wide previous 12 m box.
+        const w = 8;
         features.push(...this.spawnRamp(ox, this.surfaceY(ox, lz), lz, w, this.activeSlope, `hp-kicker-${cz}`));
-        kickers.push({ x: ox, z: lz, width: 5, power: 7.5 });
+        kickers.push({ x: ox, z: lz, width: 8, power: 7.5 });
         kickerLz = lz;
       }
 
@@ -1528,7 +1588,7 @@ export class Game {
       this.rider.lean.rotation.z = 0;
       this.dustParticles.emitRate = 60;
       this.updateChunkStreaming();
-      this.updateLandingSquat(now);
+      this.applyBodyAnimation(now);
       this.scene.render();
       return;
     }
@@ -1582,11 +1642,6 @@ export class Game {
     this.rider.root.rotation.x = this.activeSlope;
     this.rider.heading.rotation.y = this.heading;
     this.rider.lean.rotation.z = -this.edgeAngle;
-    // Waist bend: upper body tilts ~40% further than the legs, so the
-    // boarder visibly creases at the hips into the turn instead of
-    // leaning as a single rigid stick. Sign matches the lean so the
-    // bend is in the same direction as the carve.
-    this.rider.waist.rotation.z = -this.edgeAngle * 0.4;
 
     // Head counter-rotation: cancel both humanoid's fixed -π/2 yaw and
     // the body heading so the boarder always looks down the fall line
@@ -1595,23 +1650,12 @@ export class Game {
     // around the neck instead of the OBJ origin.
     this.rider.head.rotation.y = Math.PI / 2 - this.heading;
 
-    // Arm-swing idle. Pendulum is gated into ~1.5 s bursts every ~9 s
-    // so the boarder reads as alive when he moves but doesn't twitch
-    // constantly. The smooth ramp-down (rotation.z *= 0.85) decays
-    // any residual swing back to neutral between bursts. Skipped in
-    // bail / grind because those branches short-circuit before this.
-    if (this.state === 'normal') {
-      const cycleSec = (now * 0.001) % 9;
-      const inBurst = cycleSec < 1.5;
-      if (inBurst) {
-        const swing = Math.sin(now * 0.003 * Math.PI) * 0.18;
-        this.rider.leftArm.rotation.z  =  swing;
-        this.rider.rightArm.rotation.z = -swing;
-      } else {
-        this.rider.leftArm.rotation.z  *= 0.85;
-        this.rider.rightArm.rotation.z *= 0.85;
-      }
-    }
+    // Body scale + waist + arm idle animation. Three simultaneous
+    // contributions: (1) carve waist-bend from edgeAngle, (2)
+    // jump-charge squat that springs back on release, (3) random
+    // idle events for "alive" body language. Combined here so each
+    // can read the others.
+    this.applyBodyAnimation(now);
 
     const cosH = Math.cos(this.heading);
     const sinH = Math.sin(this.heading);
@@ -1751,18 +1795,25 @@ export class Game {
       const groundLevel = this.groundY
         + this.surfaceY(this.rider.root.position.x, this.rider.root.position.z)
         + this.pipeOffsetY(this.rider.root.position.x);
-      if (this.rider.root.position.y - groundLevel > 0.4) {
-        // Detect cliff-edge step-down: groundLevel just dropped by
-        // CLIFF_STEP_M+ from one frame to the next. The rider is going
-        // off a lip — let gravity take over from their current Y rather
-        // than zeroing vy and snapping them to the lower surface (which
-        // would put them on phantom ground beneath the visible cliff
-        // face). Air-spin works the same as a kicker launch.
-        const droppedOffCliff = this.prevGroundLevel !== null
-          && (this.prevGroundLevel - groundLevel) > this.CLIFF_STEP_M;
+      // Cliff-edge detection: if groundLevel dropped > CLIFF_STEP_M
+      // frame-to-frame, the rider is going off a lip — let gravity
+      // take over from their current Y so they arc off naturally
+      // instead of snapping to the lower surface (which would put
+      // them on phantom ground beneath the visible cliff face).
+      const droppedOffCliff = this.prevGroundLevel !== null
+        && (this.prevGroundLevel - groundLevel) > this.CLIFF_STEP_M;
+      if (droppedOffCliff) {
         this.grounded = false;
-        if (!droppedOffCliff) this.verticalVelocity = 0;
+        // verticalVelocity unchanged → natural arc off the lip.
       } else {
+        // Stay grounded. Snap Y to the current ground regardless of
+        // how far the rider drifted above between frames — high-speed
+        // sliding down a slope can put them several cm above their
+        // last snapped Y in a single dt, and the previous "go airborne
+        // if rider.y - groundLevel > 0.4" rule was firing on every
+        // such drift, producing the spurious "bounce back into the
+        // air" the user reported. Real cliffs are caught by the check
+        // above; everything else is normal slope tracking.
         this.rider.root.position.y = groundLevel;
       }
       this.prevGroundLevel = groundLevel;
@@ -1840,23 +1891,85 @@ export class Game {
     const coinTag = `  •  ${this.coinsCollected} ❄`;
     this.callbacks.onScore?.(`${altTag}${meters} m${coinTag}${flipTag}${spinTag}`);
 
-    this.updateLandingSquat(now);
-
     this.scene.render();
   }
 
   // Apply or release the landing squat scaling. Called every tick — the
   // active branch costs 6 scalar writes, idle branch is 4 equality
   // checks. Cheap.
-  private updateLandingSquat(now: number): void {
-    const active = now < this.landingSquatUntil;
-    // Whole-character vertical compression on impact. Per-limb squashes
-    // were dropped with the OBJ rider — its leg/arm meshes don't have
-    // origin-at-joint, so axis-scaling them moved the limbs in space
-    // instead of squashing them in place. The humanoid Y-scale alone
-    // still reads as a knee-bend at 60 fps.
-    const bodY = active ? 0.70 : 1;
-    this.rider.humanoid.scaling.set(1, bodY, 1);
+  // Combined body-animation driver. Reads the carve, jump-charge,
+  // landing-squat, and random idle-event state, and sets:
+  //   waist.rotation.z   = carve bend + idle waist-flex
+  //   humanoid.scaling.y = jump-charge crouch ⨂ landing squat ⨂ idle bob
+  //   leftArm/rightArm.rotation.z = idle-event-driven sway / flick
+  private applyBodyAnimation(now: number): void {
+    // Base waist bend from the carve (used to live inline; same value).
+    let waistZ = -this.edgeAngle * 0.4;
+
+    // Vertical scale stack:
+    //  - jump-charge: while grounded with charge in flight, the rider
+    //    crouches up to 50% of full height (charge=1 → scale=0.5). On
+    //    release, jumpCharge resets to 0 and scaling springs back to 1
+    //    — that snap timed with the verticalVelocity kick reads as a
+    //    coiled-then-released jump.
+    //  - landing squat: 0.70 for SQUAT_MS after a clean land.
+    //  - idle bob: small (~8%) momentary squat pulse (event below).
+    let scaleY = 1;
+    if (this.grounded && this.jumpCharge > 0) {
+      scaleY = Math.min(scaleY, 1 - this.jumpCharge * 0.5);
+    }
+    if (now < this.landingSquatUntil) {
+      scaleY = Math.min(scaleY, 0.70);
+    }
+
+    // Random idle-event scheduler. Schedule a new event whenever the
+    // current one ends; pick from arm-sway / single-arm flick / brief
+    // squat / waist flex. Sin-bell envelope (0 → peak at midpoint → 0)
+    // smooths the in/out so the body doesn't pop. Events only fire in
+    // the 'normal' state — bail / grind / recovering set their own
+    // body transforms and short-circuit before this point in tick().
+    if (this.state === 'normal') {
+      if (now >= this.idleEventEnd) {
+        this.idleEventStart = now + 3000 + this.rng.next01() * 4000;  // 3-7 s gap
+        this.idleEventEnd   = this.idleEventStart + 700 + this.rng.next01() * 600; // 0.7-1.3 s
+        this.idleEventKind  = Math.floor(this.rng.next01() * 5);
+        this.idleEventAmp   = 0.12 + this.rng.next01() * 0.18;
+      }
+      // Smoothly decay residual arm rotations between events.
+      this.rider.leftArm.rotation.z  *= 0.85;
+      this.rider.rightArm.rotation.z *= 0.85;
+      if (now >= this.idleEventStart && now < this.idleEventEnd) {
+        const t = (now - this.idleEventStart) / Math.max(1, this.idleEventEnd - this.idleEventStart);
+        const env = Math.sin(t * Math.PI);
+        const v = env * this.idleEventAmp;
+        switch (this.idleEventKind) {
+          case 0: // both-arm balance sway
+            this.rider.leftArm.rotation.z  =  v;
+            this.rider.rightArm.rotation.z = -v;
+            break;
+          case 1: // single left-arm flick forward
+            this.rider.leftArm.rotation.z  = v * 1.6;
+            break;
+          case 2: // single right-arm flick forward
+            this.rider.rightArm.rotation.z = -v * 1.6;
+            break;
+          case 3: // brief squat to "loosen the legs"
+            scaleY *= 1 - env * 0.08;
+            break;
+          case 4: // brief waist flex
+            waistZ += v * 0.6;
+            break;
+        }
+      }
+    } else {
+      // bail / grind / recovering: zero arm transforms hard so we don't
+      // carry an idle pose into a state-driven body re-pose.
+      this.rider.leftArm.rotation.z  = 0;
+      this.rider.rightArm.rotation.z = 0;
+    }
+
+    this.rider.waist.rotation.z = waistZ;
+    this.rider.humanoid.scaling.set(1, scaleY, 1);
   }
 
   private checkInteractions(): void {
