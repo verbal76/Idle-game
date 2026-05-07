@@ -2,16 +2,47 @@ import { MusicPlayer } from '../audio/MusicPlayer';
 import { ProfileService } from '../profiles/ProfileService';
 import { showAbout } from './About';
 
-// Single-purpose settings shell today: routes to the About panel and
-// holds the music volume control. Wrapped as a separate screen so
-// future settings (sfx, controls, reset save) can land alongside
-// without changing every menu's wiring.
+// State machine for the OTA update flow. Native side posts these via
+// CustomEvent('update-status'); the Settings panel listens and updates
+// the inline label + button label.
+type UpdateStatus = 'idle' | 'checking' | 'up-to-date' | 'downloading' | 'ready' | 'reloading' | 'unavailable';
+
+declare global {
+  interface Window {
+    __UPDATE_STATUS__?: UpdateStatus;
+    ReactNativeWebView?: { postMessage: (data: string) => void };
+  }
+}
+
+const STATUS_LABEL: Record<UpdateStatus, string> = {
+  idle:           '',
+  checking:       'Checking for updates…',
+  'up-to-date':   'Up to date',
+  downloading:    'Downloading…',
+  ready:          'Update ready — restart now',
+  reloading:      'Restarting…',
+  unavailable:    'Updates unavailable (dev build)',
+};
+
+// Single-purpose settings shell: routes to the About panel, holds the
+// music volume control, and exposes a manual update check.
 export function showSettings(
   root: HTMLElement,
   music: MusicPlayer,
   profiles: ProfileService,
 ): Promise<void> {
   return new Promise<void>((resolve) => {
+    let currentStatus: UpdateStatus = (window.__UPDATE_STATUS__ as UpdateStatus | undefined) ?? 'idle';
+    const onUpdateStatus = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (typeof detail !== 'string') return;
+      currentStatus = detail as UpdateStatus;
+      paintUpdateRow();
+    };
+    window.addEventListener('update-status', onUpdateStatus);
+
+    let paintUpdateRow = () => {/* replaced after each render */};
+
     const render = () => {
       const profile = profiles.activeProfile;
       const initialVol = Math.round(music.getVolume() * 100);
@@ -26,6 +57,8 @@ export function showSettings(
           <p class="muted" id="music-now">Now playing: ${escapeHtml(music.currentTitle())}</p>
           <div class="list">
             <button id="music-skip">Skip track</button>
+            <button id="updates-check">Check for updates</button>
+            <p class="muted" id="updates-status"></p>
             <button id="settings-about">About / Build info</button>
             <button id="settings-back">Back</button>
           </div>
@@ -63,11 +96,36 @@ export function showSettings(
       const nowLabel = root.querySelector<HTMLElement>('#music-now')!;
       skipBtn.addEventListener('click', () => {
         music.next();
-        // Title flips after the audio element loads the next src; the
-        // currentTitle() lookup is synchronous on the playlist index so
-        // it's already accurate by the time this runs.
         nowLabel.textContent = `Now playing: ${music.currentTitle()}`;
       });
+
+      const updatesBtn = root.querySelector<HTMLButtonElement>('#updates-check')!;
+      const updatesStatus = root.querySelector<HTMLElement>('#updates-status')!;
+      paintUpdateRow = () => {
+        updatesStatus.textContent = STATUS_LABEL[currentStatus] ?? '';
+        if (currentStatus === 'ready') {
+          updatesBtn.textContent = 'Restart now';
+          updatesBtn.disabled = false;
+        } else if (currentStatus === 'checking' || currentStatus === 'downloading' || currentStatus === 'reloading') {
+          updatesBtn.textContent = 'Check for updates';
+          updatesBtn.disabled = true;
+        } else {
+          updatesBtn.textContent = 'Check for updates';
+          updatesBtn.disabled = false;
+        }
+      };
+      updatesBtn.addEventListener('click', () => {
+        if (currentStatus === 'ready') {
+          // User explicitly wants to restart now to load the
+          // already-downloaded update.
+          window.ReactNativeWebView?.postMessage('updates:apply');
+          return;
+        }
+        // Manual fetch via the native bridge. App.tsx posts back
+        // 'update-status' CustomEvents that paintUpdateRow renders.
+        window.ReactNativeWebView?.postMessage('updates:check');
+      });
+      paintUpdateRow();
 
       root.querySelector<HTMLButtonElement>('#settings-about')!.addEventListener('click', async () => {
         await showAbout(root);
@@ -75,6 +133,7 @@ export function showSettings(
       });
       root.querySelector<HTMLButtonElement>('#settings-back')!.addEventListener('click', () => {
         flushSave();
+        window.removeEventListener('update-status', onUpdateStatus);
         resolve();
       });
     };

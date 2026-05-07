@@ -25,6 +25,8 @@ jobs:
       - run: npm install -g eas-cli
       - run: npm install
       - run: npm run web:build
+        env:
+          NODE_ENV: production
       - name: Publish OTA update
         # Publish to the EAS branch literally named "preview" so the
         # channel "preview" (declared in eas.json's preview build profile)
@@ -44,6 +46,11 @@ jobs:
             --non-interactive \
             --message "OTA from ${GITHUB_SHA::7} on ${GITHUB_REF_NAME}"
         # Token name flexibility: prefer EXPO_TOKEN, fall back to the
-        # SNOWBOARD / SNOW secret names already in this repo.
+        # SNOWBOARD / SNOW secret names already in this repo. NODE_ENV
+        # set so eas-cli's underlying Metro bundling runs in production
+        # mode (minified + dead-code-stripped) — keeps the OTA payload
+        # as small as possible so it has time to fetch on short
+        # cellular sessions.
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
+          NODE_ENV: production
