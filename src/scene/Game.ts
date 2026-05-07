@@ -615,6 +615,17 @@ export class Game {
     const rampConcreteMat = mkMat(this.scene, 'ramp-concrete', new Color3(0.78, 0.78, 0.80));
     const rampMetalMat    = mkMat(this.scene, 'ramp-metal',    new Color3(0.32, 0.36, 0.42));
     const rampRoofMat     = mkMat(this.scene, 'ramp-roof',     new Color3(0.55, 0.58, 0.62));
+    // Kenney's wallbroofslantdetailed.obj is a half-roof / lean-to: it
+    // has a tall right wall and a slanted roof, but the underside is
+    // OPEN (no floor face — these polys live on the building's
+    // exterior). With default backFaceCulling=true the camera angle
+    // sometimes lands inside the open underside, exposing rafters
+    // and giving the "hollow ramp" look the user reported. Forcing
+    // backFaceCulling off makes every polygon double-sided so the
+    // ramp reads as a solid wedge from any angle.
+    rampConcreteMat.backFaceCulling = false;
+    rampMetalMat.backFaceCulling    = false;
+    rampRoofMat.backFaceCulling     = false;
     const concrete = rampMeshes.get('concrete')!;
     const metal    = rampMeshes.get('wall_metal')!;
     const roof     = rampMeshes.get('roof_plates')!;
@@ -872,8 +883,12 @@ export class Game {
     anchor.scaling.set(sxz, sy, sxz);
     // Yaw aligns slant with rider direction; pitch matches the snow
     // surface tilt so the ramp's base sits flat on the angled slope
-    // instead of standing perpendicular to world Y.
-    anchor.rotation.y = -Math.PI / 2;
+    // instead of standing perpendicular to world Y. +π/2 around Y
+    // (was -π/2) — Babylon's left-handed rotation convention puts
+    // the slant low end at world -Z and the high end at world +Z
+    // with this sign, so the rider approaches the low side and
+    // launches off the high side.
+    anchor.rotation.y = Math.PI / 2;
     anchor.rotation.x = slopeTilt;
     const out: AbstractMesh[] = [];
     for (const sub of [this.rampTemplate.concrete, this.rampTemplate.metal, this.rampTemplate.roof]) {
