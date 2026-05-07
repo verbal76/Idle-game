@@ -202,6 +202,15 @@ export class Game {
   // or releases each tick. SQUAT_MS bumped from 220 → 380 ms so the
   // animation is unmistakably visible at 60 fps (~23 frames).
   private landingSquatUntil = 0;
+  // Random idle-event scheduler. While riding normally, every 3-7 s
+  // pick a small "alive" event — arm sway, single-arm flick, brief
+  // squat, brief waist flex — that runs for 0.7-1.3 s with a sin-bell
+  // envelope. Avoids the previous stiff "constant 9-second arm swing"
+  // loop while still letting the rider read as a person, not a stick.
+  private idleEventStart = 0;
+  private idleEventEnd = 0;
+  private idleEventKind = 0;       // index into the event lookup table
+  private idleEventAmp = 0;        // peak amplitude of the current event
   private readonly SQUAT_MS = 380;
   // Set on a clean landing or bail. While now < impactBurstUntil the
   // dust emit rate bumps to BURST_EMIT for a one-shot plume; the regular
@@ -1564,7 +1573,7 @@ export class Game {
       this.rider.lean.rotation.z = 0;
       this.dustParticles.emitRate = 60;
       this.updateChunkStreaming();
-      this.updateLandingSquat(now);
+      this.applyBodyAnimation(now);
       this.scene.render();
       return;
     }
@@ -1618,11 +1627,6 @@ export class Game {
     this.rider.root.rotation.x = this.activeSlope;
     this.rider.heading.rotation.y = this.heading;
     this.rider.lean.rotation.z = -this.edgeAngle;
-    // Waist bend: upper body tilts ~40% further than the legs, so the
-    // boarder visibly creases at the hips into the turn instead of
-    // leaning as a single rigid stick. Sign matches the lean so the
-    // bend is in the same direction as the carve.
-    this.rider.waist.rotation.z = -this.edgeAngle * 0.4;
 
     // Head counter-rotation: cancel both humanoid's fixed -π/2 yaw and
     // the body heading so the boarder always looks down the fall line
@@ -1631,23 +1635,12 @@ export class Game {
     // around the neck instead of the OBJ origin.
     this.rider.head.rotation.y = Math.PI / 2 - this.heading;
 
-    // Arm-swing idle. Pendulum is gated into ~1.5 s bursts every ~9 s
-    // so the boarder reads as alive when he moves but doesn't twitch
-    // constantly. The smooth ramp-down (rotation.z *= 0.85) decays
-    // any residual swing back to neutral between bursts. Skipped in
-    // bail / grind because those branches short-circuit before this.
-    if (this.state === 'normal') {
-      const cycleSec = (now * 0.001) % 9;
-      const inBurst = cycleSec < 1.5;
-      if (inBurst) {
-        const swing = Math.sin(now * 0.003 * Math.PI) * 0.18;
-        this.rider.leftArm.rotation.z  =  swing;
-        this.rider.rightArm.rotation.z = -swing;
-      } else {
-        this.rider.leftArm.rotation.z  *= 0.85;
-        this.rider.rightArm.rotation.z *= 0.85;
-      }
-    }
+    // Body scale + waist + arm idle animation. Three simultaneous
+    // contributions: (1) carve waist-bend from edgeAngle, (2)
+    // jump-charge squat that springs back on release, (3) random
+    // idle events for "alive" body language. Combined here so each
+    // can read the others.
+    this.applyBodyAnimation(now);
 
     const cosH = Math.cos(this.heading);
     const sinH = Math.sin(this.heading);
@@ -1876,23 +1869,85 @@ export class Game {
     const coinTag = `  •  ${this.coinsCollected} ❄`;
     this.callbacks.onScore?.(`${altTag}${meters} m${coinTag}${flipTag}${spinTag}`);
 
-    this.updateLandingSquat(now);
-
     this.scene.render();
   }
 
   // Apply or release the landing squat scaling. Called every tick — the
   // active branch costs 6 scalar writes, idle branch is 4 equality
   // checks. Cheap.
-  private updateLandingSquat(now: number): void {
-    const active = now < this.landingSquatUntil;
-    // Whole-character vertical compression on impact. Per-limb squashes
-    // were dropped with the OBJ rider — its leg/arm meshes don't have
-    // origin-at-joint, so axis-scaling them moved the limbs in space
-    // instead of squashing them in place. The humanoid Y-scale alone
-    // still reads as a knee-bend at 60 fps.
-    const bodY = active ? 0.70 : 1;
-    this.rider.humanoid.scaling.set(1, bodY, 1);
+  // Combined body-animation driver. Reads the carve, jump-charge,
+  // landing-squat, and random idle-event state, and sets:
+  //   waist.rotation.z   = carve bend + idle waist-flex
+  //   humanoid.scaling.y = jump-charge crouch ⨂ landing squat ⨂ idle bob
+  //   leftArm/rightArm.rotation.z = idle-event-driven sway / flick
+  private applyBodyAnimation(now: number): void {
+    // Base waist bend from the carve (used to live inline; same value).
+    let waistZ = -this.edgeAngle * 0.4;
+
+    // Vertical scale stack:
+    //  - jump-charge: while grounded with charge in flight, the rider
+    //    crouches up to 50% of full height (charge=1 → scale=0.5). On
+    //    release, jumpCharge resets to 0 and scaling springs back to 1
+    //    — that snap timed with the verticalVelocity kick reads as a
+    //    coiled-then-released jump.
+    //  - landing squat: 0.70 for SQUAT_MS after a clean land.
+    //  - idle bob: small (~8%) momentary squat pulse (event below).
+    let scaleY = 1;
+    if (this.grounded && this.jumpCharge > 0) {
+      scaleY = Math.min(scaleY, 1 - this.jumpCharge * 0.5);
+    }
+    if (now < this.landingSquatUntil) {
+      scaleY = Math.min(scaleY, 0.70);
+    }
+
+    // Random idle-event scheduler. Schedule a new event whenever the
+    // current one ends; pick from arm-sway / single-arm flick / brief
+    // squat / waist flex. Sin-bell envelope (0 → peak at midpoint → 0)
+    // smooths the in/out so the body doesn't pop. Events only fire in
+    // the 'normal' state — bail / grind / recovering set their own
+    // body transforms and short-circuit before this point in tick().
+    if (this.state === 'normal') {
+      if (now >= this.idleEventEnd) {
+        this.idleEventStart = now + 3000 + this.rng.next01() * 4000;  // 3-7 s gap
+        this.idleEventEnd   = this.idleEventStart + 700 + this.rng.next01() * 600; // 0.7-1.3 s
+        this.idleEventKind  = Math.floor(this.rng.next01() * 5);
+        this.idleEventAmp   = 0.12 + this.rng.next01() * 0.18;
+      }
+      // Smoothly decay residual arm rotations between events.
+      this.rider.leftArm.rotation.z  *= 0.85;
+      this.rider.rightArm.rotation.z *= 0.85;
+      if (now >= this.idleEventStart && now < this.idleEventEnd) {
+        const t = (now - this.idleEventStart) / Math.max(1, this.idleEventEnd - this.idleEventStart);
+        const env = Math.sin(t * Math.PI);
+        const v = env * this.idleEventAmp;
+        switch (this.idleEventKind) {
+          case 0: // both-arm balance sway
+            this.rider.leftArm.rotation.z  =  v;
+            this.rider.rightArm.rotation.z = -v;
+            break;
+          case 1: // single left-arm flick forward
+            this.rider.leftArm.rotation.z  = v * 1.6;
+            break;
+          case 2: // single right-arm flick forward
+            this.rider.rightArm.rotation.z = -v * 1.6;
+            break;
+          case 3: // brief squat to "loosen the legs"
+            scaleY *= 1 - env * 0.08;
+            break;
+          case 4: // brief waist flex
+            waistZ += v * 0.6;
+            break;
+        }
+      }
+    } else {
+      // bail / grind / recovering: zero arm transforms hard so we don't
+      // carry an idle pose into a state-driven body re-pose.
+      this.rider.leftArm.rotation.z  = 0;
+      this.rider.rightArm.rotation.z = 0;
+    }
+
+    this.rider.waist.rotation.z = waistZ;
+    this.rider.humanoid.scaling.set(1, scaleY, 1);
   }
 
   private checkInteractions(): void {
