@@ -1,7 +1,12 @@
+import { MusicPlayer } from '../audio/MusicPlayer';
 import { ProfileService } from '../profiles/ProfileService';
 import { showSettings } from './Settings';
 
-export async function showProfileSelect(root: HTMLElement, profiles: ProfileService): Promise<void> {
+export async function showProfileSelect(
+  root: HTMLElement,
+  profiles: ProfileService,
+  music: MusicPlayer,
+): Promise<void> {
   const list = await profiles.list();
   return new Promise<void>((resolve) => {
     const render = () => {
@@ -45,7 +50,7 @@ export async function showProfileSelect(root: HTMLElement, profiles: ProfileServ
       });
 
       const openSettings = async () => {
-        await showSettings(root);
+        await showSettings(root, music, profiles);
         render();
       };
       root.querySelector<HTMLButtonElement>('#ps-settings')!.addEventListener('click', openSettings);

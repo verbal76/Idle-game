@@ -5,11 +5,11 @@ import { showProfileSelect } from './ui/ProfileSelect';
 import { showMainMenu, MenuChoice } from './ui/MainMenu';
 import { showUpgrades } from './ui/Upgrades';
 import { showSettings } from './ui/Settings';
-import { showAbout } from './ui/About';
 import { showContinuePrompt } from './ui/ContinuePrompt';
 import { buildHUD } from './ui/HUD';
 import { ArrowPadInput } from './input/ArrowPadInput';
 import { ActionButtons } from './input/ActionButtons';
+import { MusicPlayer } from './audio/MusicPlayer';
 import { Game } from './scene/Game';
 
 declare global {
@@ -42,6 +42,21 @@ async function bootstrap(): Promise<void> {
   const profiles = new ProfileService(new IndexedDbStore());
   await profiles.init();
 
+  // Background music — single instance owned by bootstrap so it survives
+  // run-restart cycles. Initial volume seeded from the saved profile;
+  // settings UI mutates both the player and the profile field.
+  // Autoplay is blocked until the first user gesture; the menu-button
+  // listener below kicks off playback once the user taps anything.
+  const music = new MusicPlayer();
+  if (profiles.activeProfile) {
+    music.setVolume(profiles.activeProfile.settings.musicVolume);
+  }
+  const startMusicOnce = () => {
+    void music.start();
+    document.body.removeEventListener('click', startMusicOnce, true);
+  };
+  document.body.addEventListener('click', startMusicOnce, true);
+
   // pendingMode lets the pause-menu Switch Style button start the next
   // run directly in the other mode without bouncing back through the
   // main menu.
@@ -63,8 +78,14 @@ async function bootstrap(): Promise<void> {
     } else {
       setOrientation('default');
 
+      // Re-sync music volume from the active profile each loop in case
+      // the player switched profiles since the last menu pass.
+      if (profiles.activeProfile) {
+        music.setVolume(profiles.activeProfile.settings.musicVolume);
+      }
+
       if (!profiles.activeProfile) {
-        await showProfileSelect(screen, profiles);
+        await showProfileSelect(screen, profiles, music);
         promptedAtLoad = true;
       } else if (!promptedAtLoad) {
         // First view of the saved profile this session: confirm the
@@ -73,13 +94,13 @@ async function bootstrap(): Promise<void> {
         const choice = await showContinuePrompt(screen, profiles);
         promptedAtLoad = true;
         if (choice === 'switch') {
-          await showProfileSelect(screen, profiles);
+          await showProfileSelect(screen, profiles, music);
         }
       }
 
       const choice: MenuChoice = await showMainMenu(screen, profiles);
       if (choice === 'switch-profile') {
-        await showProfileSelect(screen, profiles);
+        await showProfileSelect(screen, profiles, music);
         continue;
       }
       if (choice === 'upgrades') {
@@ -88,7 +109,7 @@ async function bootstrap(): Promise<void> {
         continue;
       }
       if (choice === 'settings') {
-        await showSettings(screen);
+        await showSettings(screen, music, profiles);
         continue;
       }
       if (choice === 'quit') {
@@ -103,7 +124,7 @@ async function bootstrap(): Promise<void> {
 
     setOrientation('landscape');
     try {
-      const next = await runSession(screen, canvas, mode, profiles);
+      const next = await runSession(screen, canvas, mode, profiles, music);
       if (next) pendingMode = next;
     } finally {
       await profiles.save();
@@ -115,7 +136,8 @@ async function runSession(
   screen: HTMLElement,
   canvas: HTMLCanvasElement,
   mode: RunMode,
-  profiles: ProfileService
+  profiles: ProfileService,
+  music: MusicPlayer,
 ): Promise<RunMode | null> {
   return new Promise<RunMode | null>((resolve) => {
     screen.innerHTML = '';
@@ -176,13 +198,14 @@ async function runSession(
     });
 
     hud.settingsBtn.addEventListener('click', async () => {
-      // In-game settings: pause the run, show the About panel inline
-      // in the existing settings-overlay div, then resume on close.
-      // Same About widget the menu screens use, so the build identifier
-      // is consistent across all entry points.
+      // In-game settings: pause the run, show the full Settings panel
+      // inline (volume slider, skip track, About) in the existing
+      // settings-overlay div, then resume on close. Same widget the
+      // menu screens use so volume changes here persist exactly the
+      // same way as from the lobby.
       game.pause();
       hud.settingsOverlay.style.display = 'flex';
-      await showAbout(hud.settingsOverlay);
+      await showSettings(hud.settingsOverlay, music, profiles);
       hud.settingsOverlay.style.display = 'none';
       hud.settingsOverlay.innerHTML = '';
       game.resume();
