@@ -1298,6 +1298,30 @@ export class Game {
         flower.scaling.setAll(s);
         features.push(flower);
       }
+
+      // Cliff-edge boost ramp. Rare event (10% per cliff that lands in
+      // this chunk's Z range) — gives the rider a kicker right at the
+      // lip for an extra-air launch over the drop. The slope segment
+      // chain owns cliff geometry; we just look up any segment whose
+      // startZ falls in this chunk and whose startY drops by >1 m
+      // versus the previous segment's endY.
+      for (let i = 1; i < this.slopeSegments.length; i++) {
+        const prev = this.slopeSegments[i - 1];
+        const cur  = this.slopeSegments[i];
+        const cliffZ = cur.startZ;
+        if (cliffZ < oz - half || cliffZ >= oz + half) continue;
+        if (prev.endY - cur.startY < 1) continue; // not a real cliff
+        if (this.rng.next01() > 0.10) continue;   // very rarely
+        // Plant the ramp 2 m uphill of the lip on the upper segment.
+        const rampZ = cliffZ - 2;
+        const rampX = this.rng.rangeFloat(-12, 12);
+        const rampBaseY = this.surfaceY(rampX, rampZ);
+        const w = 12;
+        features.push(...this.spawnRamp(rampX, rampBaseY, rampZ, w, this.activeSlope, `cliff-ramp-${cx}-${cz}-${i}`));
+        // Boost is bigger than a regular kicker — landing into a cliff
+        // drop should feel like a real send.
+        kickers.push({ x: rampX, z: rampZ, width: w, power: 12.0 });
+      }
     }
 
     this.chunks.set(this.chunkKey(cx, cz), { ground, features, rocks, kickers, cx, cz });
