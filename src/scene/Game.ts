@@ -7,9 +7,40 @@ import type { StickValue } from '../input/TwinStickInput';
 import type { UpgradeLevels } from '../profiles/IndexedDbStore';
 import { buildRider, RiderRig } from './Rider';
 import { loadObjByMaterial } from './loadObj';
+import { decodeDataUrlToBuffer, meshBounds, parseStl } from './loadStl';
 import { SeedRng } from '../world/SeedRng';
 import treeBasicObj from '../assets/tree-pine-basic.obj?raw';
 import treeDetailedObj from '../assets/tree-pine-detailed.obj?raw';
+// Kenney rock STLs. Vite inlines each as a base64 data URL because of
+// the 100 MB assetsInlineLimit; the template builder decodes them
+// synchronously and builds one Babylon master mesh per variant. World
+// spawns use createInstance() so a chunk full of rocks costs ~10 ints
+// of GPU state per rock.
+import rockLargeBUrl     from '../assets/rocks/rock_largeB.stl?url';
+import rockLargeFUrl     from '../assets/rocks/rock_largeF.stl?url';
+import rockTallAUrl      from '../assets/rocks/rock_tallA.stl?url';
+import rockSmallBUrl     from '../assets/rocks/rock_smallB.stl?url';
+import rockSmallCUrl     from '../assets/rocks/rock_smallC.stl?url';
+import rockSmallDUrl     from '../assets/rocks/rock_smallD.stl?url';
+import rockSmallEUrl     from '../assets/rocks/rock_smallE.stl?url';
+import rockSmallGUrl     from '../assets/rocks/rock_smallG.stl?url';
+import rockSmallFlatBUrl from '../assets/rocks/rock_smallFlatB.stl?url';
+// Decoration + extra obstacles (PR #33 scope additions). Flowers
+// scatter densely on the slope as pure visuals — no collision. Log +
+// tent are sparse downhill obstacles that route through the existing
+// rocks[] collision array.
+import flowerPurpleAUrl from '../assets/flowers/flower_purpleA.stl?url';
+import flowerPurpleBUrl from '../assets/flowers/flower_purpleB.stl?url';
+import flowerPurpleCUrl from '../assets/flowers/flower_purpleC.stl?url';
+import flowerRedAUrl    from '../assets/flowers/flower_redA.stl?url';
+import flowerRedBUrl    from '../assets/flowers/flower_redB.stl?url';
+import flowerRedCUrl    from '../assets/flowers/flower_redC.stl?url';
+import flowerYellowAUrl from '../assets/flowers/flower_yellowA.stl?url';
+import flowerYellowBUrl from '../assets/flowers/flower_yellowB.stl?url';
+import flowerYellowCUrl from '../assets/flowers/flower_yellowC.stl?url';
+import logStlUrl        from '../assets/props/log.stl?url';
+import tentStlUrl       from '../assets/props/tent.stl?url';
+import rampObj          from '../assets/ramps/ramp.obj?raw';
 
 export type GameMode = 'half-pipe' | 'downhill';
 
@@ -64,7 +95,6 @@ export class Game {
 
   private snowMat!: StandardMaterial;
   private rockMat!: StandardMaterial;
-  private kickerMat!: StandardMaterial;
   // Kenney pine tree materials. MTL: Kd 0.8 0.4627 0.3686 (woodBarkDark
   // — peachy bark) and Kd 0.1686 0.6510 0.6667 (leafsDark — teal pine
   // needles). Replaces the previous brown/green procedural tree colors.
@@ -82,6 +112,31 @@ export class Game {
   // instance under their base — cheap fake AO that grounds the world
   // visually so objects don't read as floating against the snow.
   private shadowDiscTemplate!: Mesh;
+  // Kenney STL rocks split into "large" (downhill obstacles), "small"
+  // (half-pipe weave bumps), and "tall" (the one upright spike that
+  // doubles as a downhill landmark). Each entry holds the master Mesh
+  // and the post-normalization size used for collision-radius scaling
+  // — STL native sizes vary so we auto-fit each model into a target
+  // bounding box and remember the resulting world-space extent.
+  private rockTemplates!: {
+    large: Array<{ mesh: Mesh; radius: number }>;
+    small: Array<{ mesh: Mesh; radius: number }>;
+  };
+  // Pure-decoration flower templates (no collision). One Mesh per
+  // color × variant, instanced sparsely across each chunk to break up
+  // the snow with flecks of color.
+  private flowerTemplates!: Mesh[];
+  // Big sparse obstacles — routed through the regular rocks[]
+  // collision array so a clip triggers a bail.
+  private logTemplate!: { mesh: Mesh; radius: number };
+  private tentTemplate!: { mesh: Mesh; radius: number };
+  // Multi-material ramp split across three Kenney usemtl groups
+  // (concrete base, metal walls, slant roof plates). spawnTree-style
+  // pattern: the three sub-meshes get instanced together at each
+  // kicker spawn so the ramp keeps its color blocks even after
+  // scaling. Native OBJ size is ~1 m base × 0.5 m tall × 1.14 m deep;
+  // spawn-time scale brings it up to the kicker's visual width.
+  private rampTemplate!: { metal: Mesh; roof: Mesh; concrete: Mesh; nativeSize: number };
 
   private chunks = new Map<string, ChunkData>();
   private readonly chunkSize = 80;
@@ -396,7 +451,6 @@ export class Game {
     // contrast against the warm dusk fog at all view distances.
     this.snowMat.emissiveColor = new Color3(0.08, 0.12, 0.18);
     this.rockMat     = mkMat(this.scene, 'rock',     new Color3(0.32, 0.35, 0.38));
-    this.kickerMat   = mkMat(this.scene, 'kicker',   new Color3(0.28, 0.40, 0.62));
     // Pine bark / needles colors lifted from Kenney's MTL files for the
     // tree_pineTallA models so the in-engine look matches the source art.
     this.trunkMat    = mkMat(this.scene, 'trunk',    new Color3(0.8000, 0.4627, 0.3686));
@@ -446,6 +500,137 @@ export class Game {
     disc.material = shadowMat;
     disc.isVisible = false;
     this.shadowDiscTemplate = disc;
+
+    this.buildStlTemplates();
+  }
+
+  // Builds Babylon Mesh templates from each Kenney STL asset, normalized
+  // to a target world-space size + re-anchored so the model's lowest
+  // vertex sits at Y=0 (so spawns can place at surface Y without
+  // sinking into the snow).
+  private buildStlTemplates(): void {
+    // Material reuse: rocks + log share the gray rockMat (Kenney's
+    // default low-poly stone palette); tent gets its own canvas color;
+    // each flower color a flat saturated diffuse.
+    const tentMat = mkMat(this.scene, 'tent', new Color3(0.85, 0.30, 0.20));
+    const flowerMats: Record<string, StandardMaterial> = {
+      purple: mkMat(this.scene, 'flower-purple', new Color3(0.62, 0.36, 0.78)),
+      red:    mkMat(this.scene, 'flower-red',    new Color3(0.92, 0.30, 0.32)),
+      yellow: mkMat(this.scene, 'flower-yellow', new Color3(0.96, 0.82, 0.30)),
+    };
+    for (const m of Object.values(flowerMats)) {
+      // Flowers should pop visually even in fog/dusk shadow; bump
+      // emissive so they stay readable as colored dots.
+      m.emissiveColor = m.diffuseColor.scale(0.30);
+    }
+
+    // Load + auto-fit + re-anchor an STL into a Babylon Mesh template.
+    // `targetSize` = desired max horizontal extent in world units; the
+    // model is uniformly scaled so max(sizeX, sizeZ) = targetSize, then
+    // its base translates so the lowest vertex sits at local Y=0. The
+    // returned `radius` is the in-world horizontal half-extent — the
+    // collision check uses this so the hit-box auto-matches whatever
+    // size the model ended up at.
+    const loadRock = (url: string, name: string, targetSize: number): { mesh: Mesh; radius: number } => {
+      const buf = decodeDataUrlToBuffer(url);
+      const mesh = parseStl(buf, this.scene, name);
+      mesh.material = this.rockMat;
+      const b = meshBounds(mesh);
+      const horiz = Math.max(b.sizeX, b.sizeZ) || 1;
+      const scale = targetSize / horiz;
+      mesh.scaling.setAll(scale);
+      mesh.bakeCurrentTransformIntoVertices();
+      // Re-anchor so the model's lowest point sits at local Y = 0.
+      // bakeCurrentTransformIntoVertices applied the scaling; refresh
+      // bounds in world units for the translate.
+      const b2 = meshBounds(mesh);
+      const tx = -b2.centerX;
+      const ty = -b2.minY;
+      const tz = -b2.centerZ;
+      const verts = mesh.getVerticesData('position')!;
+      for (let i = 0; i < verts.length; i += 3) {
+        verts[i]     += tx;
+        verts[i + 1] += ty;
+        verts[i + 2] += tz;
+      }
+      mesh.updateVerticesData('position', verts);
+      mesh.refreshBoundingInfo();
+      mesh.isVisible = false;
+      // After re-anchoring, the post-transform horizontal half-extent
+      // is just targetSize / 2 (since horiz was scaled to targetSize).
+      return { mesh, radius: targetSize * 0.5 };
+    };
+
+    // Same loader, separate name + material plumbing for the props
+    // (log + tent) so they can carry their own color.
+    const loadProp = (url: string, name: string, mat: StandardMaterial, targetSize: number): { mesh: Mesh; radius: number } => {
+      const r = loadRock(url, name, targetSize);
+      r.mesh.material = mat;
+      return r;
+    };
+
+    // Flowers don't need radius (no collision); just normalize size +
+    // re-anchor so they sit on the snow.
+    const loadFlower = (url: string, name: string, color: 'purple' | 'red' | 'yellow', targetSize: number): Mesh => {
+      const r = loadRock(url, name, targetSize);
+      r.mesh.material = flowerMats[color];
+      return r.mesh;
+    };
+
+    this.rockTemplates = {
+      large: [
+        loadRock(rockLargeBUrl, 'rock-largeB', 1.6),
+        loadRock(rockLargeFUrl, 'rock-largeF', 1.4),
+        loadRock(rockTallAUrl,  'rock-tallA',  1.2),
+      ],
+      small: [
+        loadRock(rockSmallBUrl,     'rock-smallB',     0.9),
+        loadRock(rockSmallCUrl,     'rock-smallC',     0.7),
+        loadRock(rockSmallDUrl,     'rock-smallD',     0.8),
+        loadRock(rockSmallEUrl,     'rock-smallE',     0.9),
+        loadRock(rockSmallGUrl,     'rock-smallG',     0.7),
+        loadRock(rockSmallFlatBUrl, 'rock-smallFlatB', 0.9),
+      ],
+    };
+
+    this.logTemplate  = loadProp(logStlUrl,  'prop-log',  this.rockMat, 2.4);
+    this.tentTemplate = loadProp(tentStlUrl, 'prop-tent', tentMat,      2.6);
+
+    // Multi-material ramp from the Kenney wall-b roof-slant detailed
+    // mesh. Three usemtl groups (concrete / wall_metal / roof_plates)
+    // get distinct flat materials — the source MTL references three
+    // atlas textures we don't ship, so colored blocks stand in for
+    // the textured look. Spawn code instances all three sub-meshes
+    // under a TransformNode so they move + scale + rotate together.
+    const rampMeshes = loadObjByMaterial(rampObj, this.scene, 'ramp');
+    const rampConcreteMat = mkMat(this.scene, 'ramp-concrete', new Color3(0.78, 0.78, 0.80));
+    const rampMetalMat    = mkMat(this.scene, 'ramp-metal',    new Color3(0.32, 0.36, 0.42));
+    const rampRoofMat     = mkMat(this.scene, 'ramp-roof',     new Color3(0.55, 0.58, 0.62));
+    const concrete = rampMeshes.get('concrete')!;
+    const metal    = rampMeshes.get('wall_metal')!;
+    const roof     = rampMeshes.get('roof_plates')!;
+    concrete.material = rampConcreteMat;
+    metal.material    = rampMetalMat;
+    roof.material     = rampRoofMat;
+    concrete.isVisible = false;
+    metal.isVisible    = false;
+    roof.isVisible     = false;
+    // Native OBJ X bounds are -0.5..+0.5 → width 1.0. Spawn code uses
+    // this constant to compute scaling for a target world-space width.
+    this.rampTemplate = { metal, roof, concrete, nativeSize: 1.0 };
+
+    // Flowers ~30 cm tall — small accent dots on the slope.
+    this.flowerTemplates = [
+      loadFlower(flowerPurpleAUrl, 'flower-purpleA', 'purple', 0.30),
+      loadFlower(flowerPurpleBUrl, 'flower-purpleB', 'purple', 0.30),
+      loadFlower(flowerPurpleCUrl, 'flower-purpleC', 'purple', 0.30),
+      loadFlower(flowerRedAUrl,    'flower-redA',    'red',    0.30),
+      loadFlower(flowerRedBUrl,    'flower-redB',    'red',    0.30),
+      loadFlower(flowerRedCUrl,    'flower-redC',    'red',    0.30),
+      loadFlower(flowerYellowAUrl, 'flower-yellowA', 'yellow', 0.30),
+      loadFlower(flowerYellowBUrl, 'flower-yellowB', 'yellow', 0.30),
+      loadFlower(flowerYellowCUrl, 'flower-yellowC', 'yellow', 0.30),
+    ];
   }
 
   private buildBackgroundMountains(): void {
@@ -651,6 +836,32 @@ export class Game {
     shadow.scaling.set(treeScale * 0.5, 1, treeScale * 0.5);
     shadow.position.set(x, baseY + 0.02, z);
     return [trunk, foliage, shadow];
+  }
+
+  // Builds a ramp at (x, baseY, z) with a target world-space width.
+  // Three InstancedMeshes (concrete + metal + roof) parented to a
+  // TransformNode so they move/scale/rotate together. Caller pushes
+  // every returned node into chunk.features so disposeChunk cleans
+  // them up on chunk roll.
+  private spawnRamp(x: number, baseY: number, z: number, width: number, slopeTilt: number, name: string): AbstractMesh[] {
+    const scale = width / this.rampTemplate.nativeSize;
+    const anchor = new TransformNode(`ramp-${name}`, this.scene);
+    anchor.position.set(x, baseY, z);
+    anchor.scaling.setAll(scale);
+    // The OBJ slant rises from -Z toward +Z. Riders move +Z, so the
+    // approach face is at -Z (low side) and the launch lip is at +Z.
+    // Add the slope tilt so the ramp's base sits flat on the angled
+    // snow rather than tipping uphill.
+    anchor.rotation.x = slopeTilt;
+    const out: AbstractMesh[] = [];
+    for (const sub of [this.rampTemplate.concrete, this.rampTemplate.metal, this.rampTemplate.roof]) {
+      const inst = sub.createInstance(`${sub.name}-${name}`);
+      inst.parent = anchor;
+      out.push(inst);
+    }
+    // Returning the anchor too so disposal is total.
+    out.push(anchor as unknown as AbstractMesh);
+    return out;
   }
 
   private spawnContactShadow(x: number, z: number, baseY: number, radius: number, name: string): AbstractMesh {
@@ -951,14 +1162,16 @@ export class Game {
         const lx = ox + this.rng.rangeFloat(-half + 2, half - 2);
         const lz = oz + this.rng.rangeFloat(-half + 2, half - 2);
         const rockBaseY = this.surfaceY(lx, lz);
-        const rock = MeshBuilder.CreateBox(`rock-${cx}-${cz}-${i}`, {
-          width: 1.6, height: 1.4, depth: 1.4
-        }, this.scene);
-        rock.material = this.rockMat;
-        rock.position.set(lx, rockBaseY + 0.7, lz);
+        // Pick a random Kenney rock variant (large set: largeB,
+        // largeF, tallA). createInstance shares GPU buffers so a
+        // chunk full of rocks costs ~10 ints of GPU state per rock.
+        const variant = this.rockTemplates.large[this.rng.rangeInt(0, this.rockTemplates.large.length)];
+        const rock = variant.mesh.createInstance(`rock-${cx}-${cz}-${i}`);
+        rock.position.set(lx, rockBaseY, lz);
+        rock.rotation.y = this.rng.next01() * Math.PI * 2;
         features.push(rock);
-        features.push(this.spawnContactShadow(lx, lz, rockBaseY, 1.3, `rock-${cx}-${cz}-${i}`));
-        rocks.push({ x: lx, z: lz });
+        features.push(this.spawnContactShadow(lx, lz, rockBaseY, variant.radius * 1.1, `rock-${cx}-${cz}-${i}`));
+        rocks.push({ x: lx, z: lz, radius: variant.radius });
       }
 
       const treeCount = this.rng.rangeInt(2, 5);
@@ -989,17 +1202,10 @@ export class Game {
         const isMega = kickerRoll < 0.10;
         const lx = ox + this.rng.rangeFloat(-half + 4, half - 4);
         const lz = oz + this.rng.rangeFloat(-half + 4, half - 4);
-        // Widths tripled (4.5/6 → 13.5/18) so jumps are forgiving — the
-        // central skiable strip is ±300 m, kickers don't crowd it. Hit
-        // boxes scale with `width` so collision auto-extends.
-        const w = isMega ? 18 : 13.5;
-        const h = isMega ? 1.2 : 0.6;
-        const d = isMega ? 6 : 4;
-        const kicker = MeshBuilder.CreateBox(`kicker-${cx}-${cz}`, { width: w, height: h, depth: d }, this.scene);
-        kicker.material = this.kickerMat;
-        kicker.position.set(lx, this.surfaceY(lx, lz) + h / 2, lz);
-        kicker.rotation.x = -0.32 - this.activeSlope;
-        features.push(kicker);
+        // Width drives the Kenney ramp's spawn-time scale + the
+        // collision hit-box. Mega ramp = bigger launch power.
+        const w = isMega ? 9 : 6;
+        features.push(...this.spawnRamp(lx, this.surfaceY(lx, lz), lz, w, this.activeSlope, `kicker-${cx}-${cz}`));
         kickers.push({ x: lx, z: lz, width: w, power: isMega ? 10.0 : 5.0 });
       }
 
@@ -1019,32 +1225,66 @@ export class Game {
           features.push(...this.spawnTree(lx, lz, scale, `${cx}-${cz}-line-${i}`));
           rocks.push({ x: lx, z: lz });
         } else if (roll < 0.85) {
-          // rock
+          // rock — random Kenney variant
           const lineRockBaseY = this.surfaceY(lx, lz);
-          const rock = MeshBuilder.CreateBox(`rock-line-${cx}-${cz}-${i}`, {
-            width: 1.6, height: 1.4, depth: 1.4
-          }, this.scene);
-          rock.material = this.rockMat;
-          rock.position.set(lx, lineRockBaseY + 0.7, lz);
+          const variant = this.rockTemplates.large[this.rng.rangeInt(0, this.rockTemplates.large.length)];
+          const rock = variant.mesh.createInstance(`rock-line-${cx}-${cz}-${i}`);
+          rock.position.set(lx, lineRockBaseY, lz);
+          rock.rotation.y = this.rng.next01() * Math.PI * 2;
           features.push(rock);
-          features.push(this.spawnContactShadow(lx, lz, lineRockBaseY, 1.3, `rock-line-${cx}-${cz}-${i}`));
-          rocks.push({ x: lx, z: lz });
+          features.push(this.spawnContactShadow(lx, lz, lineRockBaseY, variant.radius * 1.1, `rock-line-${cx}-${cz}-${i}`));
+          rocks.push({ x: lx, z: lz, radius: variant.radius });
         } else {
-          // kicker — opt-in jump instead of dodge. Width tripled (4.5 → 13.5).
-          const w = 13.5, h = 0.6, d = 4;
-          const kicker = MeshBuilder.CreateBox(`kicker-line-${cx}-${cz}-${i}`, {
-            width: w, height: h, depth: d
-          }, this.scene);
-          kicker.material = this.kickerMat;
-          kicker.position.set(lx, this.surfaceY(lx, lz) + h / 2, lz);
-          kicker.rotation.x = -0.32 - this.activeSlope;
-          features.push(kicker);
+          // kicker — opt-in jump instead of dodge.
+          const w = 6;
+          features.push(...this.spawnRamp(lx, this.surfaceY(lx, lz), lz, w, this.activeSlope, `kicker-line-${cx}-${cz}-${i}`));
           kickers.push({ x: lx, z: lz, width: w, power: 6.0 });
         }
       }
 
       // Yellow orb coin pickups removed (PR #16). Snowflakes are now
       // earned per completed flip instead.
+
+      // Sparse log + tent obstacles. Each rolls independently with low
+      // probability so chunks usually have neither, occasionally one,
+      // very rarely both. Routed through the rocks[] collision array
+      // so a clip triggers the existing bail logic.
+      const propRoll = this.rng.next01();
+      const wantLog  = propRoll < 0.25;   // ~25% of chunks have a log
+      const wantTent = propRoll > 0.85;   // ~15% of chunks have a tent
+      const placeProp = (template: { mesh: Mesh; radius: number }, kind: string): void => {
+        const lx = ox + this.rng.rangeFloat(-half + 4, half - 4);
+        const lz = oz + this.rng.rangeFloat(-half + 4, half - 4);
+        const baseY = this.surfaceY(lx, lz);
+        const inst = template.mesh.createInstance(`${kind}-${cx}-${cz}`);
+        inst.position.set(lx, baseY, lz);
+        inst.rotation.y = this.rng.next01() * Math.PI * 2;
+        features.push(inst);
+        features.push(this.spawnContactShadow(lx, lz, baseY, template.radius * 1.2, `${kind}-${cx}-${cz}`));
+        rocks.push({ x: lx, z: lz, radius: template.radius });
+      };
+      if (wantLog)  placeProp(this.logTemplate,  'log');
+      if (wantTent) placeProp(this.tentTemplate, 'tent');
+
+      // Decoration flowers. Pure visual, no collision. Sprinkled
+      // sparsely (5–9 per chunk) so the slope has flecks of color
+      // without crowding the run. Skipped near kickers + already-
+      // placed obstacles is overkill; flowers are pass-through so
+      // overlapping a rock just looks like a flower at the rock's
+      // base.
+      const flowerCount = this.rng.rangeInt(5, 10);
+      for (let i = 0; i < flowerCount; i++) {
+        const lx = ox + this.rng.rangeFloat(-half + 1, half - 1);
+        const lz = oz + this.rng.rangeFloat(-half + 1, half - 1);
+        const variant = this.flowerTemplates[this.rng.rangeInt(0, this.flowerTemplates.length)];
+        const flower = variant.createInstance(`flower-${cx}-${cz}-${i}`);
+        flower.position.set(lx, this.surfaceY(lx, lz), lz);
+        flower.rotation.y = this.rng.next01() * Math.PI * 2;
+        // Per-flower scale jitter so the field doesn't look stamped.
+        const s = 0.85 + this.rng.next01() * 0.5;
+        flower.scaling.setAll(s);
+        features.push(flower);
+      }
     }
 
     this.chunks.set(this.chunkKey(cx, cz), { ground, features, rocks, kickers, cx, cz });
@@ -1123,45 +1363,21 @@ export class Game {
       let kickerLz: number | null = null;
       if (cz % 2 === 1) {
         const lz = oz + this.rng.rangeFloat(-half + 5, half - 5);
-        // Halfpipe kicker width tripled (4 → 12). HP_PIPE_HALF is 9, so a
-        // 12-wide kicker spans the full skiable floor and overlaps onto
-        // the curved walls — easier to hit at any X.
-        const kicker = MeshBuilder.CreateBox(`hp-kicker-${cz}`, { width: 12, height: 0.8, depth: 4 }, this.scene);
-        kicker.material = this.kickerMat;
-        kicker.position.set(ox, this.surfaceY(ox, lz) + 0.4, lz);
-        kicker.rotation.x = -0.40 - this.activeSlope;
-        features.push(kicker);
-        kickers.push({ x: ox, z: lz, width: 12, power: 7.5 });
+        // Half-pipe ramp: ~5 m wide, sits at the centerline of the
+        // skiable floor. Smaller than the previous 12 m box but the
+        // Kenney ramp is detailed enough to read; rider can hit it at
+        // a range of X without the over-wide box.
+        const w = 5;
+        features.push(...this.spawnRamp(ox, this.surfaceY(ox, lz), lz, w, this.activeSlope, `hp-kicker-${cz}`));
+        kickers.push({ x: ox, z: lz, width: 5, power: 7.5 });
         kickerLz = lz;
       }
 
-      // Weave bumps: 1–2 small ice-bump rocks per chunk, light enough
-      // that the pipe still reads as "long ramp with periodic jumps"
-      // but not a continuous straight line. Sit in the flat trough
-      // (-FLAT+1 .. +FLAT-1) so they never clip the curved walls. On
-      // kicker chunks, reject samples within ±3 m Z of the kicker so
-      // the rider can always hit the ramp clean.
-      if (cz > 1) {
-        const bumpCount = this.rng.rangeInt(1, 3); // 1 or 2 bumps
-        for (let i = 0; i < bumpCount; i++) {
-          let lz = 0;
-          for (let attempt = 0; attempt < 6; attempt++) {
-            lz = oz + this.rng.rangeFloat(-half + 8, half - 8);
-            if (kickerLz === null || Math.abs(lz - kickerLz) > 3) break;
-          }
-          if (kickerLz !== null && Math.abs(lz - kickerLz) <= 3) continue;
-          const lx = this.rng.rangeFloat(-this.HP_FLAT_HALF + 1, this.HP_FLAT_HALF - 1);
-          const bumpBaseY = this.surfaceY(lx, lz);
-          const bump = MeshBuilder.CreateBox(`hp-bump-${cz}-${i}`, {
-            width: 1.0, height: 0.6, depth: 1.0
-          }, this.scene);
-          bump.material = this.rockMat;
-          bump.position.set(lx, bumpBaseY + 0.3, lz);
-          features.push(bump);
-          features.push(this.spawnContactShadow(lx, lz, bumpBaseY, 0.7, `hp-bump-${cz}-${i}`));
-          rocks.push({ x: lx, z: lz, radius: 0.7 });
-        }
-      }
+      // Half-pipe carries kicker ramps only — no rocks, no flowers,
+      // no log/tent obstacles (those live on the downhill course).
+      // Per-user request: keep the pipe minimal so the rider has a
+      // clean run between ramps.
+      void kickerLz;
     }
 
     this.chunks.set(this.chunkKey(cx, cz), {
