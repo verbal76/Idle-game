@@ -844,14 +844,27 @@ export class Game {
   // every returned node into chunk.features so disposeChunk cleans
   // them up on chunk roll.
   private spawnRamp(x: number, baseY: number, z: number, width: number, slopeTilt: number, name: string): AbstractMesh[] {
-    const scale = width / this.rampTemplate.nativeSize;
+    // OBJ-local: the slant rises along +X (low at X=-0.5, high at X=+0.5),
+    // OBJ Z runs perpendicular at ±0.57, OBJ Y is up to 0.5. The rider
+    // moves world +Z, so we rotate the ramp -90° around Y to map the
+    // OBJ +X (slant high) onto world +Z (downhill / launch direction).
+    // After that rotation:
+    //   OBJ X (1.0 m) → world Z (depth, along rider motion)
+    //   OBJ Z (1.14 m) → world X (lateral, what the player calls width)
+    //   OBJ Y (0.5 m) → world Y (height)
+    // Caller's `width` is the desired world-X extent; scale = width / 1.14.
+    // Y is non-uniformly squished so a wide ramp doesn't tower over a
+    // ~1.7 m rider — sy = sxz * 0.4 keeps height proportional but
+    // capped (width 8 → height ~1.4 m).
+    const sxz = width / 1.14;
+    const sy = sxz * 0.4;
     const anchor = new TransformNode(`ramp-${name}`, this.scene);
     anchor.position.set(x, baseY, z);
-    anchor.scaling.setAll(scale);
-    // The OBJ slant rises from -Z toward +Z. Riders move +Z, so the
-    // approach face is at -Z (low side) and the launch lip is at +Z.
-    // Add the slope tilt so the ramp's base sits flat on the angled
-    // snow rather than tipping uphill.
+    anchor.scaling.set(sxz, sy, sxz);
+    // Yaw aligns slant with rider direction; pitch matches the snow
+    // surface tilt so the ramp's base sits flat on the angled slope
+    // instead of standing perpendicular to world Y.
+    anchor.rotation.y = -Math.PI / 2;
     anchor.rotation.x = slopeTilt;
     const out: AbstractMesh[] = [];
     for (const sub of [this.rampTemplate.concrete, this.rampTemplate.metal, this.rampTemplate.roof]) {
@@ -1204,7 +1217,7 @@ export class Game {
         const lz = oz + this.rng.rangeFloat(-half + 4, half - 4);
         // Width drives the Kenney ramp's spawn-time scale + the
         // collision hit-box. Mega ramp = bigger launch power.
-        const w = isMega ? 9 : 6;
+        const w = isMega ? 14 : 10;
         features.push(...this.spawnRamp(lx, this.surfaceY(lx, lz), lz, w, this.activeSlope, `kicker-${cx}-${cz}`));
         kickers.push({ x: lx, z: lz, width: w, power: isMega ? 10.0 : 5.0 });
       }
@@ -1236,7 +1249,7 @@ export class Game {
           rocks.push({ x: lx, z: lz, radius: variant.radius });
         } else {
           // kicker — opt-in jump instead of dodge.
-          const w = 6;
+          const w = 10;
           features.push(...this.spawnRamp(lx, this.surfaceY(lx, lz), lz, w, this.activeSlope, `kicker-line-${cx}-${cz}-${i}`));
           kickers.push({ x: lx, z: lz, width: w, power: 6.0 });
         }
@@ -1363,13 +1376,12 @@ export class Game {
       let kickerLz: number | null = null;
       if (cz % 2 === 1) {
         const lz = oz + this.rng.rangeFloat(-half + 5, half - 5);
-        // Half-pipe ramp: ~5 m wide, sits at the centerline of the
-        // skiable floor. Smaller than the previous 12 m box but the
-        // Kenney ramp is detailed enough to read; rider can hit it at
-        // a range of X without the over-wide box.
-        const w = 5;
+        // Half-pipe ramp: 8 m wide so it spans most of the flat trough
+        // (HP_FLAT_HALF * 2 = 10 m) and the rider can hit it at a
+        // range of X without the over-wide previous 12 m box.
+        const w = 8;
         features.push(...this.spawnRamp(ox, this.surfaceY(ox, lz), lz, w, this.activeSlope, `hp-kicker-${cz}`));
-        kickers.push({ x: ox, z: lz, width: 5, power: 7.5 });
+        kickers.push({ x: ox, z: lz, width: 8, power: 7.5 });
         kickerLz = lz;
       }
 

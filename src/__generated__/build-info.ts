@@ -11,10 +11,10 @@ export interface BuildInfo {
 }
 export const BUILD_INFO: BuildInfo = {
   "branch": "claude/add-steering-obstacles-WCPxr",
-  "commit": "32909cb8b3655dba4abe8ba283be1059d7bf722e",
-  "commitShort": "32909cb",
+  "commit": "11dce4d6fa7bd443cdb3b6ce1a5b1372b957dee5",
+  "commitShort": "11dce4d",
   "dirty": true,
-  "builtAt": "2026-05-07T21:24:24.429Z",
+  "builtAt": "2026-05-07T21:50:58.396Z",
   "appVersion": "0.0.1",
   "androidVersionCode": 3
 };
