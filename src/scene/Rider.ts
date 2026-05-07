@@ -1,5 +1,5 @@
 import {
-  AbstractMesh, Color3, Mesh, MeshBuilder, Scene, StandardMaterial, Texture, TransformNode
+  AbstractMesh, Color3, Mesh, MeshBuilder, Scene, StandardMaterial, Texture, TransformNode, Vector3
 } from '@babylonjs/core';
 import objText from '../assets/character.obj?raw';
 import textureUrl from '../assets/character-texture.png';
@@ -13,6 +13,12 @@ export interface RiderRig {
   humanoid: TransformNode;
   board: Mesh;
   parts: AbstractMesh[];
+  // Per-limb refs for tick-time animation: arm-swing idle and head
+  // counter-rotation so the boarder visually faces the fall line even
+  // while the body twists with carve heading.
+  head: Mesh;
+  leftArm: Mesh;
+  rightArm: Mesh;
 }
 
 // OBJ character bounds: X ±0.8, Y 0..2.7, Z ±0.4. Existing rig was
@@ -67,6 +73,19 @@ export function buildRider(scene: Scene): RiderRig {
     parts.push(mesh);
   }
 
+  // Pivot points so per-mesh rotation pivots from the joint instead of
+  // the OBJ origin (which sits at the character's feet, way off-axis
+  // for the head and shoulders). All values in mesh-local OBJ units;
+  // Babylon applies the pivot before scaling, so no scale factor needed.
+  // Shoulder for arms = inner-edge top of the limb (X = ±0.4, Y = 1.9).
+  // Head pivot = head bbox center (Y = 2.3).
+  const head = groups.get('head')!;
+  const leftArm = groups.get('arm-left')!;
+  const rightArm = groups.get('arm-right')!;
+  head.setPivotPoint(new Vector3(0, 2.3, 0));
+  leftArm.setPivotPoint(new Vector3(0.4, 1.9, 0));
+  rightArm.setPivotPoint(new Vector3(-0.4, 1.9, 0));
+
   // Procedural snowboard kept from the legacy rig — OBJ doesn't include
   // a board. Lives under `body` so flips rotate the board with the rider.
   const boardMat = mat(scene, 'board', new Color3(0.07, 0.08, 0.10));
@@ -86,7 +105,7 @@ export function buildRider(scene: Scene): RiderRig {
       body, bindingMat, 0, 0.19, sign * 0.30));
   }
 
-  return { root, heading, lean, body, humanoid, board: snowboard, parts };
+  return { root, heading, lean, body, humanoid, board: snowboard, parts, head, leftArm, rightArm };
 }
 
 function mat(scene: Scene, name: string, color: Color3): StandardMaterial {

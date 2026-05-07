@@ -629,12 +629,22 @@ export class Game {
   private clampCameraAboveGround(): void {
     if (!this.camera) return;
     const cp = this.camera.position;
-    // Sample the surface at the camera's own XZ. pipeOffsetY adds the
-    // half-pipe lip elevation; surfaceY supplies the slope/segment Y.
-    const surfHere = this.groundY + this.surfaceY(cp.x, cp.z) + this.pipeOffsetY(cp.x);
-    const margin = 1.5;
-    if (cp.y < surfHere + margin) {
-      cp.y = surfHere + margin;
+    // Sample at camera XZ AND at rider XZ — take the higher of the two.
+    // Why both: the camera trails ~13 m behind the rider in -Z; if the
+    // rider's just past a cliff lip, the camera's XZ is on the upper
+    // segment but the rider's XZ is on the lower one. Clamping to only
+    // the camera's local surface still leaves the camera below the
+    // upper-segment mesh whenever it's cresting the lip from behind.
+    const cs = this.groundY + this.surfaceY(cp.x, cp.z) + this.pipeOffsetY(cp.x);
+    const rp = this.rider.root.position;
+    const rs = this.groundY + this.surfaceY(rp.x, rp.z) + this.pipeOffsetY(rp.x);
+    const floor = Math.max(cs, rs);
+    // 2.5 m margin so the camera reads as clearly above-ground even on
+    // a wreck where the rider is laid out flat. Smaller than the
+    // FollowCamera heightOffset (6.5) so normal play is unaffected.
+    const margin = 2.5;
+    if (cp.y < floor + margin) {
+      cp.y = floor + margin;
     }
   }
 
@@ -1240,6 +1250,24 @@ export class Game {
     this.rider.root.rotation.x = this.activeSlope;
     this.rider.heading.rotation.y = this.heading;
     this.rider.lean.rotation.z = -this.edgeAngle;
+
+    // Head counter-rotation: cancel both humanoid's fixed -π/2 yaw and
+    // the body heading so the boarder always looks down the fall line
+    // (world +Z) regardless of how the body twists during a carve.
+    // Pivot was set in Rider.ts to the head bbox center so this rotates
+    // around the neck instead of the OBJ origin.
+    this.rider.head.rotation.y = Math.PI / 2 - this.heading;
+
+    // Arm-swing idle. Subtle ±11° pendulum at ~1.5 Hz that makes the
+    // boarder read as alive instead of frozen on the board. Skipped in
+    // bail (rider is laid out sideways) and grind (locked stance) —
+    // those branches short-circuit before reaching this code anyway,
+    // so a state guard keeps post-bail/grind transitions clean.
+    if (this.state === 'normal') {
+      const swing = Math.sin(now * 0.003 * Math.PI) * 0.20;
+      this.rider.leftArm.rotation.z  =  swing;
+      this.rider.rightArm.rotation.z = -swing;
+    }
 
     const cosH = Math.cos(this.heading);
     const sinH = Math.sin(this.heading);
