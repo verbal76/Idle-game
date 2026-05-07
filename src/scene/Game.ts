@@ -664,14 +664,32 @@ export class Game {
     const follow = MeshBuilder.CreateBox('follow-target', { size: 0.001 }, this.scene);
     follow.isVisible = false;
     this.followTarget = follow;
-    const cam = new FollowCamera('cam', new Vector3(0, 5, -10), this.scene, follow);
+    // Align the follow target to the rider before the first render so
+    // the FollowCamera's first-frame target calc uses the right position
+    // (instead of origin) — otherwise the camera spawns aimed at (0,0,0)
+    // and lerps into place over the first ~10 frames.
+    follow.position.copyFrom(this.rider.root.position);
+
+    // Construct the camera AT its settled "behind and above the rider"
+    // position rather than the legacy default of (0, 5, -10). With the
+    // legacy init the camera lerped from underground-adjacent to its
+    // target, and the camera-clamp guard kept fighting that lerp,
+    // producing the "rises from underground" startup glitch the user
+    // reported. cameraAcceleration is bumped to 1.0 for the first
+    // ~120 ms so any residual mismatch resolves in a single frame
+    // instead of the smoothed default that takes ~250 ms.
+    const rp = this.rider.root.position;
+    const cam = new FollowCamera('cam',
+      new Vector3(rp.x, rp.y + 6.5, rp.z - 13),
+      this.scene, follow);
     cam.heightOffset = 6.5;          // higher so the slope below the rider is visible
     cam.radius = 13;                 // pulled back to widen the downhill view
     cam.rotationOffset = 180;
-    cam.cameraAcceleration = 0.20;
+    cam.cameraAcceleration = 1.0;    // instant convergence on the first frames
     cam.maxCameraSpeed = 100;
     this.camera = cam;
     this.scene.activeCamera = cam;
+    setTimeout(() => { cam.cameraAcceleration = 0.20; }, 120);
 
     // Camera-underground guard. FollowCamera trails the rider 13 m back
     // in -Z; when the rider arcs off a cliff lip via the bail-state
