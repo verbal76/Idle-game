@@ -124,6 +124,9 @@ export class Game {
   private spinsLanded = 0;
   private coinsCollected = 0;
   private fellAlready = false;
+  // setTimeout id from fall(); dispose() clears it so a fast quit
+  // after a crash doesn't paint the fell-overlay onto the next session.
+  private fallTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // Landing squat. On clean landing the rider visibly absorbs the impact:
   // legs squash to 0.25 of their height, arms shrink to 0.4, and the
@@ -133,6 +136,14 @@ export class Game {
   // animation is unmistakably visible at 60 fps (~23 frames).
   private landingSquatUntil = 0;
   private readonly SQUAT_MS = 380;
+  // Set on a clean landing or bail. While now < impactBurstUntil the
+  // dust emit rate bumps to BURST_EMIT for a one-shot plume; the regular
+  // carve-driven rate resumes once the burst window elapses. Same flag
+  // also triggers the camera jolt (see clampCameraAboveGround).
+  private impactBurstUntil = 0;
+  private impactBurstY = 0;          // |verticalVelocity| at the impact, scales jolt size
+  private readonly BURST_MS = 180;
+  private readonly BURST_EMIT = 800;
 
   // Halfpipe lip grind. When the rider's X gets pinned to ±HP_PIPE_HALF
   // while grounded, they snap onto the lip, head straight forward at a
@@ -290,6 +301,10 @@ export class Game {
 
   dispose(): void {
     window.removeEventListener('resize', this.onResize);
+    if (this.fallTimeout !== null) {
+      clearTimeout(this.fallTimeout);
+      this.fallTimeout = null;
+    }
     this.engine.stopRenderLoop();
     this.scene.dispose();
     this.engine.dispose();
@@ -646,6 +661,27 @@ export class Game {
     if (cp.y < floor + margin) {
       cp.y = floor + margin;
     }
+
+    // Speed-FOV breathe + impact jolt. Camera FOV widens slightly with
+    // speed for a "going fast" cue; heightOffset dips on a clean-land
+    // / wreck for a "thud" sensation. FollowCamera's cameraAcceleration
+    // smooths the transition naturally.
+    const speedFrac = Math.min(1, this.speed / this.maxSpeed);
+    const baseFov = 0.80;
+    const fovBreathe = baseFov + 0.12 * speedFrac;
+    const baseHeight = 6.5;
+    let dipHeight = baseHeight;
+    const now = performance.now();
+    if (now < this.impactBurstUntil) {
+      // Linear ease-out from -0.6m to 0 over BURST_MS, scaled by the
+      // captured impact velocity (capped at ~14).
+      const remaining = this.impactBurstUntil - now;
+      const t = remaining / this.BURST_MS;
+      const scale = Math.min(1, this.impactBurstY / 12);
+      dipHeight = baseHeight - 0.6 * t * scale;
+    }
+    this.camera.fov = fovBreathe;
+    this.camera.heightOffset = dipHeight;
   }
 
   private buildSky(): void {
@@ -1084,10 +1120,20 @@ export class Game {
     this.rider.body.rotation.x = 0;
     this.rider.body.rotation.z = Math.PI / 2;
     this.rider.lean.rotation.z = 0;
+    // Reset every per-mesh rotation that ticks normally would have
+    // overwritten — without this, the upper-body bend, head twist,
+    // and arm-swing values from the last 'normal' frame stay frozen
+    // through bail and recover.
+    this.rider.waist.rotation.z = 0;
+    this.rider.head.rotation.y = 0;
+    this.rider.leftArm.rotation.z = 0;
+    this.rider.rightArm.rotation.z = 0;
     this.flipRotation = 0;
     this.spinRotation = 0;
     this.edgeAngle = 0;
     this.idleTime = 0;
+    this.verticalVelocity = 0;
+    this.jumpCharge = 0;
   }
 
   private startRecovery(): void {
@@ -1096,6 +1142,10 @@ export class Game {
     this.rider.body.rotation.x = 0;
     this.rider.body.rotation.z = 0;
     this.rider.lean.rotation.z = 0;
+    this.rider.waist.rotation.z = 0;
+    this.rider.head.rotation.y = 0;
+    this.rider.leftArm.rotation.z = 0;
+    this.rider.rightArm.rotation.z = 0;
     this.edgeAngle = 0;
     this.heading = 0;
     this.rider.heading.rotation.y = 0;
@@ -1351,8 +1401,19 @@ export class Game {
           this.heading = Math.atan2(Math.sin(this.heading), Math.cos(this.heading));
 
           // Take the hit with the knees: brief squat on impact.
-          this.landingSquatUntil = performance.now() + this.SQUAT_MS;
+          const impactNow = performance.now();
+          this.landingSquatUntil = impactNow + this.SQUAT_MS;
+          // Fire a one-shot dust burst + camera jolt sized by the
+          // landing's vertical velocity. Reads as a "thud" without any
+          // new assets — just bumps emitRate and tweaks the FollowCamera
+          // height for ~120 ms.
+          this.impactBurstUntil = impactNow + this.BURST_MS;
+          this.impactBurstY = Math.min(12, Math.abs(this.verticalVelocity));
         } else {
+          // Same plume-on-impact for a wreck.
+          const bailNow = performance.now();
+          this.impactBurstUntil = bailNow + this.BURST_MS;
+          this.impactBurstY = Math.min(14, Math.abs(this.verticalVelocity));
           this.startBail();
           this.scene.render();
           return;
@@ -1444,8 +1505,13 @@ export class Game {
     const carveIntensity = Math.min(1, Math.abs(sinH));
     // Floor bumped from 8 to 30 (idle ground spray clearly visible) and
     // ceiling from 78 to 130 (carve hard for a real plume). 0 in the
-    // air — particles are a ground effect.
-    this.dustParticles.emitRate = this.grounded ? (30 + carveIntensity * 100) : 0;
+    // air — particles are a ground effect. Override with BURST_EMIT
+    // during the post-landing window for a one-shot impact plume.
+    if (now < this.impactBurstUntil) {
+      this.dustParticles.emitRate = this.BURST_EMIT;
+    } else {
+      this.dustParticles.emitRate = this.grounded ? (30 + carveIntensity * 100) : 0;
+    }
 
     // Pin the trail to the snow surface beneath the rider's XZ while
     // grounded; pause recording while airborne so jumps leave a clean
@@ -1477,7 +1543,6 @@ export class Game {
 
     this.updateLandingSquat(now);
 
-    void this.trail;
     this.scene.render();
   }
 
@@ -1537,12 +1602,15 @@ export class Game {
     this.rider.body.rotation.x = 0;
     this.rider.body.rotation.z = Math.PI / 2;
     const distanceMeters = Math.floor(this.rider.root.position.z);
-    setTimeout(() => this.callbacks.onFell?.({
-      distanceMeters,
-      flips: this.flipsLanded,
-      spins: this.spinsLanded,
-      coins: this.coinsCollected,
-    }), 700);
+    this.fallTimeout = setTimeout(() => {
+      this.fallTimeout = null;
+      this.callbacks.onFell?.({
+        distanceMeters,
+        flips: this.flipsLanded,
+        spins: this.spinsLanded,
+        coins: this.coinsCollected,
+      });
+    }, 700);
   }
 }
 

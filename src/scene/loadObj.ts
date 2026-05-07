@@ -12,48 +12,7 @@ import { Mesh, Scene, VertexData } from '@babylonjs/core';
 // asset wiring local instead of stitching blob URLs and overriding
 // loader options to skip the missing MTL.
 
-interface Group { name: string; faces: number[][][] /* [v,vt,vn][] per face */ }
-
-export function parseObjGroups(text: string): Group[] {
-  const positions: number[][] = [];
-  const uvs: number[][] = [];
-  const normals: number[][] = [];
-  const groups: Group[] = [];
-  let current: Group | null = null;
-
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const parts = trimmed.split(/\s+/);
-    const tag = parts[0];
-    if (tag === 'v') positions.push([+parts[1], +parts[2], +parts[3]]);
-    else if (tag === 'vt') uvs.push([+parts[1], +parts[2]]);
-    else if (tag === 'vn') normals.push([+parts[1], +parts[2], +parts[3]]);
-    else if (tag === 'g') {
-      current = { name: parts.slice(1).join(' '), faces: [] };
-      groups.push(current);
-    } else if (tag === 'f') {
-      if (!current) {
-        current = { name: 'default', faces: [] };
-        groups.push(current);
-      }
-      const face: number[][] = parts.slice(1).map(spec => {
-        // OBJ indices are 1-based; allow missing vt/vn slots.
-        const [v, vt, vn] = spec.split('/').map(s => s ? +s - 1 : -1);
-        return [v, vt, vn];
-      });
-      current.faces.push(face);
-    }
-  }
-
-  // Build a Mesh per group with deduplicated v/vt/vn vertices. Two faces
-  // sharing a position but with different uv/normal need to become
-  // separate vertex entries in the buffer because Babylon stores one
-  // uv/normal per vertex index.
-  return groups.map(group => ({ ...group, _src: { positions, uvs, normals } } as Group & { _src: unknown }));
-}
-
-export function buildObjMesh(group: { name: string; faces: number[][][] }, srcPositions: number[][], srcUvs: number[][], srcNormals: number[][], scene: Scene, namePrefix: string): Mesh {
+function buildObjMesh(group: { name: string; faces: number[][][] }, srcPositions: number[][], srcUvs: number[][], srcNormals: number[][], scene: Scene, namePrefix: string): Mesh {
   const outPos: number[] = [];
   const outUv: number[] = [];
   const outNormals: number[] = [];

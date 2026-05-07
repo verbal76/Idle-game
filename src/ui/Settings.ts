@@ -34,17 +34,30 @@ export function showSettings(
 
       const slider = root.querySelector<HTMLInputElement>('#music-vol')!;
       const valLabel = root.querySelector<HTMLElement>('#music-vol-val')!;
+      // Debounce the IDB save so a 0→100 slider drag doesn't queue ~60
+      // separate transactions on the WebView's IDB worker. Apply the
+      // value to the player + profile object instantly (cheap), and
+      // persist on idle. A 'change' event flush guarantees we save the
+      // final value if the player drags-and-quits before the timer.
+      let saveTimer: ReturnType<typeof setTimeout> | null = null;
+      const queueSave = () => {
+        if (saveTimer !== null) clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => { saveTimer = null; void profiles.save(); }, 250);
+      };
+      const flushSave = () => {
+        if (saveTimer !== null) { clearTimeout(saveTimer); saveTimer = null; }
+        void profiles.save();
+      };
       slider.addEventListener('input', () => {
         const v = Number(slider.value) / 100;
         music.setVolume(v);
         valLabel.textContent = `${slider.value}%`;
         if (profile) {
           profile.settings.musicVolume = v;
-          // Save is fire-and-forget — IndexedDB writes are fast and a
-          // failed write isn't worth blocking the slider drag for.
-          void profiles.save();
+          queueSave();
         }
       });
+      slider.addEventListener('change', flushSave);
 
       const skipBtn = root.querySelector<HTMLButtonElement>('#music-skip')!;
       const nowLabel = root.querySelector<HTMLElement>('#music-now')!;
@@ -60,7 +73,10 @@ export function showSettings(
         await showAbout(root);
         render();
       });
-      root.querySelector<HTMLButtonElement>('#settings-back')!.addEventListener('click', () => resolve());
+      root.querySelector<HTMLButtonElement>('#settings-back')!.addEventListener('click', () => {
+        flushSave();
+        resolve();
+      });
     };
     render();
   });

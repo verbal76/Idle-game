@@ -26,16 +26,28 @@ export class MusicPlayer {
   private trackIdx = 0;
   private wantPlaying = false;
   private volume = 0.7;
+  // Last advance-on-error timestamp; rate-limited to once / 500 ms so a
+  // bad track that fires repeated `error` events can't spin into a
+  // runaway advance loop.
+  private lastErrorAdvance = 0;
 
   constructor() {
     const a = new Audio();
-    a.preload = 'auto';
+    // 'metadata' instead of 'auto' — when the playlist repopulates only
+    // the current track preloads, not all three at boot.
+    a.preload = 'metadata';
     a.loop = false;
     a.volume = this.volume;
     a.addEventListener('ended', () => this.advance());
-    // Autoplay-block: a failed .play() rejects with a NotAllowedError.
-    // Swallow it; start() will retry on the next user interaction.
-    a.addEventListener('error', () => {/* noop — fall through to advance on next call */});
+    // Track-load error (corrupt asset, network blip, missing file): hop
+    // to the next track instead of getting stuck silently. Rate-limited
+    // so a chain of error events can't recurse the playlist.
+    a.addEventListener('error', () => {
+      const now = performance.now();
+      if (now - this.lastErrorAdvance < 500) return;
+      this.lastErrorAdvance = now;
+      this.advance();
+    });
     this.audio = a;
   }
 
