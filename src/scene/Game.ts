@@ -22,6 +22,11 @@ export interface GameInput {
 export interface GameCallbacks {
   onScore?: (label: string) => void;
   onFell?: (stats: { distanceMeters: number; flips: number; spins: number; coins: number }) => void;
+  // Per-tick jump charge (0..1). HUD uses it to drive a conic-gradient
+  // ring around the JUMP button. Fired only when the value changes —
+  // the Game side dedups so the DOM mutation doesn't run every frame
+  // while charge sits at 0.
+  onChargeChange?: (charge: number) => void;
 }
 
 type RiderState = 'normal' | 'bailing' | 'recovering' | 'grinding';
@@ -73,6 +78,10 @@ export class Game {
   // both styles evenly. Each entry holds the trunk + foliage Meshes
   // produced by loadObjByMaterial; instances share GPU buffers.
   private treeTemplates!: Array<{ trunk: Mesh; foliage: Mesh }>;
+  // Shared contact-shadow disc template. Trees and rocks each spawn an
+  // instance under their base — cheap fake AO that grounds the world
+  // visually so objects don't read as floating against the snow.
+  private shadowDiscTemplate!: Mesh;
 
   private chunks = new Map<string, ChunkData>();
   private readonly chunkSize = 80;
@@ -118,6 +127,9 @@ export class Game {
   private prevGroundLevel: number | null = null;
   private readonly CLIFF_STEP_M = 1.0;
   private jumpCharge = 0;
+  // Last value reported via onChargeChange — prevents per-frame DOM
+  // updates while charge sits at zero (idle riding) or at 1 (max held).
+  private lastReportedCharge = 0;
   private flipRotation = 0;
   private flipsLanded = 0;
   private spinRotation = 0;
@@ -417,6 +429,23 @@ export class Game {
       foliage.isVisible = false;
       this.treeTemplates.push({ trunk, foliage });
     }
+
+    // Shared contact-shadow disc. Single 16-sided disc, dark + alpha-
+    // blended + lighting-disabled so it reads as a flat soft shadow
+    // regardless of sun angle. Instances scale per-spawn so trees use
+    // a wider footprint than rocks.
+    const disc = MeshBuilder.CreateDisc('contact-shadow-template', {
+      radius: 1.0, tessellation: 16
+    }, this.scene);
+    disc.rotation.x = Math.PI / 2;  // lay flat in the XZ plane
+    const shadowMat = new StandardMaterial('contact-shadow-mat', this.scene);
+    shadowMat.diffuseColor = new Color3(0, 0, 0);
+    shadowMat.specularColor = new Color3(0, 0, 0);
+    shadowMat.alpha = 0.35;
+    shadowMat.disableLighting = true;
+    disc.material = shadowMat;
+    disc.isVisible = false;
+    this.shadowDiscTemplate = disc;
   }
 
   private buildBackgroundMountains(): void {
@@ -615,7 +644,20 @@ export class Game {
     const yaw = this.rng.next01() * Math.PI * 2;
     trunk.rotation.y = yaw;
     foliage.rotation.y = yaw;
-    return [trunk, foliage];
+    // Contact shadow disc 2 cm above the snow so it doesn't z-fight,
+    // 1.6× the trunk footprint so the shadow extends slightly past the
+    // base. Same instance pattern as the tree meshes.
+    const shadow = this.shadowDiscTemplate.createInstance(`tree-shadow-${name}`);
+    shadow.scaling.set(treeScale * 0.5, 1, treeScale * 0.5);
+    shadow.position.set(x, baseY + 0.02, z);
+    return [trunk, foliage, shadow];
+  }
+
+  private spawnContactShadow(x: number, z: number, baseY: number, radius: number, name: string): AbstractMesh {
+    const shadow = this.shadowDiscTemplate.createInstance(`shadow-${name}`);
+    shadow.scaling.set(radius, 1, radius);
+    shadow.position.set(x, baseY + 0.02, z);
+    return shadow;
   }
 
   private buildCamera(): void {
@@ -890,12 +932,14 @@ export class Game {
       for (let i = 0; i < rockCount; i++) {
         const lx = ox + this.rng.rangeFloat(-half + 2, half - 2);
         const lz = oz + this.rng.rangeFloat(-half + 2, half - 2);
+        const rockBaseY = this.surfaceY(lx, lz);
         const rock = MeshBuilder.CreateBox(`rock-${cx}-${cz}-${i}`, {
           width: 1.6, height: 1.4, depth: 1.4
         }, this.scene);
         rock.material = this.rockMat;
-        rock.position.set(lx, this.surfaceY(lx, lz) + 0.7, lz);
+        rock.position.set(lx, rockBaseY + 0.7, lz);
         features.push(rock);
+        features.push(this.spawnContactShadow(lx, lz, rockBaseY, 1.3, `rock-${cx}-${cz}-${i}`));
         rocks.push({ x: lx, z: lz });
       }
 
@@ -958,12 +1002,14 @@ export class Game {
           rocks.push({ x: lx, z: lz });
         } else if (roll < 0.85) {
           // rock
+          const lineRockBaseY = this.surfaceY(lx, lz);
           const rock = MeshBuilder.CreateBox(`rock-line-${cx}-${cz}-${i}`, {
             width: 1.6, height: 1.4, depth: 1.4
           }, this.scene);
           rock.material = this.rockMat;
-          rock.position.set(lx, this.surfaceY(lx, lz) + 0.7, lz);
+          rock.position.set(lx, lineRockBaseY + 0.7, lz);
           features.push(rock);
+          features.push(this.spawnContactShadow(lx, lz, lineRockBaseY, 1.3, `rock-line-${cx}-${cz}-${i}`));
           rocks.push({ x: lx, z: lz });
         } else {
           // kicker — opt-in jump instead of dodge. Width tripled (4.5 → 13.5).
@@ -1087,12 +1133,14 @@ export class Game {
           }
           if (kickerLz !== null && Math.abs(lz - kickerLz) <= 3) continue;
           const lx = this.rng.rangeFloat(-this.HP_FLAT_HALF + 1, this.HP_FLAT_HALF - 1);
+          const bumpBaseY = this.surfaceY(lx, lz);
           const bump = MeshBuilder.CreateBox(`hp-bump-${cz}-${i}`, {
             width: 1.0, height: 0.6, depth: 1.0
           }, this.scene);
           bump.material = this.rockMat;
-          bump.position.set(lx, this.surfaceY(lx, lz) + 0.3, lz);
+          bump.position.set(lx, bumpBaseY + 0.3, lz);
           features.push(bump);
+          features.push(this.spawnContactShadow(lx, lz, bumpBaseY, 0.7, `hp-bump-${cz}-${i}`));
           rocks.push({ x: lx, z: lz, radius: 0.7 });
         }
       }
@@ -1357,6 +1405,14 @@ export class Game {
         this.grounded = false;
       }
     }
+    // Push the charge value to the HUD only when it crosses a 1% step
+    // (or hits the 0/1 endpoints). Prevents an addEventListener-style
+    // DOM mutation every frame.
+    const chargeStepped = Math.round(this.jumpCharge * 100) / 100;
+    if (chargeStepped !== this.lastReportedCharge) {
+      this.lastReportedCharge = chargeStepped;
+      this.callbacks.onChargeChange?.(chargeStepped);
+    }
 
     if (!this.grounded) {
       this.verticalVelocity -= this.gravity * dt;
@@ -1512,6 +1568,15 @@ export class Game {
     } else {
       this.dustParticles.emitRate = this.grounded ? (30 + carveIntensity * 100) : 0;
     }
+
+    // Carve-edge spray: bias particle direction sideways from the board
+    // when the rider is heading off-axis. Reads as a rooster tail off
+    // the uphill edge instead of a uniform plume straight back. Mutate
+    // the existing direction1/2 vectors in place to avoid per-tick
+    // allocation. Decay back to the base spray when the carve relaxes.
+    const sideKick = Math.sign(sinH) * carveIntensity * 4.0;
+    this.dustParticles.direction1.x = -0.6 + sideKick;
+    this.dustParticles.direction2.x =  0.6 + sideKick;
 
     // Pin the trail to the snow surface beneath the rider's XZ while
     // grounded; pause recording while airborne so jumps leave a clean
