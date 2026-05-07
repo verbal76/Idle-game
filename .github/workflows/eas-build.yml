@@ -1,0 +1,39 @@
+name: EAS Build (Android APK)
+
+# Two ways to trigger an APK build:
+#   1. Manually via the Actions tab "Run workflow" button (workflow_dispatch).
+#   2. Via a commit message marker: include the literal string "[build]"
+#      anywhere in the commit message (e.g. "Bump RN version [build]").
+#      Plain pushes only run the OTA workflow; the build job below is
+#      skipped unless one of those triggers fires, so day-to-day pushes
+#      never burn an EAS build credit.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || contains(github.event.head_commit.message, '[build]')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install -g eas-cli
+      - run: npm install
+      - name: Trigger EAS Build (preview / APK)
+        run: eas build --platform android --profile preview --non-interactive --no-wait
+        # Token name flexibility: prefers EXPO_TOKEN, then falls back to
+        # SNOWBOARD or SNOW (the names already in this repo's secret store).
+        # GitHub Actions expression || returns the first truthy (non-empty)
+        # value, so whichever secret exists gets passed to eas-cli.
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}

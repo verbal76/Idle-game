@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "Idle Boarder",
+    "slug": "snow",
+    "owner": "hot-attic-games",
+    "version": "0.0.1",
+    "orientation": "default",
+    "backgroundColor": "#0b1320",
+    "userInterfaceStyle": "dark",
+    "platforms": ["android"],
+    "splash": {
+      "backgroundColor": "#0b1320",
+      "resizeMode": "contain"
+    },
+    "android": {
+      "package": "com.hotatticgames.snow",
+      "versionCode": 3,
+      "backgroundColor": "#0b1320",
+      "splash": {
+        "backgroundColor": "#0b1320",
+        "resizeMode": "contain"
+      }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/147c7fa1-88de-4800-8c08-c5e6411f069e",
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "147c7fa1-88de-4800-8c08-c5e6411f069e"
+      }
+    }
+  }
+}

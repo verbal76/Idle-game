@@ -1,0 +1,246 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 100%; height: 100%;
+  background: #0b1320; color: #eef3ff;
+  overflow: hidden;
+  touch-action: none;
+  -webkit-user-select: none; user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  overscroll-behavior: none;
+}
+#renderCanvas {
+  position: fixed; inset: 0; width: 100vw; height: 100vh; outline: none; display: block;
+  /* Slight saturation/contrast bump frames the dusk haze and makes the
+     low-poly snow read as colored, not flat. Imperceptible CPU cost on
+     mobile WebView since it's a single fixed-pipeline filter. */
+  filter: saturate(1.08) contrast(1.04);
+}
+/* Soft vignette overlays the canvas (and only the canvas — sits below
+   #screen so HUD / menus stay full-bright). Pure CSS, zero render cost. */
+#renderCanvas::after { content: ''; }
+.vignette {
+  position: fixed; inset: 0; pointer-events: none; z-index: 1;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(11, 19, 32, 0.45) 100%);
+}
+#screen { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
+#screen > * { pointer-events: auto; }
+
+.fullscreen-panel {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px;
+  background: rgba(11, 19, 32, 0.92);
+  backdrop-filter: blur(8px);
+  padding: env(safe-area-inset-top, 16px) env(safe-area-inset-right, 16px) env(safe-area-inset-bottom, 16px) env(safe-area-inset-left, 16px);
+  /* Soft fade-in so menus don't snap into existence — polish that
+     converts the flow from "debug build" to "intentional UI". */
+  animation: panel-fade 220ms cubic-bezier(0.2, 0, 0.2, 1);
+}
+@keyframes panel-fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+/* Menu / lobby screens use the snowboard hero illustration as a
+   background. Dark gradient overlay keeps button text readable. */
+.fullscreen-panel.menu-bg {
+  background:
+    linear-gradient(rgba(11, 19, 32, 0.55), rgba(11, 19, 32, 0.78)),
+    url('./assets/menu-bg.png') center/cover no-repeat;
+  backdrop-filter: none;
+}
+.fullscreen-panel h1 { font-size: 30px; letter-spacing: 0.08em; font-weight: 700; }
+.fullscreen-panel button {
+  background: #2a4f7f; color: #fff; border: 0;
+  padding: 12px 24px; border-radius: 12px; font-size: 16px;
+  min-width: 180px; cursor: pointer;
+  font: inherit;
+  transition: transform 80ms ease-out, filter 80ms ease-out;
+}
+.fullscreen-panel button.danger { background: #7a2a2a; }
+.fullscreen-panel button:active {
+  transform: translateY(1px);
+  filter: brightness(1.18);
+}
+.list { display: flex; flex-direction: column; gap: 8px; min-width: 240px; }
+.row { display: flex; gap: 8px; align-items: center; }
+.muted { opacity: 0.65; font-size: 13px; }
+
+.upgrades-list { display: flex; flex-direction: column; gap: 10px; min-width: 320px; max-width: 480px; }
+.upgrade-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 14px; background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(160, 200, 240, 0.15);
+  border-radius: 10px;
+}
+.upgrade-info { display: flex; flex-direction: column; gap: 2px; }
+.upgrade-name { font-weight: 700; font-size: 15px; }
+.upgrade-desc { font-size: 12px; }
+.upgrade-buy {
+  padding: 8px 14px; background: #2a4f7f; color: #fff;
+  border: 0; border-radius: 8px; min-width: 90px;
+  font: inherit; font-weight: 700;
+}
+.upgrade-buy:disabled { opacity: 0.4; }
+
+#hud { position: absolute; inset: 0; display: block; }
+#hud .top-bar {
+  position: absolute;
+  top: max(env(safe-area-inset-top, 12px), 12px);
+  left: 16px; right: 16px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+#hud .pause-btn {
+  background: rgba(20, 32, 56, 0.82); color: #fff;
+  border: 2px solid rgba(160, 200, 240, 0.55);
+  padding: 8px 14px; border-radius: 10px;
+  font: inherit; font-size: 16px; font-weight: 700;
+}
+#hud .score {
+  font-variant-numeric: tabular-nums; font-weight: 800; font-size: 22px;
+  color: #0b1320;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 4px 12px; border-radius: 10px;
+}
+
+.dpad-left {
+  position: absolute;
+  bottom: max(env(safe-area-inset-bottom, 24px), 24px);
+  left: 24px;
+  display: flex; gap: 12px;
+}
+.dpad-btn {
+  width: 88px; height: 88px;
+  border-radius: 22px;
+  background: rgba(40, 90, 160, 0.92);
+  color: #fff;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  font: inherit; font-weight: 800; font-size: 36px; line-height: 1;
+  touch-action: none;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 80ms, transform 80ms;
+}
+.dpad-btn.pressed {
+  transform: translateY(2px);
+  background: rgba(255, 200, 80, 0.96);
+  color: #1a1000;
+  border-color: rgba(255, 240, 200, 0.8);
+}
+
+.actions-right {
+  position: absolute;
+  bottom: max(env(safe-area-inset-bottom, 24px), 24px);
+  right: 24px;
+  display: flex; gap: 12px; align-items: flex-end;
+}
+.action-btn {
+  color: #fff;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  border-radius: 18px;
+  font: inherit; font-weight: 800; font-size: 16px; letter-spacing: 0.06em;
+  touch-action: none;
+  transition: background 80ms, transform 80ms;
+  min-width: 84px;
+}
+.action-btn.jump {
+  background: rgba(40, 90, 160, 0.92);
+  padding: 22px 24px;
+  font-size: 18px;
+  /* Jump-charge ring. CSS var --charge runs 0..1, fed from Game's
+     onChargeChange callback. The conic-gradient layer paints over the
+     button background while held; releases instantly when --charge
+     drops back to 0. */
+  --charge: 0;
+  background:
+    conic-gradient(rgba(255, 200, 80, 0.9) calc(var(--charge) * 360deg), transparent 0),
+    rgba(40, 90, 160, 0.92);
+}
+.action-btn.flip {
+  background: rgba(140, 60, 30, 0.92);
+  padding: 18px 20px;
+}
+.action-btn.pressed {
+  transform: translateY(2px);
+  background: rgba(255, 200, 80, 0.96);
+  color: #1a1000;
+  border-color: rgba(255, 240, 200, 0.8);
+}
+
+/* Settings gear button — used in the HUD top-bar and as a corner
+   shortcut on full-screen menu panels. */
+.gear-btn {
+  background: rgba(20, 32, 56, 0.82); color: #fff;
+  border: 2px solid rgba(160, 200, 240, 0.55);
+  width: 40px; height: 40px;
+  border-radius: 10px;
+  font: inherit; font-size: 18px;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  min-width: 0;
+}
+#hud .top-bar .gear-btn { margin-left: auto; }
+.fullscreen-panel .gear-btn.corner {
+  position: absolute;
+  top: max(env(safe-area-inset-top, 12px), 12px);
+  right: max(env(safe-area-inset-right, 12px), 12px);
+}
+
+/* About panel: definition-list of build identifier fields. Two-column
+   row so labels align and SHA / timestamps stay readable. */
+.about-list {
+  display: flex; flex-direction: column; gap: 6px;
+  min-width: 320px; max-width: 560px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(160, 200, 240, 0.15);
+  border-radius: 10px;
+  padding: 12px 16px;
+}
+.about-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 16px;
+  font-size: 13px;
+}
+.about-label { opacity: 0.7; flex-shrink: 0; }
+.about-val { color: #eef3ff; text-align: right; word-break: break-all; }
+.about-val.mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+.about-warn {
+  color: #ffd28a; font-size: 13px; max-width: 480px; text-align: center;
+  background: rgba(140, 90, 20, 0.25);
+  border: 1px solid rgba(255, 200, 100, 0.4);
+  border-radius: 8px; padding: 8px 12px;
+}
+/* Settings panel — labelled control rows (volume slider, etc.). */
+.setting-row {
+  display: flex; align-items: center; gap: 12px;
+  min-width: 320px; max-width: 480px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(160, 200, 240, 0.15);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+.setting-label { flex: 1; font-size: 14px; }
+.setting-row input[type="range"] {
+  flex: 2;
+  -webkit-appearance: none; appearance: none;
+  height: 6px; background: rgba(160, 200, 240, 0.25);
+  border-radius: 3px; outline: none;
+}
+.setting-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #7baaff; cursor: pointer; border: 2px solid #fff;
+}
+.setting-row input[type="range"]::-moz-range-thumb {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #7baaff; cursor: pointer; border: 2px solid #fff;
+}
+.setting-val { width: 48px; text-align: right; font-variant-numeric: tabular-nums; }
+
+.about-fallback {
+  width: 100%; min-height: 120px;
+  margin-top: 8px;
+  background: rgba(0, 0, 0, 0.3); color: #eef3ff;
+  border: 1px solid rgba(160, 200, 240, 0.25);
+  border-radius: 6px; padding: 8px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px;
+}

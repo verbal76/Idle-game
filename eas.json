@@ -1,0 +1,28 @@
+{
+  "cli": {
+    "version": ">= 13.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "channel": "preview",
+      "env": {
+        "NODE_ENV": "production"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "channel": "production",
+      "env": {
+        "NODE_ENV": "production"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    }
+  },
+  "submit": {}
+}

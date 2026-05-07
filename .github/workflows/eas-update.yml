@@ -1,0 +1,55 @@
+name: EAS Update (OTA)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eas-update-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install -g eas-cli
+      - run: npm install
+      - run: npm run web:build
+        env:
+          NODE_ENV: production
+      - name: Publish OTA update
+        # Publish to the EAS branch literally named "preview" so the
+        # channel "preview" (declared in eas.json's preview build profile)
+        # picks up the update on the installed APK.
+        #
+        # Was previously --auto, which uses the current git branch as the
+        # EAS branch name. That meant updates landed on a branch named
+        # "claude/android-snowboarding-game-UHUPI" while the installed APK
+        # was subscribed to channel "preview" -> branch "preview", so the
+        # OTA was published but never delivered.
+        #
+        # --platform android: app.json only declares android.
+        run: |
+          eas update \
+            --branch preview \
+            --platform android \
+            --non-interactive \
+            --message "OTA from ${GITHUB_SHA::7} on ${GITHUB_REF_NAME}"
+        # Token name flexibility: prefer EXPO_TOKEN, fall back to the
+        # SNOWBOARD / SNOW secret names already in this repo. NODE_ENV
+        # set so eas-cli's underlying Metro bundling runs in production
+        # mode (minified + dead-code-stripped) — keeps the OTA payload
+        # as small as possible so it has time to fetch on short
+        # cellular sessions.
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
+          NODE_ENV: production

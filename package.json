@@ -1,0 +1,33 @@
+{
+  "name": "boarder",
+  "version": "0.0.1",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "web:build": "node scripts/write-build-info.mjs && tsc && vite build && node scripts/embed-html.mjs && node scripts/make-icon.mjs",
+    "web:dev": "vite",
+    "eas-build-post-install": "npm run web:build"
+  },
+  "dependencies": {
+    "expo": "~51.0.39",
+    "expo-constants": "~16.0.2",
+    "expo-screen-orientation": "~7.0.5",
+    "expo-status-bar": "~1.12.1",
+    "expo-updates": "~0.25.27",
+    "react": "18.2.0",
+    "react-native": "0.74.5",
+    "react-native-webview": "13.10.5"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@babylonjs/core": "^7.39.0",
+    "@babylonjs/loaders": "^7.39.0",
+    "@types/react": "~18.2.79",
+    "idb": "^8.0.0",
+    "pngjs": "^7.0.0",
+    "typescript": "~5.3.3",
+    "vite": "^5.4.10",
+    "vite-plugin-singlefile": "^2.0.3"
+  }
+}
