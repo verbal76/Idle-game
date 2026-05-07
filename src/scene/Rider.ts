@@ -1,5 +1,5 @@
 import {
-  AbstractMesh, Color3, Mesh, MeshBuilder, Scene, StandardMaterial, Texture, TransformNode, Vector3
+  AbstractMesh, Color3, Mesh, MeshBuilder, Scene, StandardMaterial, Texture, TransformNode
 } from '@babylonjs/core';
 import objText from '../assets/character.obj?raw';
 import textureUrl from '../assets/character-texture.png';
@@ -17,12 +17,16 @@ export interface RiderRig {
   waist: TransformNode;
   board: Mesh;
   parts: AbstractMesh[];
-  // Per-limb refs for tick-time animation: arm-swing idle and head
-  // counter-rotation so the boarder visually faces the fall line even
-  // while the body twists with carve heading.
-  head: Mesh;
-  leftArm: Mesh;
-  rightArm: Mesh;
+  // Per-joint pivot wrappers exposed for tick-time animation. Game.ts
+  // sets head.rotation.y / leftArm.rotation.z / rightArm.rotation.z;
+  // each TransformNode rotates around its own joint position because
+  // it sits AT the joint with the body mesh offset to compensate.
+  // (Babylon's setPivotPoint translates the mesh visually with default
+  // settings, which was misplacing head + arms in earlier builds —
+  // wrappers are the predictable fix.)
+  head: TransformNode;
+  leftArm: TransformNode;
+  rightArm: TransformNode;
 }
 
 // OBJ character bounds: X ±0.8, Y 0..2.7, Z ±0.4. Existing rig was
@@ -33,10 +37,15 @@ const CHARACTER_SCALE = 0.63;
 // top face. Board sits at body-Y 0.13 with height 0.06 → top at 0.16.
 const FEET_Y = 0.16;
 // Visual waistline: top of legs (OBJ Y=1) maps to humanoid Y =
-// FEET_Y + CHARACTER_SCALE * 1.0 = 0.79. Used as the pivot for the
-// upper-body bend so torso/head/arms tip into the turn around the
-// hips while the legs stay planted on the board.
+// FEET_Y + CHARACTER_SCALE * 1.0 = 0.79. Used as the position of the
+// waist node so torso/head/arms tip into the turn around the hips
+// while the legs stay planted on the board.
 const WAIST_Y = FEET_Y + CHARACTER_SCALE * 1.0;
+// Shoulder + head joint locations in humanoid-local space, computed
+// from OBJ bounds × CHARACTER_SCALE + FEET_Y.
+const SHOULDER_X = CHARACTER_SCALE * 0.4;          // 0.252
+const SHOULDER_Y = FEET_Y + CHARACTER_SCALE * 1.9; // 1.357
+const HEAD_CENTER_Y = FEET_Y + CHARACTER_SCALE * 2.3; // 1.609
 
 export function buildRider(scene: Scene): RiderRig {
   // Hierarchy (outer → inner): root → heading → lean → body → humanoid.
@@ -57,13 +66,33 @@ export function buildRider(scene: Scene): RiderRig {
   // travel. Same convention as the legacy procedural rig.
   humanoid.rotation.y = -Math.PI / 2;
 
-  // Waist node — sits between humanoid and the upper-body meshes so
-  // the torso/head/arms can bend into a turn without dragging the
-  // legs along. Pivot on the waistline (humanoid Y = 0.79); rotating
-  // waist.z bends the upper body around the hips.
+  // Waist node positioned AT the waist line. Children (upper-body
+  // meshes) get an inverse Y offset so they render at their original
+  // humanoid-Y positions; rotating waist.z then bends them around the
+  // waist line as a unit, leaving the legs planted on the board.
   const waist = new TransformNode('rider-waist', scene);
   waist.parent = humanoid;
-  waist.setPivotPoint(new Vector3(0, WAIST_Y, 0));
+  waist.position.y = WAIST_Y;
+  // Upper-body meshes' Y offset (in waist-local space) so vertices
+  // land at the same humanoid-Y as if they were parented directly to
+  // humanoid with position.y = FEET_Y.
+  const UPPER_OFFSET_Y = FEET_Y - WAIST_Y; // -0.63
+
+  // Joint pivot anchors. Each is a TransformNode at the joint location
+  // (in waist-local space). The body mesh is parented to the anchor
+  // with a position offset that puts the joint at the anchor's origin
+  // — so rotating the anchor rotates the mesh around the joint.
+  const headPivot = new TransformNode('rider-head-pivot', scene);
+  headPivot.parent = waist;
+  headPivot.position.y = HEAD_CENTER_Y - WAIST_Y; // 0.819
+
+  const leftArmPivot = new TransformNode('rider-arm-l-pivot', scene);
+  leftArmPivot.parent = waist;
+  leftArmPivot.position.set( SHOULDER_X, SHOULDER_Y - WAIST_Y, 0); // (0.252, 0.567, 0)
+
+  const rightArmPivot = new TransformNode('rider-arm-r-pivot', scene);
+  rightArmPivot.parent = waist;
+  rightArmPivot.position.set(-SHOULDER_X, SHOULDER_Y - WAIST_Y, 0);
 
   // Kenney atlas — applied to head, torso, arms (where the UVs land
   // inside [0, 1] and sample correctly). The leg groups' vt entries
@@ -82,31 +111,42 @@ export function buildRider(scene: Scene): RiderRig {
   const pantsMat  = mat(scene, 'rider-pants',  new Color3(0.10, 0.18, 0.32));
   const bootMat   = mat(scene, 'rider-boot',   new Color3(0.12, 0.10, 0.10));
 
-  const upperBody = new Set(['head', 'torso', 'arm-left', 'arm-right']);
   const isLeg = (name: string) => name === 'leg-left' || name === 'leg-right';
+
+  // Where each OBJ group lands in the rig. Joint-pivoted meshes get
+  // an inverse offset so the vertex at the joint position renders at
+  // the pivot's origin (and rotation works around the joint). Plain
+  // upper-body meshes (just torso) land under waist with the standard
+  // upper-body offset. Legs go straight to humanoid so they don't bend
+  // with the waist.
+  type Anchor = { parent: TransformNode; offsetX: number; offsetY: number };
+  const anchorFor = (name: string): Anchor => {
+    if (name === 'head') {
+      return { parent: headPivot, offsetX: 0, offsetY: -CHARACTER_SCALE * 2.3 };
+    }
+    if (name === 'arm-left') {
+      return { parent: leftArmPivot, offsetX: -CHARACTER_SCALE * 0.4, offsetY: -CHARACTER_SCALE * 1.9 };
+    }
+    if (name === 'arm-right') {
+      return { parent: rightArmPivot, offsetX:  CHARACTER_SCALE * 0.4, offsetY: -CHARACTER_SCALE * 1.9 };
+    }
+    if (isLeg(name)) {
+      return { parent: humanoid, offsetX: 0, offsetY: FEET_Y };
+    }
+    // torso (and any other upper-body group)
+    return { parent: waist, offsetX: 0, offsetY: UPPER_OFFSET_Y };
+  };
 
   const parts: AbstractMesh[] = [];
   const groups = loadObjGroups(objText, scene, 'character');
   for (const [name, mesh] of groups) {
     mesh.material = isLeg(name) ? pantsMat : charMat;
-    mesh.parent = upperBody.has(name) ? waist : humanoid;
+    const a = anchorFor(name);
+    mesh.parent = a.parent;
     mesh.scaling.setAll(CHARACTER_SCALE);
-    mesh.position.y = FEET_Y;
+    mesh.position.set(a.offsetX, a.offsetY, 0);
     parts.push(mesh);
   }
-
-  // Pivot points so per-mesh rotation pivots from the joint instead of
-  // the OBJ origin (which sits at the character's feet, way off-axis
-  // for the head and shoulders). All values in mesh-local OBJ units;
-  // Babylon applies the pivot before scaling, so no scale factor needed.
-  // Shoulder for arms = inner-edge top of the limb (X = ±0.4, Y = 1.9).
-  // Head pivot = head bbox center (Y = 2.3).
-  const head = groups.get('head')!;
-  const leftArm = groups.get('arm-left')!;
-  const rightArm = groups.get('arm-right')!;
-  head.setPivotPoint(new Vector3(0, 2.3, 0));
-  leftArm.setPivotPoint(new Vector3(0.4, 1.9, 0));
-  rightArm.setPivotPoint(new Vector3(-0.4, 1.9, 0));
 
   // Procedural snowboard kept from the legacy rig — OBJ doesn't include
   // a board. Lives under `body` so flips rotate the board with the rider.
@@ -134,7 +174,11 @@ export function buildRider(scene: Scene): RiderRig {
       body, bootMat, 0, 0.22, sign * 0.30));
   }
 
-  return { root, heading, lean, body, humanoid, waist, board: snowboard, parts, head, leftArm, rightArm };
+  return {
+    root, heading, lean, body, humanoid, waist,
+    board: snowboard, parts,
+    head: headPivot, leftArm: leftArmPivot, rightArm: rightArmPivot,
+  };
 }
 
 function mat(scene: Scene, name: string, color: Color3): StandardMaterial {

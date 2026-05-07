@@ -51,13 +51,15 @@ async function bootstrap(): Promise<void> {
   if (profiles.activeProfile) {
     music.setVolume(profiles.activeProfile.settings.musicVolume);
   }
-  const startMusicOnce = () => {
-    void music.start();
-    document.body.removeEventListener('click', startMusicOnce, true);
-  };
-  // `once: true` releases the listener even if bootstrap rejects before
-  // any click — prevents a stale capture-phase click handler if a later
-  // bootstrap retry re-registers a fresh one.
+  // App.tsx sets `mediaPlaybackRequiresUserAction={false}` on the
+  // WebView, so autoplay is permitted on Android. Kick playback now —
+  // if URLs haven't arrived yet, MusicPlayer.start() flips wantPlaying
+  // and the music-urls event listener fires playback the moment the
+  // injected URLs land. Browsers / Expo Go that still block autoplay
+  // catch the rejection silently; the click listener below acts as a
+  // last-resort retry on the first menu interaction.
+  void music.start();
+  const startMusicOnce = () => { void music.start(); };
   document.body.addEventListener('click', startMusicOnce, { capture: true, once: true });
 
   // pendingMode lets the pause-menu Switch Style button start the next
