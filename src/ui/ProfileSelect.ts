@@ -9,6 +9,11 @@ export async function showProfileSelect(
 ): Promise<void> {
   const list = await profiles.list();
   return new Promise<void>((resolve) => {
+    // Guard against double-resolve from a fast double-tap on a profile
+    // button — without this, both clicks await profiles.setActive in
+    // parallel and resolve() runs twice (the second call is a no-op on
+    // a settled Promise but the duplicated IDB write is wasteful).
+    let picked = false;
     const render = () => {
       root.innerHTML = `
         <div class="fullscreen-panel menu-bg">
@@ -34,6 +39,8 @@ export async function showProfileSelect(
           const btn = document.createElement('button');
           btn.textContent = p.name;
           btn.addEventListener('click', async () => {
+            if (picked) return;
+            picked = true;
             await profiles.setActive(p.id);
             resolve();
           });
@@ -42,8 +49,10 @@ export async function showProfileSelect(
       }
 
       root.querySelector<HTMLButtonElement>('#new-profile')!.addEventListener('click', async () => {
+        if (picked) return;
         const name = prompt('Profile name?', 'Rider')?.trim();
         if (!name) return;
+        picked = true;
         const created = await profiles.create(name);
         await profiles.setActive(created.id);
         resolve();

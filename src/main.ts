@@ -55,7 +55,10 @@ async function bootstrap(): Promise<void> {
     void music.start();
     document.body.removeEventListener('click', startMusicOnce, true);
   };
-  document.body.addEventListener('click', startMusicOnce, true);
+  // `once: true` releases the listener even if bootstrap rejects before
+  // any click — prevents a stale capture-phase click handler if a later
+  // bootstrap retry re-registers a fresh one.
+  document.body.addEventListener('click', startMusicOnce, { capture: true, once: true });
 
   // pendingMode lets the pause-menu Switch Style button start the next
   // run directly in the other mode without bouncing back through the

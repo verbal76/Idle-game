@@ -1,12 +1,17 @@
-import song1 from '../assets/music/Powder_Parade.mp3';
-import song2 from '../assets/music/Trail_Snack_Parade.mp3';
-import song3 from '../assets/music/Fresh_Powder_Run.mp3';
-
-const PLAYLIST: { url: string; title: string }[] = [
-  { url: song1, title: 'Powder Parade' },
-  { url: song2, title: 'Trail Snack Parade' },
-  { url: song3, title: 'Fresh Powder Run' },
-];
+// PR #27 inlined three MP3s as base64 data URLs. With Vite's
+// assetsInlineLimit set to 100 MB, those got baked into html-bundle.ts
+// and pushed the singlefile build to 19.6 MB. App.tsx hands the entire
+// bundle to react-native-webview as a `source.html` string, which on
+// Android marshals via the Binder IPC channel. Binder transactions
+// silently fail above ~5–10 MB, so the WebView never received the
+// HTML and the app booted to a black screen.
+//
+// Quick unblock: stub the playlist to empty so the bundle drops back
+// to ~7 MB and the app loads. Music itself is parked until the audio
+// is reloaded via a separate native-asset bridge (file:// URIs handed
+// in via injectedJavaScriptBeforeContentLoaded), which doesn't go
+// through the same IPC path.
+const PLAYLIST: { url: string; title: string }[] = [];
 
 // Tiny background-music player that owns one HTMLAudioElement, cycles
 // the playlist on track end, and exposes a 0..1 volume knob the
@@ -21,16 +26,28 @@ export class MusicPlayer {
   private trackIdx = 0;
   private wantPlaying = false;
   private volume = 0.7;
+  // Last advance-on-error timestamp; rate-limited to once / 500 ms so a
+  // bad track that fires repeated `error` events can't spin into a
+  // runaway advance loop.
+  private lastErrorAdvance = 0;
 
   constructor() {
     const a = new Audio();
-    a.preload = 'auto';
+    // 'metadata' instead of 'auto' — when the playlist repopulates only
+    // the current track preloads, not all three at boot.
+    a.preload = 'metadata';
     a.loop = false;
     a.volume = this.volume;
     a.addEventListener('ended', () => this.advance());
-    // Autoplay-block: a failed .play() rejects with a NotAllowedError.
-    // Swallow it; start() will retry on the next user interaction.
-    a.addEventListener('error', () => {/* noop — fall through to advance on next call */});
+    // Track-load error (corrupt asset, network blip, missing file): hop
+    // to the next track instead of getting stuck silently. Rate-limited
+    // so a chain of error events can't recurse the playlist.
+    a.addEventListener('error', () => {
+      const now = performance.now();
+      if (now - this.lastErrorAdvance < 500) return;
+      this.lastErrorAdvance = now;
+      this.advance();
+    });
     this.audio = a;
   }
 
@@ -43,8 +60,10 @@ export class MusicPlayer {
 
   // Try to begin or resume playback. Idempotent — safe to call from
   // every menu click; the underlying HTMLAudioElement only takes
-  // action when state actually changes.
+  // action when state actually changes. No-op when the playlist is
+  // empty (current state during the bundle-size unblock).
   async start(): Promise<void> {
+    if (PLAYLIST.length === 0) return;
     this.wantPlaying = true;
     if (!this.audio.src) this.loadCurrent();
     if (this.audio.paused) {
@@ -62,9 +81,13 @@ export class MusicPlayer {
   // event for natural rotation through the playlist).
   next(): void { this.advance(); }
 
-  currentTitle(): string { return PLAYLIST[this.trackIdx].title; }
+  currentTitle(): string {
+    if (PLAYLIST.length === 0) return '(no music loaded)';
+    return PLAYLIST[this.trackIdx].title;
+  }
 
   private advance(): void {
+    if (PLAYLIST.length === 0) return;
     this.trackIdx = (this.trackIdx + 1) % PLAYLIST.length;
     this.loadCurrent();
     if (this.wantPlaying) {
@@ -73,6 +96,7 @@ export class MusicPlayer {
   }
 
   private loadCurrent(): void {
+    if (PLAYLIST.length === 0) return;
     this.audio.src = PLAYLIST[this.trackIdx].url;
     this.audio.load();
   }
