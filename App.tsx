@@ -1,7 +1,8 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { BackHandler, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
+import { Asset } from 'expo-asset';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as Updates from 'expo-updates';
 import { HTML_BUNDLE } from './src/__generated__/html-bundle';
@@ -13,6 +14,19 @@ interface OtaInfo {
   createdAt: string | null;
   isEmbeddedLaunch: boolean | null;
 }
+
+// Native-side music tracks. The MP3s live in src/assets/music/ and are
+// bundled into the APK by Metro via require() (so they ship as native
+// assets, NOT inlined into the html-bundle.ts that the WebView loads).
+// Asset.downloadAsync() resolves to a file:// URI in the app's cache;
+// that URI is then injected into the WebView so HTMLAudioElement on
+// the web side can stream from it without going through the Binder
+// IPC channel that limits source.html size.
+const MUSIC_TRACKS: { module: number; title: string }[] = [
+  { module: require('./src/assets/music/Powder_Parade.mp3'),      title: 'Powder Parade' },
+  { module: require('./src/assets/music/Trail_Snack_Parade.mp3'), title: 'Trail Snack Parade' },
+  { module: require('./src/assets/music/Fresh_Powder_Run.mp3'),   title: 'Fresh Powder Run' },
+];
 
 function readOtaInfo(): OtaInfo {
   // Each field is guarded — in dev / Expo Go, several of these throw
@@ -72,6 +86,35 @@ function handleMessage(event: WebViewMessageEvent): void {
 
 export default function App(): React.JSX.Element {
   const webviewRef = useRef<WebView>(null);
+
+  // Resolve music asset URIs at startup and post them into the WebView.
+  // Effect runs once on mount; if the bundle finishes loading before
+  // assets resolve, the existing 'music-urls' CustomEvent fired by the
+  // injected JS picks up MusicPlayer's listener and populates the
+  // playlist late. If WebView loads first and assets second, the order
+  // is harmless: the listener catches the dispatch.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const resolved = await Promise.all(
+          MUSIC_TRACKS.map(async (t) => {
+            const a = Asset.fromModule(t.module);
+            await a.downloadAsync();
+            return { url: a.localUri ?? a.uri, title: t.title };
+          })
+        );
+        if (cancelled) return;
+        const js = `(function(){var u=${JSON.stringify(resolved)};window.__MUSIC_URLS__=u;try{window.dispatchEvent(new CustomEvent('music-urls',{detail:u}));}catch(e){}})();true;`;
+        webviewRef.current?.injectJavaScript(js);
+      } catch {
+        // Asset resolution failed (rare — typically only in Expo Go
+        // with a flaky dev server). Player stays silent.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   return (
     <View style={styles.root}>
       <StatusBar hidden />
@@ -81,6 +124,12 @@ export default function App(): React.JSX.Element {
         originWhitelist={['*']}
         javaScriptEnabled
         domStorageEnabled
+        // file:// URIs from Asset.downloadAsync() need this on Android
+        // for HTMLAudioElement to load them when the page origin is
+        // https://localhost/. Default is false; flip it on so audio
+        // streams without rebuilding the bundle.
+        allowFileAccess
+        allowFileAccessFromFileURLs
         mediaPlaybackRequiresUserAction={false}
         scalesPageToFit={false}
         bounces={false}

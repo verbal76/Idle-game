@@ -146,6 +146,14 @@ html, body {
   background: rgba(40, 90, 160, 0.92);
   padding: 22px 24px;
   font-size: 18px;
+  /* Jump-charge ring. CSS var --charge runs 0..1, fed from Game's
+     onChargeChange callback. The conic-gradient layer paints over the
+     button background while held; releases instantly when --charge
+     drops back to 0. */
+  --charge: 0;
+  background:
+    conic-gradient(rgba(255, 200, 80, 0.9) calc(var(--charge) * 360deg), transparent 0),
+    rgba(40, 90, 160, 0.92);
 }
 .action-btn.flip {
   background: rgba(140, 60, 30, 0.92);

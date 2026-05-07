@@ -166,6 +166,12 @@ async function runSession(
           `Distance: ${stats.distanceMeters} m  •  +${stats.coins} ❄  •  Flips: ${stats.flips}`;
         hud.fellOverlay.style.display = 'flex';
       },
+      // Drive the JUMP button's conic-gradient ring via a CSS var so
+      // the player can see how much charge they've built. Updates only
+      // fire when charge crosses a 1% step (Game-side dedup).
+      onChargeChange: (charge) => {
+        hud.jumpBtn.style.setProperty('--charge', String(charge));
+      },
     }, upgrades);
     game.start();
 
