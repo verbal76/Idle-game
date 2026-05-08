@@ -47,8 +47,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-      - run: npm ci --no-audit --no-fund
+      # No cache: 'npm' / npm ci — see eas-update.yml for the same
+      # reason (package-lock.json is .gitignored).
+      - run: npm install --no-audit --no-fund
       - id: profile
         # Manual workflow_dispatch supplies a profile via inputs.
         # Path-triggered pushes don't, so default to preview.

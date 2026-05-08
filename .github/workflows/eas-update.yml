@@ -42,9 +42,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-      - run: npm ci --no-audit --no-fund
-      - run: npm run web:build
+      # No cache: 'npm' / npm ci because package-lock.json is in
+      # .gitignore — those modes require a committed lock file. We
+      # keep `npx eas-cli@latest` (still saves ~25 s vs the global
+      # install) but drop the rest of the speedup until we either
+      # commit a lock file or switch to a different cache key.
+      - run: npm install --no-audit --no-fund
         env:
           NODE_ENV: production
       - name: Publish OTA update
