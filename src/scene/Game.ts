@@ -1181,6 +1181,59 @@ export class Game {
     return shadow;
   }
 
+  // Visual sparkle when a halfpipe ring is collected. Spawns a fresh
+  // torus with its own material at the ring's position, scales it
+  // up while cycling the emissive colour through three bright hues
+  // (magenta → cyan → gold) and fading alpha to 0 over 350 ms, then
+  // disposes both the mesh and the material. Independent material
+  // (not an instance) is required because instances share the
+  // template's material — flickering one would tint every uncollected
+  // ring on screen.
+  private spawnRingFlicker(x: number, y: number, z: number): void {
+    const mat = new StandardMaterial(`ring-flicker-${performance.now().toFixed(0)}`, this.scene);
+    mat.diffuseColor = new Color3(1.00, 0.30, 0.85);
+    mat.emissiveColor = new Color3(1.00, 0.30, 0.85);
+    mat.specularColor = new Color3(0, 0, 0);
+    mat.alpha = 0.85;
+    mat.backFaceCulling = false;
+    const mesh = MeshBuilder.CreateTorus(`ring-flicker-mesh-${performance.now().toFixed(0)}`, {
+      diameter: 3.0, thickness: 0.30, tessellation: 16,
+    }, this.scene);
+    mesh.material = mat;
+    mesh.position.set(x, y, z);
+    mesh.rotation.x = Math.PI / 2;
+    const colors = [
+      new Color3(1.00, 0.30, 0.85), // magenta
+      new Color3(0.30, 1.00, 0.85), // cyan-green
+      new Color3(1.00, 0.85, 0.30), // gold
+      new Color3(0.40, 0.50, 1.00), // sky blue
+    ];
+    const startTime = performance.now();
+    const duration = 350;
+    // scene.onBeforeRenderObservable fires once per render frame; we
+    // dispose ourselves once the duration elapses.
+    const observer = this.scene.onBeforeRenderObservable.add(() => {
+      const elapsed = performance.now() - startTime;
+      if (elapsed >= duration) {
+        mesh.dispose();
+        mat.dispose();
+        if (observer) this.scene.onBeforeRenderObservable.remove(observer);
+        return;
+      }
+      // Color cycle every ~85 ms so the rider perceives 3-4 distinct
+      // flashes during the 350 ms life. Math.floor(elapsed/85)%len
+      // wraps cleanly through the colours[] array.
+      const phase = Math.floor(elapsed / 85) % colors.length;
+      mat.emissiveColor = colors[phase]!;
+      mat.diffuseColor = colors[phase]!;
+      mat.alpha = 0.85 * (1 - elapsed / duration);
+      // Slight expansion so the flicker reads as a "burst", not just a
+      // colour swap on the same mesh footprint.
+      const scale = 1 + (elapsed / duration) * 0.55;
+      mesh.scaling.setAll(scale);
+    });
+  }
+
   private buildCamera(): void {
     const follow = MeshBuilder.CreateBox('follow-target', { size: 0.001 }, this.scene);
     follow.isVisible = false;
@@ -2546,6 +2599,7 @@ export class Game {
             if (dx * dx + dy * dy + dz * dz < 9.0) {
               ring.collected = true;
               ring.mesh.isVisible = false;
+              this.spawnRingFlicker(ring.x, ring.y, ring.z);
               // Bonus 3 snowflakes scaled by the current combo
               // multiplier — flying through a ring should feel
               // rewarded by the chain you've built.

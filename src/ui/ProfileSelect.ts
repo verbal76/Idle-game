@@ -1,6 +1,7 @@
 import { MusicPlayer } from '../audio/MusicPlayer';
 import { ProfileService } from '../profiles/ProfileService';
 import { showSettings } from './Settings';
+import { showNameSelect } from './NameSelect';
 
 export async function showProfileSelect(
   root: HTMLElement,
@@ -18,7 +19,7 @@ export async function showProfileSelect(
       root.innerHTML = `
         <div class="fullscreen-panel menu-bg">
           <button class="gear-btn corner" id="ps-settings" aria-label="Settings">⚙</button>
-          <h1>Idle Boarder</h1>
+          <h1>Where's the Bottom?</h1>
           <p class="muted">Pick a profile</p>
           <div class="list" id="profile-list"></div>
           <div class="row">
@@ -50,8 +51,15 @@ export async function showProfileSelect(
 
       root.querySelector<HTMLButtonElement>('#new-profile')!.addEventListener('click', async () => {
         if (picked) return;
-        const name = prompt('Profile name?', 'Rider')?.trim();
-        if (!name) return;
+        // Custom name picker — random whimsical adjective+noun pair
+        // by default with a Reroll button, plus a Type toggle for
+        // entering a custom name. Replaces the bland prompt('...',
+        // 'Rider') the page used to use.
+        const name = await showNameSelect(root);
+        if (!name) {
+          render(); // user cancelled — restore the profile picker
+          return;
+        }
         picked = true;
         const created = await profiles.create(name);
         await profiles.setActive(created.id);
