@@ -235,6 +235,13 @@ export class Game {
   // Used to suppress cliff-detect across the wall↔floor boundary, where
   // the surface Y can step several metres without it being a real cliff.
   private prevWasOnWall = false;
+  // Set to true on the frame the rider lands; cleared at the end of
+  // the next grounded check. Used to suppress cliff-detect for one
+  // frame so a landing JUST short of a real cliff lip doesn't fire
+  // the airborne path on the very next frame and create a "land →
+  // bounce off into air → fall again" sequence the user was reporting
+  // as a phantom bounce.
+  private justLanded = false;
   private readonly CLIFF_STEP_M = 1.0;
   // Lateral velocity from wall return-to-centre gravity. Persisted
   // across frames so the inward force builds up speed as the rider
@@ -1925,7 +1932,12 @@ export class Game {
       // off a lip, not falling through one. Let gravity pull the body
       // down naturally so the camera doesn't chase a 30 m teleport
       // through the cliff face mesh and end up underground.
-      const droppedOffCliff = this.prevGroundLevel !== null
+      // justLanded guard: see the same comment in the downhill cliff-
+      // detect block — skip for one frame after landing so a big-jump
+      // landing JUST short of a cliff lip doesn't pop the rider back
+      // into the air.
+      const droppedOffCliff = !this.justLanded
+        && this.prevGroundLevel !== null
         && (this.prevGroundLevel - newGround) > this.CLIFF_STEP_M;
       if (droppedOffCliff) this.verticalVelocity = 0;
 
@@ -2109,6 +2121,17 @@ export class Game {
         this.rider.root.position.y = groundLevel;
         this.verticalVelocity = 0;
         this.grounded = true;
+        // Suppress cliff-detect on the next frame's grounded check.
+        // On a big jump landing JUST short of a real cliff lip, the
+        // first grounded frame computes prevGroundLevel = upper-segment
+        // surface; the second grounded frame then sees groundLevel jump
+        // to the lower segment (8-32 m drop) and fires droppedOffCliff
+        // → grounded = false → rider pops back into air → falls again.
+        // The user reads that as a phantom bounce. Skipping cliff-
+        // detect for one frame lets the rider stay grounded across
+        // the cliff transition; their y just snaps to the new
+        // groundLevel via the normal else-branch.
+        this.justLanded = true;
 
         if (this.isCleanLanding()) {
           if (Math.abs(this.flipRotation) > Math.PI * 1.5) {
@@ -2251,15 +2274,23 @@ export class Game {
       // take over from their current Y so they arc off naturally
       // instead of snapping to the lower surface (which would put
       // them on phantom ground beneath the visible cliff face).
-      // BUT: skip cliff-detect when the rider is on the wall (or just
-      // came off it). Wall surfaceY drops up to 0.76 m per metre of
-      // X movement, which at high lateral speed + 60 fps can exceed
-      // CLIFF_STEP_M and falsely fire the cliff path. Same when
-      // crossing back from wall to floor: the wall's Y can be many
-      // metres above the floor's, and that's a normal slide-down,
-      // not a cliff.
+      // BUT: skip cliff-detect when:
+      //   - The rider is on the wall (or just came off it). Wall
+      //     surfaceY drops up to 0.76 m per metre of X movement,
+      //     which at high lateral speed + 60 fps can exceed
+      //     CLIFF_STEP_M and falsely fire the cliff path. Same when
+      //     crossing back from wall to floor.
+      //   - The rider just landed in the previous frame (justLanded).
+      //     Otherwise a big-jump landing JUST short of a real cliff
+      //     lip fires droppedOffCliff on the very next frame (when
+      //     the position advance crosses the cliff lip and the new
+      //     groundLevel drops by 8-32 m), which reads as a phantom
+      //     bounce: rider lands → pops back into the air → falls
+      //     again. Skipping cliff-detect for one frame keeps the
+      //     rider grounded; their y just snaps down to the new
+      //     groundLevel via the normal else-branch.
       const onWall = Math.abs(this.rider.root.position.x) > this.wallFootX;
-      const droppedOffCliff = !onWall && !this.prevWasOnWall
+      const droppedOffCliff = !onWall && !this.prevWasOnWall && !this.justLanded
         && this.prevGroundLevel !== null
         && (this.prevGroundLevel - groundLevel) > this.CLIFF_STEP_M;
       if (droppedOffCliff) {
@@ -2278,11 +2309,14 @@ export class Game {
       }
       this.prevGroundLevel = groundLevel;
       this.prevWasOnWall = Math.abs(this.rider.root.position.x) > this.wallFootX;
+      // Clear the one-frame cliff-detect grace period.
+      this.justLanded = false;
     } else {
       // Reset the cliff-detect baseline whenever airborne so the next
       // landing doesn't compare against a stale grounded sample.
       this.prevGroundLevel = null;
       this.prevWasOnWall = false;
+      this.justLanded = false;
     }
 
     this.checkInteractions();
