@@ -1,5 +1,6 @@
 import { BUILD_INFO } from '../__generated__/build-info';
 import { BUILD_VERSION, OTA_VERSION } from '../version';
+import { getEntries, getPreviousRun, formatEntry } from './debug';
 
 // Bug-report / feature-request mailto composer for the in-WebView
 // Settings panel. Adapted from a sister project's RN-side helper —
@@ -62,11 +63,19 @@ function diagnosticBlock(): string {
 }
 
 function composeUrl(subject: string, leadIn: string): string {
+  const current = getEntries().slice(-30).map(formatEntry).join('\n');
+  const prev = getPreviousRun().slice(-30).map(formatEntry).join('\n');
   const body = [
     leadIn,
     '',
     '--- diagnostic info (auto-generated) ---',
     diagnosticBlock(),
+    '',
+    '--- previous run (pre-crash tail, last 30 entries) ---',
+    prev || '(no previous-run entries)',
+    '',
+    '--- current run (last 30 entries) ---',
+    current || '(no current-run entries)',
   ].join('\n');
   const params = `subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   return `mailto:${SUPPORT_EMAIL}?${params}`;
