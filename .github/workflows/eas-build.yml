@@ -19,10 +19,9 @@ name: EAS Build (Android APK)
 #     or web.
 #   - push to main + native-touching paths — auto-fires once merged,
 #     same path-routing as before.
-#
-# When the working branch is something other than main, only manual
-# triggers fire. The push trigger is gated to main, so iterating on
-# Github-APK-Transition doesn't auto-build on every commit.
+#   - push to Github-APK-Transition-snow — test-fire branch, lets
+#     Claude trigger builds via workflow-file edit + push without
+#     needing real GitHub API access.
 #
 # APK output:
 #   - Uploaded as a GitHub Actions artifact named
@@ -47,6 +46,11 @@ on:
   push:
     branches:
       - main
+      # Test-fire branch for the local-build transition. Any push to
+      # this branch that touches a file in `paths` (notably the
+      # workflow file itself) auto-fires the workflow. Remove once
+      # the branch is merged to main.
+      - Github-APK-Transition-snow
     paths:
       - 'package.json'
       - 'package-lock.json'
