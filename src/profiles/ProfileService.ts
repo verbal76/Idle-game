@@ -1,7 +1,18 @@
 import { IndexedDbStore, SaveData } from './IndexedDbStore';
 
 function ensureDefaults(d: SaveData): SaveData {
-  if (!d.upgrades) d.upgrades = { speed: 0, jump: 0, magnet: 0 };
+  if (!d.upgrades) {
+    d.upgrades = { speed: 0, jump: 0, magnet: 0, turn: 0, charge: 0, spin: 0, coin: 0 };
+  } else {
+    // Backfill any keys that older saves don't have. Each new upgrade
+    // we add gets a `?? 0` lookup here so old profiles continue to
+    // load without rewriting them on disk until the next save() pass.
+    const u = d.upgrades as Partial<typeof d.upgrades>;
+    if (u.turn   === undefined) d.upgrades.turn   = 0;
+    if (u.charge === undefined) d.upgrades.charge = 0;
+    if (u.spin   === undefined) d.upgrades.spin   = 0;
+    if (u.coin   === undefined) d.upgrades.coin   = 0;
+  }
   return d;
 }
 
@@ -36,7 +47,7 @@ export class ProfileService {
       unlocks: [],
       bestHalfPipeScore: 0,
       longestDownhillMeters: 0,
-      upgrades: { speed: 0, jump: 0, magnet: 0 },
+      upgrades: { speed: 0, jump: 0, magnet: 0, turn: 0, charge: 0, spin: 0, coin: 0 },
       settings: { musicVolume: 0.7, sfxVolume: 1 }
     };
     await this.store.put(data);

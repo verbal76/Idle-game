@@ -20,6 +20,11 @@ declare global {
 }
 
 type RunMode = Exclude<MenuChoice, 'switch-profile' | 'upgrades' | 'settings' | 'quit'>;
+// Extra exit codes that runSession can return so the bootstrap loop
+// knows the player wants to detour to Upgrades before the next run.
+// "Pause-menu Upgrades" stays in-game (overlay), but the fall overlay
+// can also pick this since the run is already over there.
+type RunNext = RunMode | 'upgrades' | null;
 
 function showError(prefix: string, err: unknown): void {
   const msg = (err && (err as { stack?: string }).stack) || String(err);
@@ -42,6 +47,16 @@ async function bootstrap(): Promise<void> {
 
   const profiles = new ProfileService(new IndexedDbStore());
   await profiles.init();
+
+  // pagehide / beforeunload safety net: if the WebView is force-
+  // closed mid-run (Android back-press, OOM, browser tab close),
+  // the run's `finish()` deferred .save() never runs and the
+  // in-memory currency increment evaporates. Fire-and-forget save
+  // here gives IndexedDB ~hundreds of ms to flush before the page
+  // dies. pagehide is preferred over beforeunload (newer browsers
+  // discourage beforeunload listeners and pagehide fires earlier
+  // in the lifecycle on mobile).
+  window.addEventListener('pagehide', () => { void profiles.save(); });
 
   // Background music — single instance owned by bootstrap so it survives
   // run-restart cycles. Initial volume seeded from the saved profile;
@@ -131,7 +146,15 @@ async function bootstrap(): Promise<void> {
     setOrientation('landscape');
     try {
       const next = await runSession(screen, canvas, mode, profiles, music);
-      if (next) pendingMode = next;
+      if (next === 'upgrades') {
+        // Player picked Upgrades on the fall overlay. Show the shop
+        // before bouncing them to the main menu so they can spend
+        // immediately without an extra menu hop.
+        await showUpgrades(screen, profiles);
+        await profiles.save();
+      } else if (next) {
+        pendingMode = next;
+      }
     } finally {
       await profiles.save();
     }
@@ -144,8 +167,8 @@ async function runSession(
   mode: RunMode,
   profiles: ProfileService,
   music: MusicPlayer,
-): Promise<RunMode | null> {
-  return new Promise<RunMode | null>((resolve) => {
+): Promise<RunNext> {
+  return new Promise<RunNext>((resolve) => {
     screen.innerHTML = '';
     const hud = buildHUD(screen);
     const dpad = new ArrowPadInput(hud.leftBtn, hud.rightBtn, hud.upBtn);
@@ -159,7 +182,8 @@ async function runSession(
       hud.hud.removeEventListener('pointerdown', wake);
     };
     hud.hud.addEventListener('pointerdown', wake);
-    const upgrades = profiles.activeProfile!.upgrades ?? { speed: 0, jump: 0, magnet: 0 };
+    const upgrades = profiles.activeProfile!.upgrades
+      ?? { speed: 0, jump: 0, magnet: 0, turn: 0, charge: 0, spin: 0, coin: 0 };
 
     // Label the Switch Style button to indicate the destination mode,
     // not the current one. Reads as a target the player is choosing.
@@ -223,13 +247,18 @@ async function runSession(
         hud.jumpChargeBar.classList.toggle('full', charge >= 0.99);
       },
     }, upgrades);
+    // Seed the live-bank counter shown on the HUD so the player sees
+    // their persistent total grow during the run instead of a 0-coin
+    // counter that resets each session. Game internally adds
+    // coinsCollected on top of this for the score-line label.
+    game.setBankSnapshot(profiles.activeProfile?.currency ?? 0);
     game.start();
 
     // finish() is the single exit point — natural fall, quit, or switch.
     // Pulls live snowflake/distance stats from the game so the player
     // always keeps what they earned regardless of how the run ends.
     let finished = false;
-    const finish = (next: RunMode | null) => {
+    const finish = (next: RunNext) => {
       if (finished) return;
       finished = true;
 
@@ -274,6 +303,41 @@ async function runSession(
     });
     hud.quitBtn.addEventListener('click', () => finish(null));
     hud.fellOkBtn.addEventListener('click', () => finish(null));
+    hud.fellSwitchBtn.addEventListener('click', () => {
+      finish(mode === 'half-pipe' ? 'downhill' : 'half-pipe');
+    });
+    // Fell-overlay → Upgrades shortcut. Run is already over (coins
+    // banked when finish runs), the bootstrap loop will show the
+    // Upgrades shop before returning to the main menu.
+    hud.fellUpgradesBtn.addEventListener('click', () => finish('upgrades'));
+
+    // Pause-menu Upgrades. Doesn't end the run — opens the shop as
+    // an overlay over the paused game, then refreshes the bank
+    // snapshot when the shop closes (the player may have spent
+    // coins) and re-shows the pause menu.
+    hud.pauseUpgradesBtn.addEventListener('click', async () => {
+      hud.pauseMenu.style.display = 'none';
+      hud.settingsOverlay.style.display = 'flex';
+      await showUpgrades(hud.settingsOverlay, profiles);
+      await profiles.save();
+      hud.settingsOverlay.style.display = 'none';
+      hud.settingsOverlay.innerHTML = '';
+      // Refresh the live-bank baseline so the score line shows the
+      // post-spend total immediately on next render.
+      game.setBankSnapshot(profiles.activeProfile?.currency ?? 0);
+      hud.pauseMenu.style.display = 'flex';
+    });
+    // Pause-menu Settings. Same overlay flow as the gear button —
+    // duplicated here so all the run-management options live in
+    // one place per the user's "uniform menus" feedback.
+    hud.pauseSettingsBtn.addEventListener('click', async () => {
+      hud.pauseMenu.style.display = 'none';
+      hud.settingsOverlay.style.display = 'flex';
+      await showSettings(hud.settingsOverlay, music, profiles);
+      hud.settingsOverlay.style.display = 'none';
+      hud.settingsOverlay.innerHTML = '';
+      hud.pauseMenu.style.display = 'flex';
+    });
   });
 }
 
