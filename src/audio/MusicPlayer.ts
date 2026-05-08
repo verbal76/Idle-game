@@ -70,6 +70,39 @@ export class MusicPlayer {
         void this.start();
       }
     });
+
+    // Auto-resume guards for the "music stops mid-song on the menu
+    // screens" symptom. The Android WebView aggressively pauses
+    // background audio when:
+    //   * the WebView loses focus (user backgrounded the app, then
+    //     came back)
+    //   * memory pressure trips an audio focus loss
+    //   * the page is hidden behind another overlay
+    // The HTMLAudioElement's `pause` event fires for all of those.
+    // If we wanted to be playing, retry start() — idempotent and
+    // self-recovers without burning a play() request when the
+    // browser actually wants the audio paused (the play() promise
+    // rejects on autoplay block; we silence and try again later).
+    const resumeIfWanted = () => {
+      if (!this.wantPlaying) return;
+      if (this.playlist.length === 0) return;
+      if (this.audio.paused) {
+        this.audio.play().catch(() => {/* will retry on next event */});
+      }
+    };
+    a.addEventListener('pause', () => {
+      // 200 ms delay: when advance() / loadCurrent() swap audio.src,
+      // pause fires synchronously before the new track plays. Don't
+      // race with that — wait, then verify paused state and retry.
+      setTimeout(resumeIfWanted, 200);
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) resumeIfWanted();
+    });
+    // Watchdog: every 5 s, if we want to be playing and aren't,
+    // try again. Catches the case where the WebView paused us due
+    // to focus / power reasons that didn't fire a discrete event.
+    setInterval(resumeIfWanted, 5000);
   }
 
   setVolume(v: number): void {
