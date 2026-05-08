@@ -103,6 +103,16 @@ jobs:
       # .gitignore. Plain install matches the OTA workflow.
       - run: npm install --no-audit --no-fund
 
+      # Generate assets/icon.png + assets/adaptive-icon.png on the
+      # runner BEFORE eas-cli takes over. In --local mode the
+      # eas-build-post-install hook (which normally generates these
+      # via npm run web:build) fires AFTER expo prebuild, so prebuild
+      # dies on missing icons (withAndroidDangerousBaseMod ENOENT).
+      # Pre-generating here means the icons get copied into the
+      # build sandbox alongside the rest of the workspace, and
+      # prebuild finds them.
+      - run: node scripts/make-icon.mjs
+
       - id: profile
         # Manual workflow_dispatch supplies a profile via inputs;
         # path-triggered pushes don't, so default to preview.
