@@ -7,30 +7,43 @@ export interface UpgradeDef {
   label: string;
   description: string;
   baseCost: number;
-  costMul: number;
+  // costStep replaces the old costMul: per user feedback ("10 for the
+  // first level 12 for the next level 14 for the next level"), cost
+  // ramps LINEARLY now — costForNext returns baseCost + level *
+  // costStep. With costStep=2 + baseCost=10, the level-1..20 ramp
+  // is 10, 12, 14, …, 48, totalling 580 ❄ to max one upgrade.
+  costStep: number;
   maxLevel: number;
 }
 
-// First upgrade costs 10 ❄ (one snowflake per flip → ten flips = first
-// upgrade). Each subsequent purchase doubles the cost: 10, 20, 40, 80, 160.
-// Coins are gone (PR #16) so magnet is dropped from the menu but stays
-// in the save type for back-compat. Four new upgrades added 2026-05-08
-// per user request for more variables to tweak ("super-powered skier"):
-//   - Turn   tightens carving (maxLean + leanResponse)
-//   - Charge makes JUMP charge faster (chargeRate)
-//   - Spin   raises air spin & flip rates → bigger combo potential
-//   - Coin   flat × on snowflakes earned per flip / per ring
+// 20 levels per upgrade (was 5). Per-level effects scaled down so the
+// max-level skier is "super-powered" without breaking world physics:
+//
+//   speed   +0.5 m/s per level  →  +10 m/s at L20 (base 22 → 32)
+//   jump    +5% per level       →  +100% at L20 (jump twice as high)
+//   turn    +3% maxLean / +5% response per level → ~+60% max
+//   charge  +5% per level       →  +100% at L20 (charge fills 2× fast)
+//   spin    +4% per level       →  +80% air-spin / flip rate at L20
+//   coin    +5% per level       →  +100% at L20 (every snowflake ×2)
+//
+// Magnet was a coin pickup mechanic (gone since PR #16); the field
+// stays in the save type for back-compat but the upgrade isn't shown
+// in the shop.
 export const UPGRADES: UpgradeDef[] = [
-  { id: 'speed',  label: 'Top Speed',   description: '+1.5 m/s per level',         baseCost: 10, costMul: 2.0, maxLevel: 5 },
-  { id: 'jump',   label: 'Jump Power',  description: '+10% jump per level',        baseCost: 10, costMul: 2.0, maxLevel: 5 },
-  { id: 'turn',   label: 'Edge Grip',   description: 'tighter carving per level',  baseCost: 12, costMul: 2.0, maxLevel: 5 },
-  { id: 'charge', label: 'Charge Rate', description: '+20% jump-charge per level', baseCost: 12, costMul: 2.0, maxLevel: 5 },
-  { id: 'spin',   label: 'Air Control', description: '+15% air-spin per level',    baseCost: 14, costMul: 2.0, maxLevel: 5 },
-  { id: 'coin',   label: 'Coin Magnet', description: '+20% snowflakes per level',  baseCost: 16, costMul: 2.0, maxLevel: 5 },
+  { id: 'speed',  label: 'Top Speed',   description: '+0.5 m/s per level',          baseCost: 10, costStep: 2, maxLevel: 20 },
+  { id: 'jump',   label: 'Jump Power',  description: '+5% jump per level',          baseCost: 10, costStep: 2, maxLevel: 20 },
+  { id: 'turn',   label: 'Edge Grip',   description: 'tighter carving per level',   baseCost: 10, costStep: 2, maxLevel: 20 },
+  { id: 'charge', label: 'Charge Rate', description: '+5% jump-charge per level',   baseCost: 10, costStep: 2, maxLevel: 20 },
+  { id: 'spin',   label: 'Air Control', description: '+4% air-spin per level',      baseCost: 10, costStep: 2, maxLevel: 20 },
+  { id: 'coin',   label: 'Coin Magnet', description: '+5% snowflakes per level',    baseCost: 10, costStep: 2, maxLevel: 20 },
 ];
 
 export function costForNext(def: UpgradeDef, currentLevel: number): number {
-  return Math.floor(def.baseCost * Math.pow(def.costMul, currentLevel));
+  // Linear: 10, 12, 14, …, 48 across L1-L20 with baseCost=10 / step=2.
+  // User asked for a "raise it a little bit each time" pattern in
+  // place of the previous doubling, which would have hit 5.2 M ❄ at
+  // L20 — unreachable in any sane number of runs.
+  return def.baseCost + currentLevel * def.costStep;
 }
 
 export function showUpgrades(root: HTMLElement, profiles: ProfileService): Promise<void> {

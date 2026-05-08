@@ -508,30 +508,31 @@ export class Game {
 
   private onResize(): void { this.engine.resize(); }
 
-  private get maxSpeed(): number { return 22 + this.upgrades.speed * 1.5; }
-  private get jumpMaxScaled(): number { return this.jumpMax * (1 + this.upgrades.jump * 0.10); }
-  // New upgrades (2026-05-08). Each scales a base physics constant
-  // by a small per-level multiplier capped at level 5 (from
-  // UPGRADES.maxLevel). `?? 0` falls back for old profiles that
-  // pre-date the field; ProfileService.ensureDefaults backfills the
-  // key on next save so this is a one-time bridge.
+  private get maxSpeed(): number { return 22 + this.upgrades.speed * 0.5; }
+  private get jumpMaxScaled(): number { return this.jumpMax * (1 + this.upgrades.jump * 0.05); }
+  // 20-level upgrades (2026-05-08). Per-level deltas scaled so the
+  // L20 "super-powered" skier is roughly:
+  //   speed: +10 m/s, jump: +100%, turn (lean): +60% / response +100%,
+  //   charge: +100%, spin/flip rate: +80%, coin: +100%
+  // `?? 0` falls back for old profiles that pre-date the field;
+  // ProfileService.ensureDefaults backfills the key on next save.
   private get maxLeanScaled(): number {
-    return this.maxLean * (1 + (this.upgrades.turn ?? 0) * 0.10);
+    return this.maxLean * (1 + (this.upgrades.turn ?? 0) * 0.03);
   }
   private get leanResponseScaled(): number {
-    return this.leanResponse * (1 + (this.upgrades.turn ?? 0) * 0.15);
+    return this.leanResponse * (1 + (this.upgrades.turn ?? 0) * 0.05);
   }
   private get chargeRateScaled(): number {
-    return this.chargeRate * (1 + (this.upgrades.charge ?? 0) * 0.20);
+    return this.chargeRate * (1 + (this.upgrades.charge ?? 0) * 0.05);
   }
   private get airSpinRateScaled(): number {
-    return this.airSpinRate * (1 + (this.upgrades.spin ?? 0) * 0.15);
+    return this.airSpinRate * (1 + (this.upgrades.spin ?? 0) * 0.04);
   }
   private get flipRateScaled(): number {
-    return this.flipRate * (1 + (this.upgrades.spin ?? 0) * 0.15);
+    return this.flipRate * (1 + (this.upgrades.spin ?? 0) * 0.04);
   }
   private get coinMultiplier(): number {
-    return 1 + (this.upgrades.coin ?? 0) * 0.20;
+    return 1 + (this.upgrades.coin ?? 0) * 0.05;
   }
   private get activeSlope(): number { return this.mode === 'half-pipe' ? this.halfPipeSlopeRad : this.slopeRad; }
 
