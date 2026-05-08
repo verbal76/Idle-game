@@ -6,6 +6,7 @@ import './util/debug';
 import { IndexedDbStore } from './profiles/IndexedDbStore';
 import { ProfileService } from './profiles/ProfileService';
 import { showProfileSelect } from './ui/ProfileSelect';
+import { showNameSelect } from './ui/NameSelect';
 import { showMainMenu, MenuChoice } from './ui/MainMenu';
 import { showUpgrades } from './ui/Upgrades';
 import { showSettings } from './ui/Settings';
@@ -113,13 +114,21 @@ async function bootstrap(): Promise<void> {
         await showProfileSelect(screen, profiles, music);
         promptedAtLoad = true;
       } else if (!promptedAtLoad) {
-        // First view of the saved profile this session: confirm the
-        // player wants to keep going as them, or send them to profile
-        // select if they want to swap.
+        // First view of the saved profile this session: continue as
+        // them, or kick directly into creating a new profile via the
+        // whimsical-name picker. (Switching to a DIFFERENT existing
+        // profile is via MainMenu → Switch profile so the picker
+        // doesn't re-offer the profile the user just declined.)
         const choice = await showContinuePrompt(screen, profiles);
         promptedAtLoad = true;
-        if (choice === 'switch') {
-          await showProfileSelect(screen, profiles, music);
+        if (choice === 'new') {
+          const name = await showNameSelect(screen);
+          if (name) {
+            const created = await profiles.create(name);
+            await profiles.setActive(created.id);
+          }
+          // If the user cancelled the name picker, fall through to
+          // MainMenu as the existing profile (no destructive change).
         }
       }
 
