@@ -1,7 +1,9 @@
 import { ProfileService } from '../profiles/ProfileService';
 
+export type UpgradeId = 'speed' | 'jump' | 'magnet' | 'turn' | 'charge' | 'spin' | 'coin';
+
 export interface UpgradeDef {
-  id: 'speed' | 'jump' | 'magnet';
+  id: UpgradeId;
   label: string;
   description: string;
   baseCost: number;
@@ -11,11 +13,20 @@ export interface UpgradeDef {
 
 // First upgrade costs 10 ❄ (one snowflake per flip → ten flips = first
 // upgrade). Each subsequent purchase doubles the cost: 10, 20, 40, 80, 160.
-// Coins are gone (PR #16) so the magnet upgrade is dropped from the menu;
-// the field stays in the save type for back-compat with existing profiles.
+// Coins are gone (PR #16) so magnet is dropped from the menu but stays
+// in the save type for back-compat. Four new upgrades added 2026-05-08
+// per user request for more variables to tweak ("super-powered skier"):
+//   - Turn   tightens carving (maxLean + leanResponse)
+//   - Charge makes JUMP charge faster (chargeRate)
+//   - Spin   raises air spin & flip rates → bigger combo potential
+//   - Coin   flat × on snowflakes earned per flip / per ring
 export const UPGRADES: UpgradeDef[] = [
-  { id: 'speed',  label: 'Top Speed',   description: '+1.5 m/s per level',  baseCost: 10, costMul: 2.0, maxLevel: 5 },
-  { id: 'jump',   label: 'Jump Power',  description: '+10% jump per level', baseCost: 10, costMul: 2.0, maxLevel: 5 },
+  { id: 'speed',  label: 'Top Speed',   description: '+1.5 m/s per level',         baseCost: 10, costMul: 2.0, maxLevel: 5 },
+  { id: 'jump',   label: 'Jump Power',  description: '+10% jump per level',        baseCost: 10, costMul: 2.0, maxLevel: 5 },
+  { id: 'turn',   label: 'Edge Grip',   description: 'tighter carving per level',  baseCost: 12, costMul: 2.0, maxLevel: 5 },
+  { id: 'charge', label: 'Charge Rate', description: '+20% jump-charge per level', baseCost: 12, costMul: 2.0, maxLevel: 5 },
+  { id: 'spin',   label: 'Air Control', description: '+15% air-spin per level',    baseCost: 14, costMul: 2.0, maxLevel: 5 },
+  { id: 'coin',   label: 'Coin Magnet', description: '+20% snowflakes per level',  baseCost: 16, costMul: 2.0, maxLevel: 5 },
 ];
 
 export function costForNext(def: UpgradeDef, currentLevel: number): number {

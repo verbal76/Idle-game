@@ -4,6 +4,14 @@ export interface UpgradeLevels {
   speed: number;
   jump: number;
   magnet: number;
+  // Added 2026-05-08 for the upgrades-everywhere refresh. Old saves
+  // that pre-date this stay valid because Game.ts reads upgrade
+  // levels via `?? 0` and ProfileService.normalize() backfills any
+  // missing key on load before the value is read.
+  turn: number;
+  charge: number;
+  spin: number;
+  coin: number;
 }
 
 export interface SaveData {

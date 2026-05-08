@@ -280,6 +280,13 @@ export class Game {
   private spinRotation = 0;
   private spinsLanded = 0;
   private coinsCollected = 0;
+  // Bank snapshot at the start of the run. The HUD score line shows
+  // the LIVE total (bankAtStart + coinsCollected) so the player sees
+  // their persistent total grow as they ride, instead of "0 ❄ this
+  // run" which made coins feel ephemeral. Updated mid-run by
+  // setBankSnapshot() whenever the player visits the Upgrades shop
+  // via the pause menu and spends some.
+  private bankAtStart = 0;
   private fellAlready = false;
   // setTimeout id from fall(); dispose() clears it so a fast quit
   // after a crash doesn't paint the fell-overlay onto the next session.
@@ -373,7 +380,7 @@ export class Game {
     mode: GameMode,
     private readonly input: GameInput,
     private readonly callbacks: GameCallbacks = {},
-    upgrades: UpgradeLevels = { speed: 0, jump: 0, magnet: 0 }
+    upgrades: UpgradeLevels = { speed: 0, jump: 0, magnet: 0, turn: 0, charge: 0, spin: 0, coin: 0 }
   ) {
     this.mode = mode;
     this.upgrades = upgrades;
@@ -468,6 +475,12 @@ export class Game {
   }
   pause(): void { this.running = false; }
   resume(): void { if (!this.fellAlready) this.running = true; }
+  // Update the persistent-bank baseline shown in the HUD score line.
+  // Called by main.ts when the player visits the Upgrades shop via
+  // the pause menu and spends some snowflakes — without this, the
+  // shown total would be stale (still showing pre-spend bank +
+  // coinsCollected) until the run ends.
+  setBankSnapshot(bank: number): void { this.bankAtStart = bank; }
 
   // Live stats for the current run. Used when the player quits or
   // switches style from the pause menu so snowflakes earned this run
@@ -497,6 +510,29 @@ export class Game {
 
   private get maxSpeed(): number { return 22 + this.upgrades.speed * 1.5; }
   private get jumpMaxScaled(): number { return this.jumpMax * (1 + this.upgrades.jump * 0.10); }
+  // New upgrades (2026-05-08). Each scales a base physics constant
+  // by a small per-level multiplier capped at level 5 (from
+  // UPGRADES.maxLevel). `?? 0` falls back for old profiles that
+  // pre-date the field; ProfileService.ensureDefaults backfills the
+  // key on next save so this is a one-time bridge.
+  private get maxLeanScaled(): number {
+    return this.maxLean * (1 + (this.upgrades.turn ?? 0) * 0.10);
+  }
+  private get leanResponseScaled(): number {
+    return this.leanResponse * (1 + (this.upgrades.turn ?? 0) * 0.15);
+  }
+  private get chargeRateScaled(): number {
+    return this.chargeRate * (1 + (this.upgrades.charge ?? 0) * 0.20);
+  }
+  private get airSpinRateScaled(): number {
+    return this.airSpinRate * (1 + (this.upgrades.spin ?? 0) * 0.15);
+  }
+  private get flipRateScaled(): number {
+    return this.flipRate * (1 + (this.upgrades.spin ?? 0) * 0.15);
+  }
+  private get coinMultiplier(): number {
+    return 1 + (this.upgrades.coin ?? 0) * 0.20;
+  }
   private get activeSlope(): number { return this.mode === 'half-pipe' ? this.halfPipeSlopeRad : this.slopeRad; }
 
   private cliffOffsetAt(cz: number): number {
@@ -2093,10 +2129,10 @@ export class Game {
     const forwardBoost = this.input.forwardHeld?.() ?? false;
     const forwardBoostJustPressed = forwardBoost && !this.prevForwardHeld;
     this.prevForwardHeld = forwardBoost;
-    const effectiveMaxLean = forwardBoost ? 0.99 : this.maxLean;
+    const effectiveMaxLean = forwardBoost ? 0.99 : this.maxLeanScaled;
     const thetaMax = Math.min(effectiveMaxLean, physThetaMax);
     const targetEdge = stickX * thetaMax;
-    const baseLeanRate = forwardBoost ? this.leanResponse * 4.5 : this.leanResponse;
+    const baseLeanRate = forwardBoost ? this.leanResponseScaled * 4.5 : this.leanResponseScaled;
     const leanRate = stickActive ? baseLeanRate : baseLeanRate * 0.35;
     if (forwardBoostJustPressed && stickActive) {
       // Instant kick toward the new deeper target on the rising edge
@@ -2124,7 +2160,7 @@ export class Game {
         this.heading += (0 - this.heading) * Math.min(1, this.autoCenterRate * dt);
       }
     } else {
-      const spinDelta = stickX * this.airSpinRate * dt;
+      const spinDelta = stickX * this.airSpinRateScaled * dt;
       this.heading += spinDelta;
       this.spinRotation += spinDelta;
     }
@@ -2186,7 +2222,7 @@ export class Game {
 
     if (this.grounded) {
       if (this.input.jumpHeld()) {
-        this.jumpCharge = Math.min(1, this.jumpCharge + dt * this.chargeRate);
+        this.jumpCharge = Math.min(1, this.jumpCharge + dt * this.chargeRateScaled);
       } else if (this.jumpCharge > 0) {
         this.verticalVelocity = (this.jumpMin + this.jumpCharge * (this.jumpMaxScaled - this.jumpMin));
         this.jumpCharge = 0;
@@ -2207,7 +2243,7 @@ export class Game {
       this.rider.root.position.y += this.verticalVelocity * dt;
 
       if (this.input.flipHeld()) {
-        this.flipRotation += this.flipRate * dt;
+        this.flipRotation += this.flipRateScaled * dt;
         this.rider.body.rotation.x = this.flipRotation;
       }
 
@@ -2247,7 +2283,7 @@ export class Game {
             }
             this.lastTrickAt = trickNow;
             const mult = this.comboMultiplier();
-            this.coinsCollected += Math.round(flipsThisLanding * mult);
+            this.coinsCollected += Math.round(flipsThisLanding * mult * this.coinMultiplier);
             this.callbacks.onComboChange?.(this.comboCount, mult);
           }
           this.flipRotation = 0;
@@ -2481,7 +2517,11 @@ export class Game {
     const altTag = altitude !== null ? `${altitude} m ↧  •  ` : '';
     const flipTag = this.flipsLanded > 0 ? `  •  ${this.flipsLanded} flip${this.flipsLanded > 1 ? 's' : ''}` : '';
     const spinTag = this.spinsLanded > 0 ? `  •  ${this.spinsLanded} spin${this.spinsLanded > 1 ? 's' : ''}` : '';
-    const coinTag = `  •  ${this.coinsCollected} ❄`;
+    // Live bank total: persistent currency at run start + this-run
+    // coins. Player sees a single growing number so coins read as
+    // accumulating rather than vanishing when a run ends.
+    const liveBank = this.bankAtStart + this.coinsCollected;
+    const coinTag = `  •  ${liveBank} ❄`;
     this.callbacks.onScore?.(`${altTag}${meters} m${coinTag}${flipTag}${spinTag}`);
 
     this.scene.render();
@@ -2603,7 +2643,7 @@ export class Game {
               // Bonus 3 snowflakes scaled by the current combo
               // multiplier — flying through a ring should feel
               // rewarded by the chain you've built.
-              this.coinsCollected += Math.round(3 * this.comboMultiplier());
+              this.coinsCollected += Math.round(3 * this.comboMultiplier() * this.coinMultiplier);
               // Streak: increment current and roll the persistent best
               // forward if we just passed it. localStorage write is
               // fire-and-forget; if it fails the runtime value still

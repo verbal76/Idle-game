@@ -19,11 +19,15 @@ export interface HUDRefs {
   halfpipeIntro: HTMLElement;
   pauseMenu: HTMLElement;
   resumeBtn: HTMLButtonElement;
+  pauseUpgradesBtn: HTMLButtonElement;
+  pauseSettingsBtn: HTMLButtonElement;
   switchBtn: HTMLButtonElement;
   quitBtn: HTMLButtonElement;
   fellOverlay: HTMLElement;
   fellStats: HTMLElement;
   fellOkBtn: HTMLButtonElement;
+  fellUpgradesBtn: HTMLButtonElement;
+  fellSwitchBtn: HTMLButtonElement;
 }
 
 export function buildHUD(root: HTMLElement): HUDRefs {
@@ -74,6 +78,8 @@ export function buildHUD(root: HTMLElement): HUDRefs {
         <h1>Paused</h1>
         <div class="list">
           <button id="resume">Resume</button>
+          <button id="pause-upgrades">Upgrades 🛍</button>
+          <button id="pause-settings">Settings ⚙</button>
           <button id="switch-style">Switch Style</button>
           <button id="quit" class="danger">Quit run</button>
         </div>
@@ -83,7 +89,9 @@ export function buildHUD(root: HTMLElement): HUDRefs {
         <h1>You fell</h1>
         <p class="muted" id="fell-stats"></p>
         <div class="list">
-          <button id="fell-ok">Continue</button>
+          <button id="fell-ok">Back to menu</button>
+          <button id="fell-upgrades">Upgrades 🛍</button>
+          <button id="fell-switch">Switch Style</button>
         </div>
       </div>
     </div>
@@ -109,10 +117,14 @@ export function buildHUD(root: HTMLElement): HUDRefs {
     halfpipeIntro:   root.querySelector<HTMLElement>('#halfpipe-intro')!,
     pauseMenu:       root.querySelector<HTMLElement>('#pause-menu')!,
     resumeBtn:       root.querySelector<HTMLButtonElement>('#resume')!,
+    pauseUpgradesBtn: root.querySelector<HTMLButtonElement>('#pause-upgrades')!,
+    pauseSettingsBtn: root.querySelector<HTMLButtonElement>('#pause-settings')!,
     switchBtn:       root.querySelector<HTMLButtonElement>('#switch-style')!,
     quitBtn:         root.querySelector<HTMLButtonElement>('#quit')!,
     fellOverlay:     root.querySelector<HTMLElement>('#fell-overlay')!,
     fellStats:       root.querySelector<HTMLElement>('#fell-stats')!,
     fellOkBtn:       root.querySelector<HTMLButtonElement>('#fell-ok')!,
+    fellUpgradesBtn: root.querySelector<HTMLButtonElement>('#fell-upgrades')!,
+    fellSwitchBtn:   root.querySelector<HTMLButtonElement>('#fell-switch')!,
   };
 }
