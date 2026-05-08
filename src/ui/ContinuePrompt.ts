@@ -1,4 +1,5 @@
 import { ProfileService } from '../profiles/ProfileService';
+import { bouncyTextHtml } from '../util/bouncyText';
 
 // Confirmation prompt shown at app load when there's a saved active
 // profile. Lets the player resume the most-recent run with one tap, or
@@ -12,7 +13,7 @@ export function showContinuePrompt(root: HTMLElement, profiles: ProfileService):
     const lastPlayed = p.lastPlayedMs ? new Date(p.lastPlayedMs).toLocaleString() : 'unknown';
     root.innerHTML = `
       <div class="fullscreen-panel menu-bg">
-        <h1>Where's the Bottom?</h1>
+        <h1 class="title-bouncy">${bouncyTextHtml("Where's the Bottom?")}</h1>
         <p class="muted">Last player: ${escapeHtml(p.name)}</p>
         <p class="muted">Last played: ${escapeHtml(lastPlayed)}</p>
         <div class="list">
