@@ -18,7 +18,7 @@ export async function showProfileSelect(
     let picked = false;
     const render = () => {
       root.innerHTML = `
-        <div class="fullscreen-panel menu-bg">
+        <div class="fullscreen-panel menu-bg menu-bg-stacked">
           <button class="gear-btn corner" id="ps-settings" aria-label="Settings">⚙</button>
           <h1 class="title-bouncy">${bouncyTextHtml("Where's the Bottom?")}</h1>
           <p class="muted">Pick a profile</p>

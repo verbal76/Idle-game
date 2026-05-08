@@ -49,6 +49,19 @@ html, body {
     url('./assets/menu-bg.png') center/cover no-repeat;
   backdrop-filter: none;
 }
+/* Title-at-top + content-at-bottom layout for the three menu screens
+ * that show the bouncy game title (MainMenu / ContinuePrompt /
+ * ProfileSelect). The h1.title-bouncy is `position: absolute` so it
+ * sits at the top regardless of flex flow; switching the panel to
+ * `justify-content: flex-end` with a vh-scaled bottom inset pushes
+ * the rest of the content (subtitle, profile list, action buttons)
+ * into roughly the bottom third — keeps the snowboarder hero
+ * illustration unobscured in the middle of the screen. Settings /
+ * Upgrades / etc. keep the default centred layout. */
+.fullscreen-panel.menu-bg-stacked {
+  justify-content: flex-end;
+  padding-bottom: clamp(20px, 8vh, 80px);
+}
 .fullscreen-panel h1 { font-size: 30px; letter-spacing: 0.08em; font-weight: 700; }
 
 /* Bouncy / wavy game title for the menu screens. Positioned

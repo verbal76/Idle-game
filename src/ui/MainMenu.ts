@@ -7,7 +7,7 @@ export function showMainMenu(root: HTMLElement, profiles: ProfileService): Promi
   return new Promise<MenuChoice>((resolve) => {
     const p = profiles.activeProfile!;
     root.innerHTML = `
-      <div class="fullscreen-panel menu-bg">
+      <div class="fullscreen-panel menu-bg menu-bg-stacked">
         <button class="gear-btn corner" id="menu-settings" aria-label="Settings">⚙</button>
         <h1 class="title-bouncy">${bouncyTextHtml("Where's the Bottom?")}</h1>
         <p class="muted">${escapeHtml(p.name)} — ${p.currency} ❄</p>
