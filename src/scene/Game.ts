@@ -804,11 +804,13 @@ export class Game {
 
     // Displace each floor vertex's local Y by terrainNoise(worldX, worldZ)
     // so the snow surface gets bumps / dips matching what surfaceY returns
-    // for the rider's collision. The floor is parented to a tilted frame:
-    // a noise of N applied as local Y becomes ~N*cos(slope) of world-Y
-    // change after the frame's rotation.x = slope. To keep the visible
-    // surface aligned with surfaceY's added noise, the local-Y push has
-    // to be N*cos(slope) so world-Y ends up changing by exactly N.
+    // for the rider's collision. The floor is parented to a tilted frame
+    // with rotation.x = slope, so a local-Y push of N becomes a world-Y
+    // change of N*cos(slope) after the rotation. To get a world-Y change
+    // of exactly noise(x,z) (which is what surfaceY adds for collision),
+    // the local-Y push has to be noise / cos(slope). The original commit
+    // had this multiplied instead of divided — visual bumps were ~85%
+    // of the rider's felt bumps.
     // Walls at |x|>300 stay flat — noise is zeroed there so the wall
     // mesh transition isn't ragged.
     const positions = floor.getVerticesData(VertexBuffer.PositionKind)!;
@@ -823,7 +825,7 @@ export class Game {
       const wx = lx;
       const wz = segStartZ + (lz + meshHeight / 2) * cosSlope;
       const noise = (Math.abs(wx) <= this.wallFootX) ? this.terrainNoise(wx, wz) : 0;
-      positions[i + 1] = noise * cosSlope;
+      positions[i + 1] = noise / cosSlope;
     }
     floor.updateVerticesData(VertexBuffer.PositionKind, positions);
     const normals: number[] = [];
@@ -1881,18 +1883,19 @@ export class Game {
 
       // Wall gravity: when the rider has climbed past the wall foot,
       // gravity's lateral projection on the wall surface pulls them
-      // back toward x=0. For our wallRise=0.760, that lateral
-      // acceleration is g·wallRise²/(1+wallRise²) ≈ 3.6 m/s². Without
-      // this the rider would float at whatever height their carve
-      // momentum got them to and never come back down. The position
-      // nudge is half-damped near the wall foot (factor = depth/80)
-      // so a quick clip onto the wall doesn't snap the rider back —
-      // they only feel the strong return-to-centre once they've
-      // committed several metres up.
+      // back toward x=0. For a slope dy/dx = m, that horizontal force
+      // is g·sin(θ)·cos(θ) = g·m/(1+m²). With wallRise=0.760 that's
+      // ≈4.7 m/s². The previous commit had m²/(1+m²), which gave 3.6
+      // (off by a factor of m). Without this the rider would float at
+      // whatever height their carve momentum got them to and never come
+      // back down. The position nudge is half-damped near the wall foot
+      // (factor = depth/80) so a quick clip onto the wall doesn't snap
+      // the rider back — they only feel the strong return-to-centre
+      // once they've committed several metres up.
       const ax = Math.abs(this.rider.root.position.x);
       if (this.grounded && ax > this.wallFootX) {
         const wallDepth = ax - this.wallFootX;
-        const lateralAccel = 9.8 * this.wallRise * this.wallRise
+        const lateralAccel = 9.8 * this.wallRise
           / (1 + this.wallRise * this.wallRise);
         const dir = this.rider.root.position.x > 0 ? -1 : +1;
         const factor = Math.min(1, wallDepth / 80);
