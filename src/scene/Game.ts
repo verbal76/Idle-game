@@ -66,7 +66,7 @@ export interface GameCallbacks {
   onComboChange?: (count: number, multiplier: number) => void;
 }
 
-type RiderState = 'normal' | 'bailing' | 'recovering' | 'grinding';
+type RiderState = 'normal' | 'bailing' | 'recovering';
 
 interface SlopeSegment {
   frame: TransformNode;
@@ -184,8 +184,8 @@ export class Game {
   private readonly HP_LIP_HEIGHT = 0.6;         // small vertical lip at the top
   private readonly HP_CONTEXT_WIDTH = 220;
   // Lip-light geometry. Poles sit 1.5 m back from the lip (x=±10.5)
-  // so they don't interfere with grinding at x=±9, and rise 5 m above
-  // the lip for an overhead lamp angle.
+  // so they're clear of the rider's bounce line at x=±9, and rise 5 m
+  // above the lip for an overhead lamp angle.
   private readonly HP_POLE_HEIGHT = 5.0;
   private readonly HP_POLE_OFFSET = 1.5;
   private hpPoleTemplate!: Mesh;
@@ -277,14 +277,10 @@ export class Game {
   private readonly BURST_MS = 180;
   private readonly BURST_EMIT = 800;
 
-  // Halfpipe lip grind. When the rider's X gets pinned to ±HP_PIPE_HALF
-  // while grounded, they snap onto the lip, head straight forward at a
-  // fixed speed, and stick-input becomes spin instead of carve. Tap
-  // jump to hop off the lip back into the pipe.
-  private grindSide: -1 | 0 | 1 = 0;
-  private readonly grindSpeed = 18;          // m/s along the lip
-  private readonly grindEjectVy = 6.5;       // upward kick on jump-off
-  private prevJumpHeld = false;              // edge-detect for jump-to-eject
+  // Edge-detect for jump-to-eject. Used to be the grind eject trigger;
+  // kept around because the regular jump charge code reads it on the
+  // rising edge.
+  private prevJumpHeld = false;
 
   private heading = 0;
   private edgeAngle = 0;
@@ -1939,46 +1935,11 @@ export class Game {
       return;
     }
 
-    // Lip grind. Once locked, X stays at ±HP_PIPE_HALF, Y stays at the
-    // top of the lip ledge, Z advances at a fixed grindSpeed, and
-    // stick-X becomes a visual spin (no carve). Tap jump to eject back
-    // into the pipe with an inward heading.
-    if (this.state === 'grinding') {
-      const r = this.rider.root.position;
-      r.x = this.grindSide * this.HP_PIPE_HALF;
-      const surfY = this.surfaceY(r.x, r.z);
-      r.y = this.groundY + surfY + this.HP_PIPE_RADIUS + this.HP_LIP_HEIGHT;
-      r.z += this.grindSpeed * dt;
-      this.speed = this.grindSpeed;
-
-      // Stick spin (visual only); tracks spinRotation so tricks count.
-      const gStickX = this.input.leftStick().x;
-      const dHeading = gStickX * this.airSpinRate * dt;
-      this.heading += dHeading;
-      this.spinRotation += dHeading;
-
-      // Edge-detect on jump press: only fire eject on the rising edge.
-      const jumpHeld = this.input.jumpHeld();
-      if (jumpHeld && !this.prevJumpHeld) {
-        this.state = 'normal';
-        this.verticalVelocity = this.grindEjectVy;
-        this.grounded = false;
-        // Heading turns inward (toward pipe center) so the rider arcs
-        // back into the bowl instead of flying off the outside.
-        this.heading = -this.grindSide * 0.7;
-        this.grindSide = 0;
-      }
-      this.prevJumpHeld = jumpHeld;
-
-      this.rider.root.rotation.x = this.activeSlope;
-      this.rider.heading.rotation.y = this.heading;
-      this.rider.lean.rotation.z = 0;
-      this.dustParticles.emitRate = 60;
-      this.updateChunkStreaming();
-      this.applyBodyAnimation(now);
-      this.scene.render();
-      return;
-    }
+    // Lip grind removed: rider used to lock onto the lip and grind
+    // along until they tapped jump. Per user request, hitting the lip
+    // now reflects them back into the pipe (see the X-clamp block
+    // further down) — feels more like a half-pipe and skips the
+    // dedicated state machine entirely.
 
     const stickX = this.input.leftStick().x;
     const stickActive = Math.abs(stickX) > 0.05;
@@ -2177,20 +2138,24 @@ export class Game {
     this.rider.root.position.x += sinH * this.speed * dt;
 
     if (this.mode === 'half-pipe') {
+      // Lip bounce: hit the lip and the rider gets redirected back
+      // toward the centre of the pipe instead of locking onto a grind
+      // (the old behaviour). Heading is reflected — its sign flips
+      // along the X axis — so a rider carving out at +heading bounces
+      // off the right lip with -heading, keeping the same speed but
+      // now pointed back into the bowl. edgeAngle gets reflected the
+      // same way so the rider's lean tracks the new direction
+      // automatically; player can override on the next stick read.
       const limit = this.HP_PIPE_HALF;
-      if (this.rider.root.position.x >  limit) this.rider.root.position.x =  limit;
-      if (this.rider.root.position.x < -limit) this.rider.root.position.x = -limit;
-
-      // Grind entry: rider's X is pinned to the lip AND they're grounded.
-      // Lock onto lip; from here the 'grinding' branch above runs each
-      // tick until they tap jump. Reset the jump-edge flag so the same
-      // press that put them onto the lip doesn't immediately eject.
-      if (this.grounded && Math.abs(this.rider.root.position.x) >= this.HP_PIPE_HALF - 0.001 && this.state === 'normal') {
-        this.state = 'grinding';
-        this.grindSide = this.rider.root.position.x > 0 ? 1 : -1;
-        this.heading = 0;
-        this.edgeAngle = 0;
-        this.prevJumpHeld = this.input.jumpHeld();
+      const r = this.rider.root.position;
+      if (r.x > limit) {
+        r.x = limit;
+        if (this.heading > 0) this.heading = -this.heading;
+        if (this.edgeAngle > 0) this.edgeAngle = -this.edgeAngle;
+      } else if (r.x < -limit) {
+        r.x = -limit;
+        if (this.heading < 0) this.heading = -this.heading;
+        if (this.edgeAngle < 0) this.edgeAngle = -this.edgeAngle;
       }
     } else {
       // Downhill: walls are now boardable. surfaceY rises along a
