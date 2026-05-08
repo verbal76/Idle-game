@@ -20,4 +20,4 @@
 // in a bug report identifies the exact build the user is on.
 
 export const BUILD_VERSION = 'build #1 - path-routed workflow setup';
-export const OTA_VERSION   = 'OTA #2   - drop unused prevJumpHeld';
+export const OTA_VERSION   = 'OTA #3   - lip redirects forward instead of bouncing';

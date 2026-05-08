@@ -2160,24 +2160,30 @@ export class Game {
     this.rider.root.position.x += sinH * this.speed * dt;
 
     if (this.mode === 'half-pipe') {
-      // Lip bounce: hit the lip and the rider gets redirected back
-      // toward the centre of the pipe instead of locking onto a grind
-      // (the old behaviour). Heading is reflected — its sign flips
-      // along the X axis — so a rider carving out at +heading bounces
-      // off the right lip with -heading, keeping the same speed but
-      // now pointed back into the bowl. edgeAngle gets reflected the
-      // same way so the rider's lean tracks the new direction
-      // automatically; player can override on the next stick read.
+      // Lip rebound: hit the lip and the rider gets redirected forward
+      // with a small inward bias instead of having their heading
+      // reflected along the X axis. Reflection sounded clean in
+      // theory but a near-perpendicular impact would bounce them
+      // back at the same steep angle into the opposite wall, then
+      // bounce that one back again — ping-pong all the way down the
+      // pipe. Snapping to a fixed shallow inward angle (~17°) makes
+      // every contact feel committed-forward with a gentle return-
+      // to-centre, regardless of how steep the impact was.
       const limit = this.HP_PIPE_HALF;
       const r = this.rider.root.position;
+      const REBOUND_HEADING = 0.30; // ~17° inward, mostly forward
       if (r.x > limit) {
         r.x = limit;
-        if (this.heading > 0) this.heading = -this.heading;
-        if (this.edgeAngle > 0) this.edgeAngle = -this.edgeAngle;
+        if (this.heading > 0) {
+          this.heading = -REBOUND_HEADING;
+          this.edgeAngle = 0;
+        }
       } else if (r.x < -limit) {
         r.x = -limit;
-        if (this.heading < 0) this.heading = -this.heading;
-        if (this.edgeAngle < 0) this.edgeAngle = -this.edgeAngle;
+        if (this.heading < 0) {
+          this.heading = REBOUND_HEADING;
+          this.edgeAngle = 0;
+        }
       }
     } else {
       // Downhill: walls are now boardable. surfaceY rises along a
