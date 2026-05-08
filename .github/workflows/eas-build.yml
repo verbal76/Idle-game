@@ -1,12 +1,37 @@
 name: EAS Build (Android APK)
 
-# Path-routed: fires on push to main when the diff touches anything
-# that affects native code (deps, app.json, eas.json, native dirs,
-# bundler config, app icons). Complement of eas-update.yml's
-# paths-ignore list — together they cover every file in the repo, so
-# every push fires roughly one of the two. workflow_dispatch on the
-# Actions tab still lets you kick a build manually with a profile
-# choice (development / preview / production).
+# Local-build mode for the Github-APK-Transition branch + main once
+# this lands. Replaces `eas build --no-wait` (cloud build, costs an
+# EAS credit) with `eas build --local` (full Gradle / Metro /
+# prebuild / signing on this Ubuntu runner). Costs zero EAS credits;
+# uses GitHub Actions free-tier minutes (Ubuntu = cheap, ~35 min
+# per build).
+#
+# The signing keystore is still fetched from EAS's credential
+# service via EXPO_TOKEN — same key that signs cloud builds, so the
+# resulting APK installs as an UPDATE on existing testers'
+# devices (same package + same key = Android update flow, all
+# profile / IndexedDB / localStorage data preserved).
+#
+# Triggers:
+#   - workflow_dispatch (manual, with profile picker) — primary path
+#     while testing this branch. Fire from the Actions tab on phone
+#     or web.
+#   - push to main + native-touching paths — auto-fires once merged,
+#     same path-routing as before.
+#
+# When the working branch is something other than main, only manual
+# triggers fire. The push trigger is gated to main, so iterating on
+# Github-APK-Transition doesn't auto-build on every commit.
+#
+# APK output:
+#   - Uploaded as a GitHub Actions artifact named
+#     "where-is-the-bottom-<profile>-<runNumber>". Retention 30 days.
+#   - Download via mobile GitHub app: repo → Actions → run →
+#     Artifacts. Or via web at the same path.
+#   - For tester distribution later we can switch to GitHub Release
+#     (stable URL, no auth juggling). Artifact is fine for the
+#     first test-fire run.
 
 on:
   workflow_dispatch:
@@ -42,33 +67,64 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Cap at 60 min in case Gradle hangs on a dependency download —
+    # better to fail fast than burn the whole free-tier budget.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      # No cache: 'npm' / npm ci — see eas-update.yml for the same
-      # reason (package-lock.json is .gitignored).
+
+      # JDK 17 is required for Gradle 8.x (Expo SDK 51's Gradle
+      # baseline). Temurin is the standard pick for Actions.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # No cache: 'npm' / npm ci because package-lock.json is in
+      # .gitignore. Plain install matches the OTA workflow.
       - run: npm install --no-audit --no-fund
+
       - id: profile
-        # Manual workflow_dispatch supplies a profile via inputs.
-        # Path-triggered pushes don't, so default to preview.
+        # Manual workflow_dispatch supplies a profile via inputs;
+        # path-triggered pushes don't, so default to preview.
         run: |
           if [ -n "${{ github.event.inputs.profile }}" ]; then
             echo "name=${{ github.event.inputs.profile }}" >> "$GITHUB_OUTPUT"
           else
             echo "name=preview" >> "$GITHUB_OUTPUT"
           fi
-      - name: Trigger EAS Build
-        # npx eas-cli@latest skips the global install (~25 s); cache:
-        # 'npm' + npm ci makes the dep install a cache hit on second
-        # push onward (~60 s saved).
+
+      - name: Build APK locally
+        # `--local` runs the entire build pipeline on this runner:
+        # eas-cli invokes the eas-build-post-install npm hook
+        # (npm run web:build, which makes html-bundle.ts + icons),
+        # expo prebuild generates android/, Gradle compiles the
+        # native side + bundles JS via Metro, and the output APK
+        # is signed with the EAS-managed keystore (fetched via
+        # EXPO_TOKEN). No EAS cloud credit consumed.
         run: |
           npx eas-cli@latest build --platform android \
             --profile ${{ steps.profile.outputs.name }} \
-            --non-interactive --no-wait
+            --local --non-interactive \
+            --output=./app-build.apk
         env:
-          # Token name flexibility: prefers EXPO_TOKEN, then falls back
+          # Token name flexibility: prefers EXPO_TOKEN, falls back
           # to SNOWBOARD or SNOW (the names already in this repo's
           # secret store).
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
+
+      - name: Upload APK artifact
+        # 30-day retention so the tester install link stays alive
+        # for several weeks (Actions default is 7 days, too short
+        # for a low-frequency build). Artifact name embeds profile
+        # and run number so multiple parallel builds don't clobber.
+        uses: actions/upload-artifact@v4
+        with:
+          name: where-is-the-bottom-${{ steps.profile.outputs.name }}-${{ github.run_number }}
+          path: ./app-build.apk
+          if-no-files-found: error
+          retention-days: 30
