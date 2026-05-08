@@ -15,6 +15,7 @@ export interface HUDRefs {
   ringWidget: HTMLElement;
   ringStreak: HTMLElement;
   ringBest: HTMLElement;
+  jumpChargeBar: HTMLElement;
   halfpipeIntro: HTMLElement;
   pauseMenu: HTMLElement;
   resumeBtn: HTMLButtonElement;
@@ -44,6 +45,7 @@ export function buildHUD(root: HTMLElement): HUDRefs {
         <span class="combo-mult" id="combo-mult">×1.0</span>
         <span class="combo-count" id="combo-count">1 chain</span>
       </div>
+      <div class="jump-charge-bar" id="jump-charge-bar"></div>
       <div id="halfpipe-intro" class="fullscreen-panel halfpipe-intro" style="display:none">
         <div class="halfpipe-intro-card">
           <h1>Half-pipe</h1>
@@ -103,6 +105,7 @@ export function buildHUD(root: HTMLElement): HUDRefs {
     ringWidget:      root.querySelector<HTMLElement>('#ring-widget')!,
     ringStreak:      root.querySelector<HTMLElement>('#ring-streak')!,
     ringBest:        root.querySelector<HTMLElement>('#ring-best')!,
+    jumpChargeBar:   root.querySelector<HTMLElement>('#jump-charge-bar')!,
     halfpipeIntro:   root.querySelector<HTMLElement>('#halfpipe-intro')!,
     pauseMenu:       root.querySelector<HTMLElement>('#pause-menu')!,
     resumeBtn:       root.querySelector<HTMLButtonElement>('#resume')!,
