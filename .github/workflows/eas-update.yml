@@ -48,6 +48,22 @@ jobs:
       # install) but drop the rest of the speedup until we either
       # commit a lock file or switch to a different cache key.
       - run: npm install --no-audit --no-fund
+      - name: Regenerate html-bundle.ts (CRITICAL for OTA correctness)
+        # eas-update bundles the React Native app via Metro on this
+        # runner — and the WebView app's compiled bundle lives in
+        # src/__generated__/html-bundle.ts as a string constant
+        # imported by App.tsx. Without this step, Metro picks up
+        # whatever stale html-bundle.ts is in git and ships THAT,
+        # so OTA-only feature changes (game logic in src/scene/
+        # Game.ts, About panel additions, version.ts bumps) never
+        # reach the device. PR #46 silently dropped this step when
+        # reverting npm ci → npm install, which is why every OTA
+        # from #5 through #7 has been re-uploading the same frozen
+        # bundle from PR #34's commit (11c2966). Don't delete this
+        # again. EAS Build's post-install hook regenerates the
+        # bundle on the EAS build VM, so APKs are unaffected; this
+        # step is the OTA-side equivalent.
+        run: npm run web:build
         env:
           NODE_ENV: production
       - name: Publish OTA update

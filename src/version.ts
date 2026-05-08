@@ -20,4 +20,4 @@
 // in a bug report identifies the exact build the user is on.
 
 export const BUILD_VERSION = 'build #1 - path-routed workflow setup';
-export const OTA_VERSION   = 'OTA #7   - phantom-bounce: cliff-detect skips one frame post-landing';
+export const OTA_VERSION   = 'OTA #8   - restore web:build step (last 3 OTAs were stale)';
