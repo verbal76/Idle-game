@@ -1,7 +1,8 @@
 import {
   Engine, Scene, FollowCamera, HemisphericLight, DirectionalLight,
   Vector3, Color3, Color4, MeshBuilder, StandardMaterial, Mesh,
-  AbstractMesh, ParticleSystem, DynamicTexture, TrailMesh, TransformNode
+  AbstractMesh, ParticleSystem, DynamicTexture, TrailMesh, TransformNode,
+  VertexBuffer, VertexData
 } from '@babylonjs/core';
 import type { StickValue } from '../input/TwinStickInput';
 import type { UpgradeLevels } from '../profiles/IndexedDbStore';
@@ -147,7 +148,14 @@ export class Game {
   // fog blend so it dissolves smoothly into the dusk haze.
   private readonly viewAhead = 8;
   private readonly viewBehind = 1;
-  private readonly viewSide = 2;
+  // viewSide bumped 2 → 4 so chunks tile out to roughly ±360 m around
+  // the rider, fully covering the playable ±295 m wall-to-wall instead
+  // of leaving a ~120 m undecorated buffer on each side. With chunkSize
+  // 80, viewSide=4 gives 9 chunks × 10 Z-slices = 90 active chunks
+  // (was 50). Each chunk's features are InstancedMesh which share GPU
+  // buffers, so the bump is mostly extra TransformNodes and a small
+  // jump in draw calls.
+  private readonly viewSide = 4;
 
   // Base slope grades. Bumped from 0.21/0.28 so both modes actually
   // feel like a descent — old values (12°/16°) read as nearly-flat from
@@ -410,6 +418,29 @@ export class Game {
   // slope is now a procedural chain of SlopeSegments at varied angles
   // with cliff drops between them; piecewise heightmap, no analytic.)
 
+  // Cheap multi-octave value noise for the snow surface so the floor
+  // reads as real terrain (rolls / dips / ripples) instead of a flat
+  // ramp. Three sin/cos octaves combined; peak amplitude ≈0.30 m which
+  // is visible at distance but small enough that the rider's collision
+  // doesn't snag on the bumps.
+  private terrainNoise(x: number, z: number): number {
+    const n1 = Math.sin(x * 0.05 + 1.3) * Math.cos(z * 0.05 + 0.7);
+    const n2 = Math.sin(x * 0.13 + 2.1) * Math.cos(z * 0.11 + 1.5);
+    const n3 = Math.sin(x * 0.31 + 0.4) * Math.cos(z * 0.27 + 2.9);
+    return 0.18 * n1 + 0.08 * n2 + 0.04 * n3;
+  }
+
+  // V-shape walls flank the valley floor at x=±300, tilted inward at
+  // wallTilt=0.65 rad. The wall's surface rises 0.760 m per metre
+  // travelled outward of the floor edge (this is sin(wallTilt)/cos(0)
+  // style geometry — derived empirically from spawnNextSegment, where
+  // moving from (-300, 0) at the wall foot to (-522.8, 169.4) at the
+  // top gives slope 169.4/222.8 = 0.760). Used by surfaceY when the
+  // rider has carved past x=±300 onto the wall, so they ride up the
+  // tilted surface instead of sinking into nothing.
+  private readonly wallFootX = 300;
+  private readonly wallRise = 0.760;
+
   private surfaceY(x: number, z: number): number {
     if (this.mode === 'half-pipe') {
       const cz = Math.floor(z / this.chunkSize);
@@ -417,19 +448,28 @@ export class Game {
     }
     // Downhill: piecewise from the procedural segment chain.
     const seg = this.segmentAtZ(z);
+    let baseY: number;
     if (seg) {
-      return seg.startY - (z - seg.startZ) * Math.tan(seg.slope);
+      baseY = seg.startY - (z - seg.startZ) * Math.tan(seg.slope);
+    } else {
+      // Past the last segment: extrapolate from its endY along the base
+      // slope. The naive `-z * tan(slopeRad)` fallback ignored accumulated
+      // cliff drops, which placed surfaceY many meters above the visible
+      // mesh whenever the rider tunneled past the generated range — they'd
+      // land on phantom ground and stay underground until they jumped.
+      const last = this.slopeSegments[this.slopeSegments.length - 1];
+      baseY = last
+        ? last.endY - (z - last.endZ) * Math.tan(this.slopeRad)
+        : -z * Math.tan(this.slopeRad);
     }
-    void x;
-    // Past the last segment: extrapolate from its endY along the base
-    // slope. The naive `-z * tan(slopeRad)` fallback ignores accumulated
-    // cliff drops, which placed surfaceY many meters above the visible
-    // mesh whenever the rider tunneled past the generated range — they'd
-    // land on phantom ground and stay underground until they jumped.
-    const last = this.slopeSegments[this.slopeSegments.length - 1];
-    if (last) return last.endY - (z - last.endZ) * Math.tan(this.slopeRad);
-    // Only used at construction before the first segment is built.
-    return -z * Math.tan(this.slopeRad);
+    // Floor vs wall: inside ±300 the surface follows the slope plus
+    // micro-terrain noise; outside it climbs the V-wall and skips the
+    // noise (walls are clean tilted planes).
+    const ax = Math.abs(x);
+    if (ax <= this.wallFootX) {
+      return baseY + this.terrainNoise(x, z);
+    }
+    return baseY + (ax - this.wallFootX) * this.wallRise;
   }
 
   // U-shaped half-pipe cross-section: flat in the middle, quarter-arc up each side.
@@ -753,12 +793,42 @@ export class Game {
 
     // Floor: shifted forward in the frame so its back edge sits at frame
     // origin (0,0,0) and its front edge at (0,0,meshHeight).
+    // Subdivisions bumped from 2 → 40 so we have ~3 m vertex spacing in
+    // both directions, fine enough to render the terrainNoise rolls.
     const floor = MeshBuilder.CreateGround(`seg-floor-${segStartZ.toFixed(0)}`, {
-      width: 600, height: meshHeight, subdivisions: 2
+      width: 600, height: meshHeight, subdivisions: 40
     }, this.scene);
     floor.material = this.snowMat;
     floor.parent = frame;
     floor.position.set(0, 0, meshHeight / 2);
+
+    // Displace each floor vertex's local Y by terrainNoise(worldX, worldZ)
+    // so the snow surface gets bumps / dips matching what surfaceY returns
+    // for the rider's collision. The floor is parented to a tilted frame:
+    // a noise of N applied as local Y becomes ~N*cos(slope) of world-Y
+    // change after the frame's rotation.x = slope. To keep the visible
+    // surface aligned with surfaceY's added noise, the local-Y push has
+    // to be N*cos(slope) so world-Y ends up changing by exactly N.
+    // Walls at |x|>300 stay flat — noise is zeroed there so the wall
+    // mesh transition isn't ragged.
+    const positions = floor.getVerticesData(VertexBuffer.PositionKind)!;
+    const cosSlope = Math.cos(slope);
+    for (let i = 0; i < positions.length; i += 3) {
+      const lx = positions[i];
+      const lz = positions[i + 2];
+      // Frame is at (0, startY, segStartZ); floor is at frame-local
+      // (0, 0, meshHeight/2). World-X of vertex ≈ lx (no X rotation).
+      // World-Z (ignoring small noise contribution) = segStartZ +
+      // (lz + meshHeight/2) * cos(slope).
+      const wx = lx;
+      const wz = segStartZ + (lz + meshHeight / 2) * cosSlope;
+      const noise = (Math.abs(wx) <= this.wallFootX) ? this.terrainNoise(wx, wz) : 0;
+      positions[i + 1] = noise * cosSlope;
+    }
+    floor.updateVerticesData(VertexBuffer.PositionKind, positions);
+    const normals: number[] = [];
+    VertexData.ComputeNormals(positions, floor.getIndices()!, normals);
+    floor.updateVerticesData(VertexBuffer.NormalKind, normals);
 
     // Walls: V-shape inside the frame, length matches segment.
     const wallW = 280;
@@ -1189,12 +1259,31 @@ export class Game {
     }
 
     // Larger grace zone so the rider doesn't spawn inside a cluster of
-    // trees: no obstacles for |cz| <= 1 (≈ first/last 80 m around start).
-    const isGraceZone = (cx === 0 && Math.abs(cz) <= 1);
-    const allowObstacles = (cx === 0 && !isGraceZone);
+    // trees: no obstacles for any chunk inside |cz| <= 1 (≈ first/last
+    // 80 m around start).
+    const isGraceZone = Math.abs(cz) <= 1;
+    const allowObstacles = !isGraceZone;
+    // Per-zone gates so different feature types land in different X
+    // bands of the valley:
+    //   - Central column (cx=0): only the narrow challenge line + the
+    //     rare cliff-edge boost ramp.
+    //   - Central band but not dead-centre (40 ≤ |ox| ≤ 200): kicker
+    //     ramps. The user wants "the roof-sections-as-ramps … towards
+    //     the central areas. but not just dead center" — this band.
+    //   - Wall band (|ox| ≥ 200): tents, sitting close to the V-walls
+    //     like real campsites.
+    //   - Everywhere: rocks, trees, tree-edge clusters, logs, flowers.
+    const isCentralColumn = (cx === 0);
+    const absOx = Math.abs(ox);
+    const inCentralKickerBand = (absOx >= 40 && absOx <= 200);
+    const inWallTentBand = (absOx >= 200 && absOx <= this.wallFootX);
 
     if (allowObstacles) {
-      const rockCount = this.rng.rangeInt(1, 4);
+      // Per-chunk density tuned for 9 active chunks per Z slice (was 1).
+      // Counts roughly halved so total visible decoration density is
+      // ~4-5x the single-column original — fills the valley without
+      // becoming a forest.
+      const rockCount = this.rng.rangeInt(0, 2);
       for (let i = 0; i < rockCount; i++) {
         const lx = ox + this.rng.rangeFloat(-half + 2, half - 2);
         const lz = oz + this.rng.rangeFloat(-half + 2, half - 2);
@@ -1211,7 +1300,7 @@ export class Game {
         rocks.push({ x: lx, z: lz, radius: variant.radius });
       }
 
-      const treeCount = this.rng.rangeInt(2, 5);
+      const treeCount = this.rng.rangeInt(0, 3);
       for (let i = 0; i < treeCount; i++) {
         const lx = ox + this.rng.rangeFloat(-half + 3, half - 3);
         const lz = oz + this.rng.rangeFloat(-half + 3, half - 3);
@@ -1220,7 +1309,7 @@ export class Game {
         rocks.push({ x: lx, z: lz });
       }
 
-      const clusters = this.rng.rangeInt(2, 5);
+      const clusters = this.rng.rangeInt(1, 3);
       for (let i = 0; i < clusters; i++) {
         const side = this.rng.next01() < 0.5 ? -1 : 1;
         const baseX = ox + side * (half - this.rng.rangeFloat(0, 2));
@@ -1234,61 +1323,64 @@ export class Game {
         }
       }
 
-      const kickerRoll = this.rng.next01();
-      if (kickerRoll < 0.55) {
-        const isMega = kickerRoll < 0.10;
-        const lx = ox + this.rng.rangeFloat(-half + 4, half - 4);
-        const lz = oz + this.rng.rangeFloat(-half + 4, half - 4);
-        // Width drives the Kenney ramp's spawn-time scale + the
-        // collision hit-box. Mega ramp = bigger launch power.
-        const w = isMega ? 14 : 10;
-        features.push(...this.spawnRamp(lx, this.surfaceY(lx, lz), lz, w, this.activeSlope, `kicker-${cx}-${cz}`));
-        kickers.push({ x: lx, z: lz, width: w, power: isMega ? 10.0 : 5.0 });
-      }
-
-      // Central-path challenge line: 3–5 obstacles forced into the
-      // narrow strip (-14..+14 X) at evenly-spaced Z bands. The rider
-      // can't just hold straight — they have to weave (or jump) between
-      // these every ~16–25 m of forward travel.
-      const lineCount = this.rng.rangeInt(3, 6);
-      for (let i = 0; i < lineCount; i++) {
-        const tBand = (i + 0.5) / lineCount;
-        const lz = oz - half + tBand * this.chunkSize + this.rng.rangeFloat(-3, 3);
-        const lx = ox + this.rng.rangeFloat(-14, 14);
-        const roll = this.rng.next01();
-        if (roll < 0.55) {
-          // tree
-          const scale = 1.1 + this.rng.next01() * 0.8;
-          features.push(...this.spawnTree(lx, lz, scale, `${cx}-${cz}-line-${i}`));
-          rocks.push({ x: lx, z: lz });
-        } else if (roll < 0.85) {
-          // rock — random Kenney variant
-          const lineRockBaseY = this.surfaceY(lx, lz);
-          const variant = this.rockTemplates.large[this.rng.rangeInt(0, this.rockTemplates.large.length)];
-          const rock = variant.mesh.createInstance(`rock-line-${cx}-${cz}-${i}`);
-          rock.position.set(lx, lineRockBaseY, lz);
-          rock.rotation.y = this.rng.next01() * Math.PI * 2;
-          features.push(rock);
-          features.push(this.spawnContactShadow(lx, lz, lineRockBaseY, variant.radius * 1.1, `rock-line-${cx}-${cz}-${i}`));
-          rocks.push({ x: lx, z: lz, radius: variant.radius });
-        } else {
-          // kicker — opt-in jump instead of dodge.
-          const w = 10;
-          features.push(...this.spawnRamp(lx, this.surfaceY(lx, lz), lz, w, this.activeSlope, `kicker-line-${cx}-${cz}-${i}`));
-          kickers.push({ x: lx, z: lz, width: w, power: 6.0 });
+      // Kickers: only in the central band but not dead-centre, per the
+      // user request. Chunks with 40 ≤ |ox| ≤ 200 fire a 55% roll for
+      // a kicker (10% of those go mega).
+      if (inCentralKickerBand) {
+        const kickerRoll = this.rng.next01();
+        if (kickerRoll < 0.55) {
+          const isMega = kickerRoll < 0.10;
+          const lx = ox + this.rng.rangeFloat(-half + 4, half - 4);
+          const lz = oz + this.rng.rangeFloat(-half + 4, half - 4);
+          // Width drives the Kenney ramp's spawn-time scale + the
+          // collision hit-box. Mega ramp = bigger launch power.
+          const w = isMega ? 14 : 10;
+          features.push(...this.spawnRamp(lx, this.surfaceY(lx, lz), lz, w, this.activeSlope, `kicker-${cx}-${cz}`));
+          kickers.push({ x: lx, z: lz, width: w, power: isMega ? 10.0 : 5.0 });
         }
       }
 
-      // Yellow orb coin pickups removed (PR #16). Snowflakes are now
-      // earned per completed flip instead.
+      // Central-path challenge line: only on the centre column (cx=0).
+      // 3–5 obstacles forced into the narrow strip (-14..+14 X) at
+      // evenly-spaced Z bands. The rider can't just hold straight —
+      // they have to weave (or jump) between these every ~16–25 m of
+      // forward travel.
+      if (isCentralColumn) {
+        const lineCount = this.rng.rangeInt(3, 6);
+        for (let i = 0; i < lineCount; i++) {
+          const tBand = (i + 0.5) / lineCount;
+          const lz = oz - half + tBand * this.chunkSize + this.rng.rangeFloat(-3, 3);
+          const lx = ox + this.rng.rangeFloat(-14, 14);
+          const roll = this.rng.next01();
+          if (roll < 0.55) {
+            // tree
+            const scale = 1.1 + this.rng.next01() * 0.8;
+            features.push(...this.spawnTree(lx, lz, scale, `${cx}-${cz}-line-${i}`));
+            rocks.push({ x: lx, z: lz });
+          } else if (roll < 0.85) {
+            // rock — random Kenney variant
+            const lineRockBaseY = this.surfaceY(lx, lz);
+            const variant = this.rockTemplates.large[this.rng.rangeInt(0, this.rockTemplates.large.length)];
+            const rock = variant.mesh.createInstance(`rock-line-${cx}-${cz}-${i}`);
+            rock.position.set(lx, lineRockBaseY, lz);
+            rock.rotation.y = this.rng.next01() * Math.PI * 2;
+            features.push(rock);
+            features.push(this.spawnContactShadow(lx, lz, lineRockBaseY, variant.radius * 1.1, `rock-line-${cx}-${cz}-${i}`));
+            rocks.push({ x: lx, z: lz, radius: variant.radius });
+          } else {
+            // kicker — opt-in jump instead of dodge.
+            const w = 10;
+            features.push(...this.spawnRamp(lx, this.surfaceY(lx, lz), lz, w, this.activeSlope, `kicker-line-${cx}-${cz}-${i}`));
+            kickers.push({ x: lx, z: lz, width: w, power: 6.0 });
+          }
+        }
+      }
 
-      // Sparse log + tent obstacles. Each rolls independently with low
-      // probability so chunks usually have neither, occasionally one,
-      // very rarely both. Routed through the rocks[] collision array
-      // so a clip triggers the existing bail logic.
-      const propRoll = this.rng.next01();
-      const wantLog  = propRoll < 0.25;   // ~25% of chunks have a log
-      const wantTent = propRoll > 0.85;   // ~15% of chunks have a tent
+      // Logs: scattered everywhere, 10% per chunk.
+      const wantLog  = this.rng.next01() < 0.10;
+      // Tents: only in the wall band per the user request, 25% per chunk
+      // there so the wall-side chunks regularly get one.
+      const wantTent = inWallTentBand && this.rng.next01() < 0.25;
       const placeProp = (template: { mesh: Mesh; radius: number }, kind: string): void => {
         const lx = ox + this.rng.rangeFloat(-half + 4, half - 4);
         const lz = oz + this.rng.rangeFloat(-half + 4, half - 4);
@@ -1303,13 +1395,9 @@ export class Game {
       if (wantLog)  placeProp(this.logTemplate,  'log');
       if (wantTent) placeProp(this.tentTemplate, 'tent');
 
-      // Decoration flowers. Pure visual, no collision. Sprinkled
-      // sparsely (5–9 per chunk) so the slope has flecks of color
-      // without crowding the run. Skipped near kickers + already-
-      // placed obstacles is overkill; flowers are pass-through so
-      // overlapping a rock just looks like a flower at the rock's
-      // base.
-      const flowerCount = this.rng.rangeInt(5, 10);
+      // Decoration flowers. Pure visual, no collision. Density halved
+      // (was 5–10) since 9 chunks now contribute.
+      const flowerCount = this.rng.rangeInt(2, 5);
       for (let i = 0; i < flowerCount; i++) {
         const lx = ox + this.rng.rangeFloat(-half + 1, half - 1);
         const lz = oz + this.rng.rangeFloat(-half + 1, half - 1);
@@ -1325,11 +1413,10 @@ export class Game {
 
       // Cliff-edge boost ramp. Rare event (10% per cliff that lands in
       // this chunk's Z range) — gives the rider a kicker right at the
-      // lip for an extra-air launch over the drop. The slope segment
-      // chain owns cliff geometry; we just look up any segment whose
-      // startZ falls in this chunk and whose startY drops by >1 m
-      // versus the previous segment's endY.
-      for (let i = 1; i < this.slopeSegments.length; i++) {
+      // lip for an extra-air launch over the drop. Only on the centre
+      // column so the ramp lands within the rider's central path; the
+      // wall-band cliffs already scatter naturally.
+      if (isCentralColumn) for (let i = 1; i < this.slopeSegments.length; i++) {
         const prev = this.slopeSegments[i - 1];
         const cur  = this.slopeSegments[i];
         const cliffZ = cur.startZ;
@@ -1778,17 +1865,39 @@ export class Game {
         this.prevJumpHeld = this.input.jumpHeld();
       }
     } else {
-      // Downhill: clamp X to the floor's skiable range. The procedural
-      // segment chain has a 600 m wide floor (X = ±300) flanked by V-shape
-      // mountain walls that ramp up. The walls are visual meshes only —
-      // surfaceY is uniform across X — so without this clamp the rider
-      // could carve past X=300 into the wall area, end up "grounded" on
-      // a phantom floor below the visible wall surface, and the camera
-      // would follow them under the mesh. ±295 leaves a 5 m safety
-      // margin from the wall's inner edge.
-      const limit = 295;
+      // Downhill: walls are now boardable. surfaceY rises along a
+      // wallRise=0.760 m/m grade past x=±wallFootX (=300), so the rider
+      // tracks the V-wall surface as they carve outward. We still need
+      // a hard clamp to stop them shooting off the world entirely —
+      // bottom of wall is at ±300, top of wall mesh is at ±522, so we
+      // cap at ±475 (47 m of safety margin from the top edge).
+      // Beyond this, the rider's grounded Y would lift to ~133 m above
+      // the valley floor; gravity pulls them back down naturally as
+      // they decelerate — but if they keep carving outward, the cap
+      // prevents them tunneling off the wall mesh.
+      const limit = 475;
       if (this.rider.root.position.x >  limit) this.rider.root.position.x =  limit;
       if (this.rider.root.position.x < -limit) this.rider.root.position.x = -limit;
+
+      // Wall gravity: when the rider has climbed past the wall foot,
+      // gravity's lateral projection on the wall surface pulls them
+      // back toward x=0. For our wallRise=0.760, that lateral
+      // acceleration is g·wallRise²/(1+wallRise²) ≈ 3.6 m/s². Without
+      // this the rider would float at whatever height their carve
+      // momentum got them to and never come back down. The position
+      // nudge is half-damped near the wall foot (factor = depth/80)
+      // so a quick clip onto the wall doesn't snap the rider back —
+      // they only feel the strong return-to-centre once they've
+      // committed several metres up.
+      const ax = Math.abs(this.rider.root.position.x);
+      if (this.grounded && ax > this.wallFootX) {
+        const wallDepth = ax - this.wallFootX;
+        const lateralAccel = 9.8 * this.wallRise * this.wallRise
+          / (1 + this.wallRise * this.wallRise);
+        const dir = this.rider.root.position.x > 0 ? -1 : +1;
+        const factor = Math.min(1, wallDepth / 80);
+        this.rider.root.position.x += dir * lateralAccel * factor * 0.5 * dt * dt;
+      }
     }
 
     if (this.grounded) {
