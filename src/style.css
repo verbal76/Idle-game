@@ -93,8 +93,9 @@ html, body {
 #hud .pause-btn {
   background: rgba(20, 32, 56, 0.82); color: #fff;
   border: 2px solid rgba(160, 200, 240, 0.55);
-  padding: 8px 14px; border-radius: 10px;
-  font: inherit; font-size: 16px; font-weight: 700;
+  padding: 12px 18px; border-radius: 12px;
+  font: inherit; font-size: 18px; font-weight: 700;
+  min-width: 52px;
 }
 #hud .score {
   font-variant-numeric: tabular-nums; font-weight: 800; font-size: 22px;
@@ -146,7 +147,52 @@ html, body {
   pointer-events: none;
 }
 #hud .top-actions {
-  display: flex; gap: 10px; align-items: center;
+  display: flex; gap: 14px; align-items: center;
+}
+
+/* Vertical jump-charge bar on the far right edge — runs from ~22%
+ * down from the top to ~22% up from the bottom (so a thumb resting
+ * on the JUMP button doesn't cover it). Track stays visible at low
+ * opacity even when not charging so the player learns the
+ * mechanic exists; fill rises bottom-up via the --charge CSS var
+ * fed by Game's onChargeChange callback. When charge hits ~1.0
+ * the track gets a `.full` class and pulses scale 1.0 ↔ 1.12 so
+ * the player knows they're at max and any further hold won't pay
+ * off — release to launch.
+ */
+.jump-charge-bar {
+  position: absolute;
+  right: 12px;
+  top: 22%;
+  height: 56%;
+  width: 16px;
+  border-radius: 9px;
+  background: rgba(20, 32, 56, 0.55);
+  border: 2px solid rgba(160, 200, 240, 0.45);
+  overflow: hidden;
+  pointer-events: none;
+  --charge: 0;
+  transition: transform 200ms ease-out;
+}
+.jump-charge-bar::before {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: calc(var(--charge) * 100%);
+  background: linear-gradient(
+    to top,
+    rgba(255, 200, 80, 0.95) 0%,
+    rgba(255, 240, 160, 0.95) 100%
+  );
+  transition: height 60ms linear;
+  border-radius: 0 0 7px 7px;
+}
+.jump-charge-bar.full {
+  animation: jump-charge-pulse 0.55s ease-in-out infinite alternate;
+}
+@keyframes jump-charge-pulse {
+  0%   { transform: scale(1.00); }
+  100% { transform: scale(1.16); }
 }
 .ring-widget .ring-icon { font-size: 18px; }
 .ring-widget .ring-streak { font-size: 18px; }
@@ -283,9 +329,9 @@ html, body {
 .gear-btn {
   background: rgba(20, 32, 56, 0.82); color: #fff;
   border: 2px solid rgba(160, 200, 240, 0.55);
-  width: 40px; height: 40px;
-  border-radius: 10px;
-  font: inherit; font-size: 18px;
+  width: 52px; height: 52px;
+  border-radius: 12px;
+  font: inherit; font-size: 22px;
   display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer;
   min-width: 0;

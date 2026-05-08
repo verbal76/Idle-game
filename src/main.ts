@@ -211,11 +211,16 @@ async function runSession(
           `Distance: ${stats.distanceMeters} m  •  +${stats.coins} ❄  •  Flips: ${stats.flips}`;
         hud.fellOverlay.style.display = 'flex';
       },
-      // Drive the JUMP button's conic-gradient ring via a CSS var so
-      // the player can see how much charge they've built. Updates only
-      // fire when charge crosses a 1% step (Game-side dedup).
+      // Drive the JUMP button's conic-gradient ring AND the vertical
+      // charge bar on the far right via the same CSS var. The right-
+      // edge bar is the primary indicator since the user's thumb
+      // covers the button itself; bar stays visible bar-only and
+      // pulses when the charge hits max.
       onChargeChange: (charge) => {
-        hud.jumpBtn.style.setProperty('--charge', String(charge));
+        const v = String(charge);
+        hud.jumpBtn.style.setProperty('--charge', v);
+        hud.jumpChargeBar.style.setProperty('--charge', v);
+        hud.jumpChargeBar.classList.toggle('full', charge >= 0.99);
       },
     }, upgrades);
     game.start();
