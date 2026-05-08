@@ -30,8 +30,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-      - run: npm ci --no-audit --no-fund
+      # No cache: 'npm' / npm ci — package-lock.json is .gitignored
+      # so both modes fail "Dependencies lock file is not found".
+      - run: npm install --no-audit --no-fund
       - run: npm run web:build
         env:
           NODE_ENV: production

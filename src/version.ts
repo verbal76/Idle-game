@@ -20,4 +20,4 @@
 // in a bug report identifies the exact build the user is on.
 
 export const BUILD_VERSION = 'build #1 - path-routed workflow setup';
-export const OTA_VERSION   = 'OTA #4   - CI gate + workflow speedup + 90s OTA poll';
+export const OTA_VERSION   = 'OTA #5   - hotfix: revert npm ci (no lock file) + 90s poll';
