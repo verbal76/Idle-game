@@ -49,6 +49,7 @@ export interface GameInput {
   leftStick(): StickValue;
   jumpHeld(): boolean;
   flipHeld(): boolean;
+  forwardHeld?(): boolean;
 }
 
 export interface GameCallbacks {
@@ -59,6 +60,10 @@ export interface GameCallbacks {
   // the Game side dedups so the DOM mutation doesn't run every frame
   // while charge sits at 0.
   onChargeChange?: (charge: number) => void;
+  // Combo state for the halfpipe hype meter. count = 0 means the
+  // bar should be hidden; count > 0 shows ×N.M multiplier and the
+  // current chain length.
+  onComboChange?: (count: number, multiplier: number) => void;
 }
 
 type RiderState = 'normal' | 'bailing' | 'recovering' | 'grinding';
@@ -83,6 +88,13 @@ interface ChunkData {
   // the 1.5 m default downhill rocks; collision loop reads the override.
   rocks: Array<{ x: number; z: number; radius?: number }>;
   kickers: Array<{ x: number; z: number; width: number; power: number }>;
+  // Halfpipe ring targets — flip-through bonuses. Tick checks rider
+  // distance against each ring; once collected the mesh gets hidden
+  // and `collected` is flipped so the rider can't double-dip.
+  rings?: Array<{ x: number; y: number; z: number; mesh: AbstractMesh; collected: boolean }>;
+  // Halfpipe boost strips — speed multipliers in the trough. Tick
+  // checks if the rider is over a strip and bumps boostUntil.
+  boosts?: Array<{ x: number; z: number; halfX: number; halfZ: number }>;
   cx: number;
   cz: number;
 }
@@ -171,6 +183,32 @@ export class Game {
   private readonly HP_PIPE_RADIUS = 4.0;        // = HP_PIPE_HALF - HP_FLAT_HALF
   private readonly HP_LIP_HEIGHT = 0.6;         // small vertical lip at the top
   private readonly HP_CONTEXT_WIDTH = 220;
+  // Lip-light geometry. Poles sit 1.5 m back from the lip (x=±10.5)
+  // so they don't interfere with grinding at x=±9, and rise 5 m above
+  // the lip for an overhead lamp angle.
+  private readonly HP_POLE_HEIGHT = 5.0;
+  private readonly HP_POLE_OFFSET = 1.5;
+  private hpPoleTemplate!: Mesh;
+  private hpLampTemplate!: Mesh;
+  // Halfpipe extras: ring targets (flip-through bonus), banners
+  // (decorative + distance markers), boost strips (transient speed
+  // multiplier), audience silhouettes (atmosphere). All emissive
+  // shared materials so they instance cheap.
+  private hpRingTemplate!: Mesh;
+  private hpBannerTemplate!: Mesh;
+  private hpBoostTemplate!: Mesh;
+  private hpAudienceTemplate!: Mesh;
+  // Combo state. comboCount starts at 0; bail or 5 s of no clean
+  // landings resets it. Multiplier is 1 + min(N-1, 4) * 0.5 so combo
+  // 1 = ×1.0, 2 = ×1.5, 3 = ×2.0, 4 = ×2.5, 5+ = ×3.0 (cap). Applied
+  // to the snowflake currency credited per flip on a clean landing.
+  private comboCount = 0;
+  private lastTrickAt = 0;
+  private readonly COMBO_TIMEOUT_MS = 5000;
+  // Boost-zone deadline. set to performance.now() + 800 ms when the
+  // rider crosses a speed-strip; targetSpeed in the speed-update
+  // block multiplies by 1.3 while now < boostUntil.
+  private boostUntil = 0;
   // Heading clamp — symmetric forward cone of ±80°, 10° buffer from the
   // ±90° stall pocket (cos²(80°) ≈ 0.03 → ~3% target speed at the limit:
   // a real scrub-brake state, not a hard stop). Applied to BOTH modes
@@ -698,6 +736,92 @@ export class Game {
     // Native OBJ X bounds are -0.5..+0.5 → width 1.0. Spawn code uses
     // this constant to compute scaling for a target world-space width.
     this.rampTemplate = { metal, roof, concrete, nativeSize: 1.0 };
+
+    // Half-pipe lip lights. Pole = thin dark cylinder; lamp head =
+    // small box with full emissive so it glows against the dusk sky.
+    // Templates are hidden; spawnHalfPipeChunk createInstance's two
+    // pairs per chunk (one on each lip), parented to a frame so they
+    // tilt with the pipe's slope.
+    const poleMat = new StandardMaterial('hp-pole-mat', this.scene);
+    poleMat.diffuseColor = new Color3(0.18, 0.18, 0.20);
+    poleMat.specularColor = new Color3(0.05, 0.05, 0.05);
+    const polePrototype = MeshBuilder.CreateCylinder('hp-pole-template', {
+      height: this.HP_POLE_HEIGHT, diameter: 0.18
+    }, this.scene);
+    polePrototype.material = poleMat;
+    polePrototype.isVisible = false;
+
+    const lampMat = new StandardMaterial('hp-lamp-mat', this.scene);
+    lampMat.diffuseColor = new Color3(0.95, 0.92, 0.70);
+    lampMat.emissiveColor = new Color3(1.00, 0.93, 0.58);
+    lampMat.specularColor = new Color3(0, 0, 0);
+    const lampPrototype = MeshBuilder.CreateBox('hp-lamp-template', {
+      width: 0.6, height: 0.22, depth: 0.45
+    }, this.scene);
+    lampPrototype.material = lampMat;
+    lampPrototype.isVisible = false;
+    this.hpPoleTemplate = polePrototype;
+    this.hpLampTemplate = lampPrototype;
+
+    // Ring target — translucent emissive torus the rider flips through
+    // mid-air for bonus snowflakes. Bright magenta so it pops against
+    // the dusk sky from any approach angle.
+    const ringMat = new StandardMaterial('hp-ring-mat', this.scene);
+    ringMat.diffuseColor = new Color3(1.0, 0.30, 0.85);
+    ringMat.emissiveColor = new Color3(1.0, 0.30, 0.85);
+    ringMat.specularColor = new Color3(0, 0, 0);
+    ringMat.alpha = 0.65;
+    const ringPrototype = MeshBuilder.CreateTorus('hp-ring-template', {
+      diameter: 3.0, thickness: 0.30, tessellation: 24
+    }, this.scene);
+    ringPrototype.material = ringMat;
+    ringPrototype.isVisible = false;
+    this.hpRingTemplate = ringPrototype;
+
+    // Banner — thin emissive panel stretched along the lip between
+    // adjacent poles on the same side. Template is unit-length in Z
+    // (along the lip) so spawnHalfPipeChunk can scale.z to the
+    // chunk's pole spacing without dealing with extreme scale
+    // factors. Deep emissive blue so it reads as a stadium pennant
+    // against the dusk.
+    const bannerMat = new StandardMaterial('hp-banner-mat', this.scene);
+    bannerMat.diffuseColor = new Color3(0.20, 0.40, 0.95);
+    bannerMat.emissiveColor = new Color3(0.30, 0.55, 1.00);
+    bannerMat.specularColor = new Color3(0, 0, 0);
+    bannerMat.backFaceCulling = false;
+    const bannerPrototype = MeshBuilder.CreateBox('hp-banner-template', {
+      width: 0.06, height: 0.50, depth: 1.0
+    }, this.scene);
+    bannerPrototype.material = bannerMat;
+    bannerPrototype.isVisible = false;
+    this.hpBannerTemplate = bannerPrototype;
+
+    // Boost strip — bright yellow flat quad on the trough floor.
+    // Emissive so it glows at distance, full opacity so it reads
+    // against the snow.
+    const boostMat = new StandardMaterial('hp-boost-mat', this.scene);
+    boostMat.diffuseColor = new Color3(1.00, 0.80, 0.20);
+    boostMat.emissiveColor = new Color3(1.00, 0.85, 0.30);
+    boostMat.specularColor = new Color3(0, 0, 0);
+    const boostPrototype = MeshBuilder.CreateGround('hp-boost-template', {
+      width: 6, height: 4, subdivisions: 1
+    }, this.scene);
+    boostPrototype.material = boostMat;
+    boostPrototype.isVisible = false;
+    this.hpBoostTemplate = boostPrototype;
+
+    // Audience silhouette — small dark box cutout sitting at lip
+    // level behind the poles. Pure flat dark grey, no specular, no
+    // emissive — reads as a backlit cardboard cutout.
+    const audienceMat = new StandardMaterial('hp-aud-mat', this.scene);
+    audienceMat.diffuseColor = new Color3(0.05, 0.05, 0.07);
+    audienceMat.specularColor = new Color3(0, 0, 0);
+    const audiencePrototype = MeshBuilder.CreateBox('hp-aud-template', {
+      width: 0.5, height: 1.6, depth: 0.18
+    }, this.scene);
+    audiencePrototype.material = audienceMat;
+    audiencePrototype.isVisible = false;
+    this.hpAudienceTemplate = audiencePrototype;
 
     // Flowers ~30 cm tall — small accent dots on the slope.
     this.flowerTemplates = [
@@ -1498,6 +1622,16 @@ export class Game {
     const meshHeight = this.chunkSize / Math.cos(this.activeSlope);
     const halfDepth = meshHeight / 2;
 
+    // Frame for the chunk's pipe geometry. Parent context, pipe, and
+    // lip lights to this frame so a single rotation tilts them all
+    // together; previously each mesh was positioned in world coords
+    // and tilted independently, which made anchoring the lip lights
+    // (which need to sit ON the tilted lip) more fiddly than it
+    // should be.
+    const frame = new TransformNode(`hp-frame-${cz}`, this.scene);
+    frame.position.set(ox, cy, oz);
+    frame.rotation.x = this.activeSlope;
+
     const context = MeshBuilder.CreateGround(`hp-ctx-${cz}`, {
       width: this.HP_CONTEXT_WIDTH, height: meshHeight, subdivisions: 1
     }, this.scene);
@@ -1507,8 +1641,8 @@ export class Game {
     // and that produces visible z-fighting (the checker pattern across
     // the halfpipe floor). 5 cm is invisible at the camera distance,
     // pipe is rendered on top, no fight.
-    context.position.set(ox, cy - 0.05, oz);
-    context.rotation.x = this.activeSlope;
+    context.parent = frame;
+    context.position.set(0, -0.05, 0);
 
     const FLAT = this.HP_FLAT_HALF;
     const R = this.HP_PIPE_RADIUS;
@@ -1543,14 +1677,84 @@ export class Game {
       pathArray: [path1, path2]
     }, this.scene);
     pipe.material = this.snowMat;
-    pipe.position.set(ox, cy, oz);
-    // Same rotation flip as the context above — was tilting uphill.
-    pipe.rotation.x = this.activeSlope;
+    pipe.parent = frame;
+    pipe.position.set(0, 0, 0);
+
+    // Lip lights: two poles per side per chunk, spaced ~40 m apart
+    // along the run. Each pole + lamp instance is parented to the
+    // chunk frame so it tilts with the pipe. Lamps are emissive
+    // boxes — no actual scene lights, so we don't blow Babylon's
+    // 4-lights-per-material cap and the per-pole cost is one
+    // InstancedMesh + one TransformNode op.
+    const lipY = R + LIP;
+    const polePoleY = lipY + this.HP_POLE_HEIGHT / 2;
+    const lampY = lipY + this.HP_POLE_HEIGHT;
+    const polePositions: Array<[number, number]> = [];
+    for (const sign of [-1, +1]) {
+      const px = sign * (HALF + this.HP_POLE_OFFSET);
+      // Two poles per chunk, evenly spaced along the chunk's local Z.
+      polePositions.push([px, -halfDepth * 0.5]);
+      polePositions.push([px, +halfDepth * 0.5]);
+    }
 
     const features: AbstractMesh[] = [pipe];
 
+    for (let i = 0; i < polePositions.length; i++) {
+      const [px, pz] = polePositions[i];
+      const pole = this.hpPoleTemplate.createInstance(`hp-pole-${cz}-${i}`);
+      pole.parent = frame;
+      pole.position.set(px, polePoleY, pz);
+      features.push(pole);
+
+      const lamp = this.hpLampTemplate.createInstance(`hp-lamp-${cz}-${i}`);
+      lamp.parent = frame;
+      // Lamp head shifts slightly inward (toward pipe centre) so it
+      // visually overhangs the lip — reads as "shining down into the
+      // pipe" instead of straight up.
+      lamp.position.set(px - Math.sign(px) * 0.30, lampY, pz);
+      features.push(lamp);
+    }
+    // Banners stretched between adjacent poles on each side. Length
+    // = halfDepth (the gap between the two poles per side). Template
+    // is unit-length in Z so we scale to fit. Hangs ~1 m below the
+    // lamp head.
+    for (const sign of [-1, +1]) {
+      const px = sign * (HALF + this.HP_POLE_OFFSET);
+      const banner = this.hpBannerTemplate.createInstance(`hp-banner-${cz}-${sign}`);
+      banner.parent = frame;
+      banner.position.set(px, lipY + this.HP_POLE_HEIGHT - 1.0, 0);
+      banner.scaling.z = halfDepth * 0.95;
+      features.push(banner);
+    }
+
+    // Audience silhouettes — short row of dark cardboard cutouts
+    // sitting just behind each pole row. 5 per side per chunk,
+    // jittered along Z and laterally a bit so they don't read as a
+    // line of identical boxes.
+    for (const sign of [-1, +1]) {
+      const px = sign * (HALF + this.HP_POLE_OFFSET + 0.6);
+      for (let i = 0; i < 5; i++) {
+        const aud = this.hpAudienceTemplate.createInstance(`hp-aud-${cz}-${sign}-${i}`);
+        aud.parent = frame;
+        const jitterX = this.rng.rangeFloat(-0.25, 0.25);
+        const jitterZ = this.rng.rangeFloat(-halfDepth * 0.8, halfDepth * 0.8);
+        const headHeight = lipY + this.rng.rangeFloat(0.0, 0.4) + 0.8;
+        aud.position.set(px + sign * Math.abs(jitterX), headHeight, jitterZ);
+        // Tiny per-figure scale jitter so heights vary like a crowd.
+        const s = 0.85 + this.rng.next01() * 0.4;
+        aud.scaling.set(1, s, 1);
+        features.push(aud);
+      }
+    }
+    // Frame must be disposed when the chunk rolls off; cast it
+    // through AbstractMesh same way spawnRamp does its anchor so
+    // the existing features-array dispose loop catches it.
+    features.push(frame as unknown as AbstractMesh);
+
     const kickers: ChunkData['kickers'] = [];
     const rocks: ChunkData['rocks'] = [];
+    const rings: NonNullable<ChunkData['rings']> = [];
+    const boosts: NonNullable<ChunkData['boosts']> = [];
 
     if (cz > 0) {
       // Yellow orb coin pickups removed (PR #16). Snowflakes are now
@@ -1565,6 +1769,44 @@ export class Game {
         features.push(...this.spawnRamp(ox, this.surfaceY(ox, lz), lz, w, this.activeSlope, `hp-kicker-${cz}`));
         kickers.push({ x: ox, z: lz, width: 8, power: 7.5 });
         kickerLz = lz;
+
+        // Ring target at the kicker's expected jump apex. For a
+        // power=7.5 launch, peak height ≈ vy²/(2g) ≈ 2.87 m above
+        // the ramp top, and forward distance at the typical 30 m/s
+        // rider speed is ≈ 23 m. Place the ring slightly past peak
+        // (z+25) so the rider has to commit to the air time before
+        // collecting it. Stored in chunk.rings; tick checks distance.
+        const kickerTopY = this.surfaceY(ox, lz) + 2.81; // ramp height for w=8
+        const ringX = ox;
+        const ringY = kickerTopY + 2.87;
+        const ringZ = lz + 22;
+        const ring = this.hpRingTemplate.createInstance(`hp-ring-${cz}`);
+        // Rings live in world space (no parent) so the rider's
+        // world-position distance check works directly.
+        ring.position.set(ringX, ringY, ringZ);
+        // Ring axis along world +Z so the rider flies through the
+        // hole. Torus default lies in the X-Z plane (axis +Y), so
+        // rotate 90° around X to stand it up.
+        ring.rotation.x = Math.PI / 2;
+        features.push(ring);
+        rings.push({ x: ringX, y: ringY, z: ringZ, mesh: ring, collected: false });
+      }
+
+      // Boost strip in the trough every 3rd chunk. Sized 6 m × 4 m,
+      // centered on x=0, on the floor. boostUntil gets bumped when
+      // the rider passes over (see tick).
+      if (cz % 3 === 0) {
+        const stripZ = oz + this.rng.rangeFloat(-half + 6, half - 6);
+        const boostBaseY = this.surfaceY(ox, stripZ);
+        const boost = this.hpBoostTemplate.createInstance(`hp-boost-${cz}`);
+        // Boost strips are also outside the frame because their
+        // detection uses world coords directly and they don't need
+        // to perfectly tilt with the slope (4 m long × 6 m wide is
+        // small enough that the slope tilt is a 3 cm rise corner-to-
+        // corner, invisible).
+        boost.position.set(ox, boostBaseY + 0.04, stripZ);
+        features.push(boost);
+        boosts.push({ x: ox, z: stripZ, halfX: 3.0, halfZ: 2.0 });
       }
 
       // Half-pipe carries kicker ramps only — no rocks, no flowers,
@@ -1575,7 +1817,7 @@ export class Game {
     }
 
     this.chunks.set(this.chunkKey(cx, cz), {
-      ground: context, features, rocks, kickers, cx, cz
+      ground: context, features, rocks, kickers, rings, boosts, cx, cz
     });
   }
 
@@ -1590,9 +1832,20 @@ export class Game {
     return fromUpright < this.cleanLandTolerance;
   }
 
+  private comboMultiplier(): number {
+    if (this.comboCount <= 0) return 1;
+    return 1 + Math.min(this.comboCount - 1, 4) * 0.5;
+  }
+
   private startBail(): void {
     this.state = 'bailing';
     this.stateEndsAt = performance.now() + this.bailDurationMs;
+    // Bail breaks the combo. Notify HUD so the meter clears
+    // immediately rather than fading on its own timeout.
+    if (this.comboCount > 0) {
+      this.comboCount = 0;
+      this.callbacks.onComboChange?.(0, 1);
+    }
     this.rider.body.rotation.x = 0;
     this.rider.body.rotation.z = Math.PI / 2;
     this.rider.lean.rotation.z = 0;
@@ -1737,9 +1990,21 @@ export class Game {
 
     const sinThetaMax = Math.min(0.99, (carveV * carveV) / (this.SIDECUT * this.G));
     const physThetaMax = Math.asin(sinThetaMax);
-    const thetaMax = Math.min(this.maxLean, physThetaMax);
+    // Forward arrow held = "deep lean" modifier. Raises the lean cap
+    // from the default 40° to ~57°, which through tan(edge) in the
+    // carve formula below pushes turn rate from ω = V/SIDECUT · 0.84
+    // up to ω = V/SIDECUT · 1.55 — a real ultra-sharp carve. The
+    // physical centripetal limit (physThetaMax) still applies, so
+    // the rider can't lean past what gravity supports for their
+    // current speed. To break out of a hard turn, the player still
+    // has to actively counter-lean (push stickX the other way) —
+    // UP just lets that counter-lean go deeper, faster.
+    const forwardBoost = this.input.forwardHeld?.() ?? false;
+    const effectiveMaxLean = forwardBoost ? 0.99 : this.maxLean;
+    const thetaMax = Math.min(effectiveMaxLean, physThetaMax);
     const targetEdge = stickX * thetaMax;
-    const leanRate = stickActive ? this.leanResponse : this.leanResponse * 0.35;
+    const baseLeanRate = forwardBoost ? this.leanResponse * 1.6 : this.leanResponse;
+    const leanRate = stickActive ? baseLeanRate : baseLeanRate * 0.35;
     this.edgeAngle += (targetEdge - this.edgeAngle) * Math.min(1, leanRate * dt);
 
     if (this.grounded) {
@@ -1799,7 +2064,12 @@ export class Game {
     // possible target stays at 50% of max instead of 0%. Brake-rate
     // multiplier on sin² also halved (was 6 → 3) so the catch toward
     // target is gentler at high carve angles.
-    const targetSpeed = this.maxSpeed * (0.5 + 0.5 * cosH * cosH);
+    // Halfpipe boost-strip effect: while boostUntil is in the future
+    // (set by the strip-detect loop further down), targetSpeed gets a
+    // 1.3× kick so the rider visibly accelerates over the strip.
+    const boostActive = performance.now() < this.boostUntil;
+    const boostMult = boostActive ? 1.3 : 1.0;
+    const targetSpeed = this.maxSpeed * (0.5 + 0.5 * cosH * cosH) * boostMult;
     if (this.grounded) {
       const brake = Math.abs(sinH);
       const brakeRate = this.speedCatch + brake * brake * 3.0;
@@ -1847,10 +2117,21 @@ export class Game {
           if (Math.abs(this.flipRotation) > Math.PI * 1.5) {
             const flipsThisLanding = Math.round(Math.abs(this.flipRotation) / (Math.PI * 2));
             this.flipsLanded += flipsThisLanding;
-            // One snowflake earned per completed flip — the coinsCollected
-            // counter is now the live snowflake total (yellow orbs gone in
-            // PR #16; flips are the only way to earn currency).
-            this.coinsCollected += flipsThisLanding;
+            // Combo: chained clean landings within COMBO_TIMEOUT_MS
+            // escalate a multiplier from ×1.0 (first trick) up to
+            // ×3.0 (5th and beyond). Snowflakes credited per flip
+            // get scaled by the multiplier so building a chain pays
+            // off; bail or 5 s of no tricks resets it.
+            const trickNow = performance.now();
+            if (this.comboCount > 0 && trickNow - this.lastTrickAt < this.COMBO_TIMEOUT_MS) {
+              this.comboCount++;
+            } else {
+              this.comboCount = 1;
+            }
+            this.lastTrickAt = trickNow;
+            const mult = this.comboMultiplier();
+            this.coinsCollected += Math.round(flipsThisLanding * mult);
+            this.callbacks.onComboChange?.(this.comboCount, mult);
           }
           this.flipRotation = 0;
           this.rider.body.rotation.x = 0;
@@ -2150,6 +2431,47 @@ export class Game {
     if (this.fellAlready) return;
     const r = this.rider.root.position;
     const invulnerable = this.state !== 'normal';
+
+    // Combo timeout: 5 s of no clean tricks resets the chain. Has to
+    // run every tick so the HUD clears even if the rider just rides
+    // straight (no bail, no new tricks).
+    if (this.comboCount > 0 && performance.now() - this.lastTrickAt > this.COMBO_TIMEOUT_MS) {
+      this.comboCount = 0;
+      this.callbacks.onComboChange?.(0, 1);
+    }
+
+    // Halfpipe ring collection + boost-strip detection. Both iterate
+    // active chunks once with the same outer loop so the per-frame
+    // cost stays O(chunks). Rings: 2 m radius around the centre point
+    // gives the rider some forgiveness without being a freebie. Boost
+    // strips: bump boostUntil whenever the rider is over the rectangle.
+    if (this.mode === 'half-pipe' && !invulnerable) {
+      for (const chunk of this.chunks.values()) {
+        if (chunk.rings) {
+          for (const ring of chunk.rings) {
+            if (ring.collected) continue;
+            const dx = r.x - ring.x;
+            const dy = r.y - ring.y;
+            const dz = r.z - ring.z;
+            if (dx * dx + dy * dy + dz * dz < 4.0) {
+              ring.collected = true;
+              ring.mesh.isVisible = false;
+              // Bonus 3 snowflakes scaled by the current combo
+              // multiplier — flying through a ring should feel
+              // rewarded by the chain you've built.
+              this.coinsCollected += Math.round(3 * this.comboMultiplier());
+            }
+          }
+        }
+        if (chunk.boosts) {
+          for (const b of chunk.boosts) {
+            if (Math.abs(r.x - b.x) < b.halfX && Math.abs(r.z - b.z) < b.halfZ) {
+              this.boostUntil = performance.now() + 800;
+            }
+          }
+        }
+      }
+    }
 
     for (const chunk of this.chunks.values()) {
       if (this.grounded && !invulnerable) {

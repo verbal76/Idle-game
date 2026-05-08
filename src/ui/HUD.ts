@@ -6,8 +6,12 @@ export interface HUDRefs {
   settingsOverlay: HTMLElement;
   leftBtn: HTMLElement;
   rightBtn: HTMLElement;
+  upBtn: HTMLElement;
   jumpBtn: HTMLElement;
   flipBtn: HTMLElement;
+  comboBar: HTMLElement;
+  comboMult: HTMLElement;
+  comboCount: HTMLElement;
   pauseMenu: HTMLElement;
   resumeBtn: HTMLButtonElement;
   switchBtn: HTMLButtonElement;
@@ -25,9 +29,16 @@ export function buildHUD(root: HTMLElement): HUDRefs {
         <button class="gear-btn" id="hud-settings" aria-label="Settings">⚙</button>
         <button class="pause-btn" id="pause">II</button>
       </div>
+      <div class="combo-bar" id="combo-bar" style="display:none">
+        <span class="combo-mult" id="combo-mult">×1.0</span>
+        <span class="combo-count" id="combo-count">1 chain</span>
+      </div>
       <div class="dpad-left">
-        <button class="dpad-btn left" id="dpad-left">◀</button>
-        <button class="dpad-btn right" id="dpad-right">▶</button>
+        <button class="dpad-btn up" id="dpad-up" aria-label="Straighten">▲</button>
+        <div class="dpad-row">
+          <button class="dpad-btn left" id="dpad-left">◀</button>
+          <button class="dpad-btn right" id="dpad-right">▶</button>
+        </div>
       </div>
       <div class="actions-right">
         <button class="action-btn flip" id="flip">FLIP</button>
@@ -59,8 +70,12 @@ export function buildHUD(root: HTMLElement): HUDRefs {
     settingsOverlay: root.querySelector<HTMLElement>('#settings-overlay')!,
     leftBtn:         root.querySelector<HTMLElement>('#dpad-left')!,
     rightBtn:        root.querySelector<HTMLElement>('#dpad-right')!,
+    upBtn:           root.querySelector<HTMLElement>('#dpad-up')!,
     jumpBtn:         root.querySelector<HTMLElement>('#jump')!,
     flipBtn:         root.querySelector<HTMLElement>('#flip')!,
+    comboBar:        root.querySelector<HTMLElement>('#combo-bar')!,
+    comboMult:       root.querySelector<HTMLElement>('#combo-mult')!,
+    comboCount:      root.querySelector<HTMLElement>('#combo-count')!,
     pauseMenu:       root.querySelector<HTMLElement>('#pause-menu')!,
     resumeBtn:       root.querySelector<HTMLButtonElement>('#resume')!,
     switchBtn:       root.querySelector<HTMLButtonElement>('#switch-style')!,

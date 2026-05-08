@@ -1,6 +1,6 @@
 export interface StickValue { x: number; y: number }
 
-type Side = 'left' | 'right';
+type Side = 'left' | 'right' | 'up';
 interface Bound {
   el: HTMLElement;
   onDown: (e: PointerEvent) => void;
@@ -8,21 +8,24 @@ interface Bound {
 }
 
 /**
- * Two-button D-pad replacement for the analog stick. Holding LEFT sets
- * left.x = -1, holding RIGHT sets left.x = +1, otherwise 0. Conforms to
- * the same .left.x contract Game reads via the leftStick() callback so
- * the rest of the game doesn't change.
+ * Three-button D-pad replacement for the analog stick. LEFT/RIGHT drive
+ * left.x = ±1 same as before; UP is exposed as a separate `upHeld` flag
+ * for callers that want a "pull out of a turn" shortcut without coupling
+ * it to the stick value (the carve / spin code still reads stick-X to
+ * decide direction, and folding UP into stick-Y would break that).
  */
 export class ArrowPadInput {
   readonly left: StickValue = { x: 0, y: 0 };
   readonly right: StickValue = { x: 0, y: 0 };
+  upHeld = false;
   private leftHeld = false;
   private rightHeld = false;
   private bindings: Bound[] = [];
 
-  constructor(leftEl: HTMLElement, rightEl: HTMLElement) {
+  constructor(leftEl: HTMLElement, rightEl: HTMLElement, upEl?: HTMLElement) {
     this.bindings.push(this.bind(leftEl, 'left'));
     this.bindings.push(this.bind(rightEl, 'right'));
+    if (upEl) this.bindings.push(this.bind(upEl, 'up'));
   }
 
   detach(): void {
@@ -42,14 +45,18 @@ export class ArrowPadInput {
       activeId = e.pointerId;
       el.setPointerCapture(e.pointerId);
       el.classList.add('pressed');
-      if (side === 'left') this.leftHeld = true; else this.rightHeld = true;
+      if (side === 'left') this.leftHeld = true;
+      else if (side === 'right') this.rightHeld = true;
+      else this.upHeld = true;
       this.recompute();
     };
     const onUp = (e: PointerEvent) => {
       if (e.pointerId !== activeId) return;
       activeId = null;
       el.classList.remove('pressed');
-      if (side === 'left') this.leftHeld = false; else this.rightHeld = false;
+      if (side === 'left') this.leftHeld = false;
+      else if (side === 'right') this.rightHeld = false;
+      else this.upHeld = false;
       this.recompute();
     };
     el.addEventListener('pointerdown', onDown);
