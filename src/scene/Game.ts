@@ -883,12 +883,12 @@ export class Game {
     anchor.scaling.set(sxz, sy, sxz);
     // Yaw aligns slant with rider direction; pitch matches the snow
     // surface tilt so the ramp's base sits flat on the angled slope
-    // instead of standing perpendicular to world Y. +π/2 around Y
-    // (was -π/2) — Babylon's left-handed rotation convention puts
-    // the slant low end at world -Z and the high end at world +Z
-    // with this sign, so the rider approaches the low side and
-    // launches off the high side.
-    anchor.rotation.y = Math.PI / 2;
+    // instead of standing perpendicular to world Y. Babylon's
+    // Matrix.RotationY uses the standard formula (1,0,0) →
+    // (cos θ, 0, -sin θ), so rotation.y = -π/2 sends OBJ +X (slant
+    // high) to world +Z (downhill / launch). Rider approaches the
+    // low side at -Z and launches off the high side at +Z.
+    anchor.rotation.y = -Math.PI / 2;
     anchor.rotation.x = slopeTilt;
     const out: AbstractMesh[] = [];
     for (const sub of [this.rampTemplate.concrete, this.rampTemplate.metal, this.rampTemplate.roof]) {
