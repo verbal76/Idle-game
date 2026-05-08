@@ -1,4 +1,5 @@
 import { BUILD_INFO } from '../__generated__/build-info';
+import { BUILD_VERSION, OTA_VERSION } from '../version';
 
 interface OtaInfo {
   updateId: string | null;
@@ -45,6 +46,8 @@ function buildText(ota: OtaInfo): string {
   // panel; pasted into a bug report this is enough to identify the
   // exact build a user is on.
   return [
+    `build:         ${BUILD_VERSION}`,
+    `ota:           ${OTA_VERSION}`,
     `branch:        ${BUILD_INFO.branch}${BUILD_INFO.dirty ? ' (dirty)' : ''}`,
     `commit:        ${BUILD_INFO.commit}`,
     `built:         ${BUILD_INFO.builtAt}`,
@@ -73,6 +76,8 @@ export function showAbout(root: HTMLElement): Promise<void> {
           <h1>About</h1>
           <p class="muted">Build identification</p>
           <div class="about-list">
+            ${row('Build', BUILD_VERSION)}
+            ${row('OTA', OTA_VERSION)}
             ${row('Branch', BUILD_INFO.branch + (BUILD_INFO.dirty ? ' ⚠ dirty' : ''))}
             ${row('Commit', BUILD_INFO.commitShort, true)}
             ${row('Full SHA', BUILD_INFO.commit, true)}
