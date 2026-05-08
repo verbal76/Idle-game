@@ -162,6 +162,12 @@ async function runSession(
       forwardHeld: () => dpad.upHeld,
     }, {
       onScore: (label) => { hud.score.textContent = label; },
+      onComboChange: (count, mult) => {
+        if (count <= 0) { hud.comboBar.style.display = 'none'; return; }
+        hud.comboBar.style.display = 'flex';
+        hud.comboMult.textContent = `×${mult.toFixed(1)}`;
+        hud.comboCount.textContent = `${count} chain`;
+      },
       // onFell only paints the overlay. Currency is credited in finish()
       // below — that way Quit and Switch Style also keep what you earned.
       onFell: (stats) => {
