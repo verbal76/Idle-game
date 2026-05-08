@@ -8,14 +8,19 @@
     "backgroundColor": "#0b1320",
     "userInterfaceStyle": "dark",
     "platforms": ["android"],
+    "icon": "./assets/icon.png",
     "splash": {
       "backgroundColor": "#0b1320",
       "resizeMode": "contain"
     },
     "android": {
       "package": "com.hotatticgames.snow",
-      "versionCode": 3,
+      "versionCode": 4,
       "backgroundColor": "#0b1320",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0b1320"
+      },
       "splash": {
         "backgroundColor": "#0b1320",
         "resizeMode": "contain"
