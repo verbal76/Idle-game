@@ -178,10 +178,15 @@ export class Game {
   private readonly halfPipeSlopeRad = 0.40;  // ~23° — pipe descends visibly
   private cliffs = new Map<number, number>();
 
-  private readonly HP_PIPE_HALF = 9.0;          // distance from centerline to lip (= HP_PIPE_WIDTH / 2)
-  private readonly HP_FLAT_HALF = 5.0;          // flat floor zone before transition
-  private readonly HP_PIPE_RADIUS = 4.0;        // = HP_PIPE_HALF - HP_FLAT_HALF
-  private readonly HP_LIP_HEIGHT = 0.6;         // small vertical lip at the top
+  // Halfpipe geometry. Bumped wider + deeper per user request:
+  // pipe 18 m → 24 m wide, transition curve 4 m → 6 m radius (so the
+  // walls peak 6 m above the trough), flat trough 10 m → 12 m. Lip
+  // height up a touch so the visible curl over the top still reads
+  // at the new bigger scale.
+  private readonly HP_PIPE_HALF = 12.0;         // distance from centerline to lip (= HP_PIPE_WIDTH / 2)
+  private readonly HP_FLAT_HALF = 6.0;          // flat floor zone before transition
+  private readonly HP_PIPE_RADIUS = 6.0;        // = HP_PIPE_HALF - HP_FLAT_HALF
+  private readonly HP_LIP_HEIGHT = 0.8;         // small vertical lip at the top
   private readonly HP_CONTEXT_WIDTH = 220;
   // Lip-light geometry. Poles sit 1.5 m back from the lip (x=±10.5)
   // so they're clear of the rider's bounce line at x=±9, and rise 5 m
