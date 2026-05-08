@@ -1,4 +1,8 @@
 import './style.css';
+// Side-effect import: starts the rotating debug log + console.error
+// capture before anything else runs, so a JS error during the rest
+// of bootstrap is included in the next bug report.
+import './util/debug';
 import { IndexedDbStore } from './profiles/IndexedDbStore';
 import { ProfileService } from './profiles/ProfileService';
 import { showProfileSelect } from './ui/ProfileSelect';
