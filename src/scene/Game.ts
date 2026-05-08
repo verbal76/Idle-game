@@ -1774,13 +1774,19 @@ export class Game {
         // Ring target at the kicker's expected jump apex. For a
         // power=7.5 launch, peak height ≈ vy²/(2g) ≈ 2.87 m above
         // the ramp top, and forward distance at the typical 30 m/s
-        // rider speed is ≈ 23 m. Place the ring slightly past peak
-        // (z+25) so the rider has to commit to the air time before
-        // collecting it. Stored in chunk.rings; tick checks distance.
+        // rider speed is ≈ 23 m. The previous z+22 placement assumed
+        // the rider was already at terminal halfpipe speed AND
+        // perfectly centred on the kicker; user feedback said only
+        // one ring out of many got collected. Pulled in to z+12 so
+        // the ring sits closer to the launch arc itself — collectable
+        // even at slower rider speeds (the apex moves closer to the
+        // kicker as forward velocity drops). Y also dropped 0.5 m
+        // because the actual peak's a hair lower than the analytic
+        // value once the slope-tilt of the ramp launch is folded in.
         const kickerTopY = this.surfaceY(ox, lz) + 2.81; // ramp height for w=8
         const ringX = ox;
-        const ringY = kickerTopY + 2.87;
-        const ringZ = lz + 22;
+        const ringY = kickerTopY + 2.4;
+        const ringZ = lz + 12;
         const ring = this.hpRingTemplate.createInstance(`hp-ring-${cz}`);
         // Rings live in world space (no parent) so the rider's
         // world-position distance check works directly.
@@ -1800,12 +1806,15 @@ export class Game {
         const stripZ = oz + this.rng.rangeFloat(-half + 6, half - 6);
         const boostBaseY = this.surfaceY(ox, stripZ);
         const boost = this.hpBoostTemplate.createInstance(`hp-boost-${cz}`);
-        // Boost strips are also outside the frame because their
-        // detection uses world coords directly and they don't need
-        // to perfectly tilt with the slope (4 m long × 6 m wide is
-        // small enough that the slope tilt is a 3 cm rise corner-to-
-        // corner, invisible).
+        // Earlier comment claimed the corner-to-corner rise across a
+        // 4 m strip was "3 cm, invisible" — that math was wrong. At
+        // halfPipeSlopeRad=0.40 the rise is 4·tan(0.40) ≈ 1.7 m, so
+        // a horizontal strip would stick 1.7 m above the trough at
+        // one end and sink below at the other (rider clips through).
+        // Tilting the mesh by activeSlope around X lays it flat on
+        // the tilted trough.
         boost.position.set(ox, boostBaseY + 0.04, stripZ);
+        boost.rotation.x = this.activeSlope;
         features.push(boost);
         boosts.push({ x: ox, z: stripZ, halfX: 3.0, halfZ: 2.0 });
       }
@@ -2051,7 +2060,12 @@ export class Game {
     // (set by the strip-detect loop further down), targetSpeed gets a
     // 1.3× kick so the rider visibly accelerates over the strip.
     const boostActive = performance.now() < this.boostUntil;
-    const boostMult = boostActive ? 1.3 : 1.0;
+    // 1.5× multiplier (was 1.3×). User reported boost strips "didn't
+    // do anything" — between the gradual lerp catchup and the brief
+    // 800 ms duration, the previous 1.3× was too subtle to feel.
+    // Bumped to 1.5× and the duration is now 1200 ms (set in
+    // checkInteractions).
+    const boostMult = boostActive ? 1.5 : 1.0;
     const targetSpeed = this.maxSpeed * (0.5 + 0.5 * cosH * cosH) * boostMult;
     if (this.grounded) {
       const brake = Math.abs(sinH);
@@ -2446,7 +2460,12 @@ export class Game {
             const dx = r.x - ring.x;
             const dy = r.y - ring.y;
             const dz = r.z - ring.z;
-            if (dx * dx + dy * dy + dz * dz < 4.0) {
+            // 3 m collection radius (was 2 m). The torus is 3 m
+            // diameter and the rider is moving fast on this axis;
+            // 2 m only collected on a near-perfect-trajectory pass,
+            // which made the rings feel broken (user reported only
+            // collecting one out of many).
+            if (dx * dx + dy * dy + dz * dz < 9.0) {
               ring.collected = true;
               ring.mesh.isVisible = false;
               // Bonus 3 snowflakes scaled by the current combo
@@ -2458,8 +2477,15 @@ export class Game {
         }
         if (chunk.boosts) {
           for (const b of chunk.boosts) {
-            if (Math.abs(r.x - b.x) < b.halfX && Math.abs(r.z - b.z) < b.halfZ) {
-              this.boostUntil = performance.now() + 800;
+            // Grounded gate: the boost should only fire when the
+            // rider is actually on the strip, not when they're
+            // airborne above it after a kicker launch. Without this,
+            // a kicker placed just before a boost strip would award
+            // the boost mid-flight and feel arbitrary.
+            if (this.grounded
+              && Math.abs(r.x - b.x) < b.halfX
+              && Math.abs(r.z - b.z) < b.halfZ) {
+              this.boostUntil = performance.now() + 1200;
             }
           }
         }
