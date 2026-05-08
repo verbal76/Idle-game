@@ -282,10 +282,6 @@ export class Game {
   private readonly BURST_MS = 180;
   private readonly BURST_EMIT = 800;
 
-  // Edge-detect for jump-to-eject. Used to be the grind eject trigger;
-  // kept around because the regular jump charge code reads it on the
-  // rising edge.
-  private prevJumpHeld = false;
   // Edge-detect for the UP arrow ("deep lean") so we can fire a one-
   // shot instant lean-toward-target kick on the rising edge instead
   // of waiting for the per-frame lerp to ramp up.
