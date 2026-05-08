@@ -30,17 +30,19 @@ export function buildHUD(root: HTMLElement): HUDRefs {
     <div id="hud">
       <div class="top-bar">
         <span class="score" id="score">0 m</span>
-        <button class="gear-btn" id="hud-settings" aria-label="Settings">⚙</button>
-        <button class="pause-btn" id="pause">II</button>
+        <div class="ring-widget" id="ring-widget" style="display:none">
+          <span class="ring-icon">◯</span>
+          <span class="ring-streak" id="ring-streak">0</span>
+          <span class="ring-best" id="ring-best">best 0</span>
+        </div>
+        <div class="top-actions">
+          <button class="gear-btn" id="hud-settings" aria-label="Settings">⚙</button>
+          <button class="pause-btn" id="pause">II</button>
+        </div>
       </div>
       <div class="combo-bar" id="combo-bar" style="display:none">
         <span class="combo-mult" id="combo-mult">×1.0</span>
         <span class="combo-count" id="combo-count">1 chain</span>
-      </div>
-      <div class="ring-widget" id="ring-widget" style="display:none">
-        <span class="ring-icon">◯</span>
-        <span class="ring-streak" id="ring-streak">0</span>
-        <span class="ring-best" id="ring-best">best 0</span>
       </div>
       <div id="halfpipe-intro" class="fullscreen-panel halfpipe-intro" style="display:none">
         <div class="halfpipe-intro-card">

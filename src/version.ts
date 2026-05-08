@@ -19,5 +19,5 @@
 // alongside the existing commit/built/runtime fields, so a paste
 // in a bug report identifies the exact build the user is on.
 
-export const BUILD_VERSION = 'build #1 - path-routed workflow setup';
-export const OTA_VERSION   = 'OTA #9   - ring streak + sounds + halfpipe intro + 2x boost';
+export const BUILD_VERSION = 'build #2 - rename: Where''s the Bottom?';
+export const OTA_VERSION   = 'OTA #10  - rename + whimsical names + ring flicker + widget atop';
