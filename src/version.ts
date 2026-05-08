@@ -20,4 +20,4 @@
 // in a bug report identifies the exact build the user is on.
 
 export const BUILD_VERSION = "build #2 - rename: Where's the Bottom?";
-export const OTA_VERSION   = 'OTA #13  - 20 upgrade levels with linear +2 cost ramp';
+export const OTA_VERSION   = 'OTA #14  - bug report + feature request buttons in settings';

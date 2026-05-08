@@ -1,6 +1,7 @@
 import { MusicPlayer } from '../audio/MusicPlayer';
 import { ProfileService } from '../profiles/ProfileService';
 import { showAbout } from './About';
+import { openBugReport, openFeatureRequest } from '../util/bugReport';
 
 // State machine for the OTA update flow. Native side posts these via
 // CustomEvent('update-status'); the Settings panel listens and updates
@@ -60,6 +61,8 @@ export function showSettings(
             <button id="updates-check">Check for updates</button>
             <p class="muted" id="updates-status"></p>
             <button id="settings-about">About / Build info</button>
+            <button id="settings-bug">🐞 Send bug report</button>
+            <button id="settings-feature">💡 Send feature request</button>
             <button id="settings-back">Back</button>
           </div>
         </div>
@@ -130,6 +133,12 @@ export function showSettings(
       root.querySelector<HTMLButtonElement>('#settings-about')!.addEventListener('click', async () => {
         await showAbout(root);
         render();
+      });
+      root.querySelector<HTMLButtonElement>('#settings-bug')!.addEventListener('click', () => {
+        openBugReport();
+      });
+      root.querySelector<HTMLButtonElement>('#settings-feature')!.addEventListener('click', () => {
+        openFeatureRequest();
       });
       root.querySelector<HTMLButtonElement>('#settings-back')!.addEventListener('click', () => {
         flushSave();
