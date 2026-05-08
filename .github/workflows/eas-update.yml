@@ -42,8 +42,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: npm install -g eas-cli
-      - run: npm install
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
       - run: npm run web:build
         env:
           NODE_ENV: production
@@ -52,10 +52,12 @@ jobs:
         # channel "preview" (declared in eas.json's preview build profile)
         # picks up the update on the installed APK. Message is the head
         # commit subject so the EAS dashboard correlates updates with
-        # specific commits.
+        # specific commits. npx eas-cli@latest skips the global install
+        # step entirely (was ~25 s); cache: 'npm' on setup-node makes
+        # npm ci a cache hit on the second push onward (~60 s saved).
         run: |
           MSG="$(git log -1 --pretty=%s | head -c 100)"
-          eas update \
+          npx eas-cli@latest update \
             --branch preview \
             --platform android \
             --non-interactive \

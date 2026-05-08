@@ -1,0 +1,37 @@
+name: CI
+
+# Runs the same web:build step EAS runs in its post-install hook,
+# but BEFORE merge so a TS error or vite failure blocks the auto-
+# merge instead of breaking the OTA pipeline post-merge (the way
+# the prevJumpHeld unused-locals error did on PR #42 → #43).
+#
+# To make this an actual gate: GitHub repo Settings → Branch rules →
+# main → Add rule → "Require status checks to pass" → tick the
+# "build" job from this workflow. Once required, GitHub's auto-merge
+# waits for it to go green before firing.
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npm run web:build
+        env:
+          NODE_ENV: production
