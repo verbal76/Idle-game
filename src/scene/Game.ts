@@ -188,7 +188,17 @@ export class Game {
   // drops by more than CLIFF_STEP_M between frames, the rider is going
   // off a lip and gravity should take over instead of zeroing vy.
   private prevGroundLevel: number | null = null;
+  // Whether the previous grounded frame was on the V-wall (|x| > wallFootX).
+  // Used to suppress cliff-detect across the wall↔floor boundary, where
+  // the surface Y can step several metres without it being a real cliff.
+  private prevWasOnWall = false;
   private readonly CLIFF_STEP_M = 1.0;
+  // Lateral velocity from wall return-to-centre gravity. Persisted
+  // across frames so the inward force builds up speed as the rider
+  // sits on the wall, instead of evaporating per frame the way a
+  // dt² position nudge does. Reset to 0 whenever the rider is on the
+  // floor (|x| ≤ wallFootX) so it doesn't bleed into normal carving.
+  private wallReturnVel = 0;
   private jumpCharge = 0;
   // Last value reported via onChargeChange — prevents per-frame DOM
   // updates while charge sits at zero (idle riding) or at 1 (max held).
@@ -469,7 +479,17 @@ export class Game {
     if (ax <= this.wallFootX) {
       return baseY + this.terrainNoise(x, z);
     }
-    return baseY + (ax - this.wallFootX) * this.wallRise;
+    // Wall surface rises wallRise per metre outward, but the wall
+    // mesh is parented to a frame rotated by `slope` around X. Working
+    // through the geometry: a wall vertex at segment-local (xL, yL)
+    // with yL = wallRise·|xL+300| ends up at world-Y of
+    // wallRise·|xL+300| / cos(slope) once the X rotation is applied.
+    // For typical slope 0.35 rad that's a 6% correction; on the
+    // steepest 0.595-rad segments it's 21%, which would otherwise
+    // park the rider's collision Y up to 5 m below the visible wall
+    // surface at high climbs.
+    const slopeForWall = seg ? seg.slope : this.slopeRad;
+    return baseY + (ax - this.wallFootX) * this.wallRise / Math.cos(slopeForWall);
   }
 
   // U-shaped half-pipe cross-section: flat in the middle, quarter-arc up each side.
@@ -795,8 +815,14 @@ export class Game {
     // origin (0,0,0) and its front edge at (0,0,meshHeight).
     // Subdivisions bumped from 2 → 40 so we have ~3 m vertex spacing in
     // both directions, fine enough to render the terrainNoise rolls.
+    // updatable: true is required for updateVerticesData below to
+    // actually push the displaced positions to the GPU — without it
+    // Babylon silently no-ops the update and the mesh renders flat
+    // while the rider's collision still tracks the noise (visible as
+    // a phantom bounce when the camera follows the bobbing rider over
+    // an apparently flat floor).
     const floor = MeshBuilder.CreateGround(`seg-floor-${segStartZ.toFixed(0)}`, {
-      width: 600, height: meshHeight, subdivisions: 40
+      width: 600, height: meshHeight, subdivisions: 40, updatable: true
     }, this.scene);
     floor.material = this.snowMat;
     floor.parent = frame;
@@ -804,11 +830,13 @@ export class Game {
 
     // Displace each floor vertex's local Y by terrainNoise(worldX, worldZ)
     // so the snow surface gets bumps / dips matching what surfaceY returns
-    // for the rider's collision. The floor is parented to a tilted frame:
-    // a noise of N applied as local Y becomes ~N*cos(slope) of world-Y
-    // change after the frame's rotation.x = slope. To keep the visible
-    // surface aligned with surfaceY's added noise, the local-Y push has
-    // to be N*cos(slope) so world-Y ends up changing by exactly N.
+    // for the rider's collision. The floor is parented to a tilted frame
+    // with rotation.x = slope, so a local-Y push of N becomes a world-Y
+    // change of N*cos(slope) after the rotation. To get a world-Y change
+    // of exactly noise(x,z) (which is what surfaceY adds for collision),
+    // the local-Y push has to be noise / cos(slope). The original commit
+    // had this multiplied instead of divided — visual bumps were ~85%
+    // of the rider's felt bumps.
     // Walls at |x|>300 stay flat — noise is zeroed there so the wall
     // mesh transition isn't ragged.
     const positions = floor.getVerticesData(VertexBuffer.PositionKind)!;
@@ -823,7 +851,7 @@ export class Game {
       const wx = lx;
       const wz = segStartZ + (lz + meshHeight / 2) * cosSlope;
       const noise = (Math.abs(wx) <= this.wallFootX) ? this.terrainNoise(wx, wz) : 0;
-      positions[i + 1] = noise * cosSlope;
+      positions[i + 1] = noise / cosSlope;
     }
     floor.updateVerticesData(VertexBuffer.PositionKind, positions);
     const normals: number[] = [];
@@ -1245,15 +1273,20 @@ export class Game {
     // of the drop. Blue-tinted snow color so it reads as ice/lip against
     // the warm dusk and the white-snow surface — the rider sees the edge
     // line approaching, not a wall.
-    if (this.cliffs.has(cz)) {
+    // Cornice stripe: only spawn one per cliff (on the centre column),
+    // spanning the full valley width. With viewSide=4 this used to
+    // generate 9 separate 80 m stripes per cliff cz — they tiled, but
+    // each was its own mesh and the upperY sample at side-chunk ox
+    // values would catch the wall climb when the rider was off-centre.
+    if (cx === 0 && this.cliffs.has(cz)) {
       const drop = this.cliffs.get(cz)!;
       const boundaryZ = cz * this.chunkSize;
-      const upperY = this.surfaceY(ox, boundaryZ - 0.5);
-      const stripe = MeshBuilder.CreateBox(`cliff-edge-${cx}-${cz}`, {
-        width: this.chunkSize, height: 0.4, depth: 0.5
+      const upperY = this.surfaceY(0, boundaryZ - 0.5);
+      const stripe = MeshBuilder.CreateBox(`cliff-edge-${cz}`, {
+        width: 600, height: 0.4, depth: 0.5
       }, this.scene);
       stripe.material = this.cliffMat;
-      stripe.position.set(ox, upperY + 0.2, boundaryZ - 0.1);
+      stripe.position.set(0, upperY + 0.2, boundaryZ - 0.1);
       features.push(stripe);
       void drop;
     }
@@ -1277,15 +1310,26 @@ export class Game {
     const absOx = Math.abs(ox);
     const inCentralKickerBand = (absOx >= 40 && absOx <= 200);
     const inWallTentBand = (absOx >= 200 && absOx <= this.wallFootX);
+    // Per-chunk lx range, clamped to the floor band so decorations in
+    // edge chunks (cx=±3 / ±4) don't spawn on the tilted wall surface
+    // — they'd anchor at surfaceY which now climbs the wall, end up
+    // standing vertically on a 37° slope, and read as floating sideways
+    // out of the wall. floorLxMin / floorLxMax are the usable lx range
+    // for this chunk; if they collapse (chunk entirely past wall foot,
+    // i.e. cx=±4) all decoration loops below skip.
+    const floorMargin = 2;
+    const floorLxMin = Math.max(ox - half + floorMargin, -this.wallFootX + floorMargin);
+    const floorLxMax = Math.min(ox + half - floorMargin,  this.wallFootX - floorMargin);
+    const chunkOnFloor = floorLxMax > floorLxMin;
 
-    if (allowObstacles) {
+    if (allowObstacles && chunkOnFloor) {
       // Per-chunk density tuned for 9 active chunks per Z slice (was 1).
       // Counts roughly halved so total visible decoration density is
       // ~4-5x the single-column original — fills the valley without
       // becoming a forest.
       const rockCount = this.rng.rangeInt(0, 2);
       for (let i = 0; i < rockCount; i++) {
-        const lx = ox + this.rng.rangeFloat(-half + 2, half - 2);
+        const lx = this.rng.rangeFloat(floorLxMin, floorLxMax);
         const lz = oz + this.rng.rangeFloat(-half + 2, half - 2);
         const rockBaseY = this.surfaceY(lx, lz);
         // Pick a random Kenney rock variant (large set: largeB,
@@ -1302,7 +1346,7 @@ export class Game {
 
       const treeCount = this.rng.rangeInt(0, 3);
       for (let i = 0; i < treeCount; i++) {
-        const lx = ox + this.rng.rangeFloat(-half + 3, half - 3);
+        const lx = this.rng.rangeFloat(floorLxMin, floorLxMax);
         const lz = oz + this.rng.rangeFloat(-half + 3, half - 3);
         const scale = 0.9 + this.rng.next01() * 0.7;
         features.push(...this.spawnTree(lx, lz, scale, `${cx}-${cz}-pf-${i}`));
@@ -1312,11 +1356,14 @@ export class Game {
       const clusters = this.rng.rangeInt(1, 3);
       for (let i = 0; i < clusters; i++) {
         const side = this.rng.next01() < 0.5 ? -1 : 1;
-        const baseX = ox + side * (half - this.rng.rangeFloat(0, 2));
+        // Cluster anchor at chunk edge but clamped to the floor band so
+        // edge-chunk clusters don't anchor on the wall surface.
+        const rawBaseX = ox + side * (half - this.rng.rangeFloat(0, 2));
+        const baseX = Math.max(floorLxMin, Math.min(floorLxMax, rawBaseX));
         const baseZ = oz + this.rng.rangeFloat(-half, half);
         const inCluster = this.rng.rangeInt(2, 5);
         for (let t = 0; t < inCluster; t++) {
-          const tx = baseX + this.rng.rangeFloat(-3, 3);
+          const tx = Math.max(floorLxMin, Math.min(floorLxMax, baseX + this.rng.rangeFloat(-3, 3)));
           const tz = baseZ + this.rng.rangeFloat(-3, 3);
           const scale = 1.0 + this.rng.next01() * 0.9;
           features.push(...this.spawnTree(tx, tz, scale, `${cx}-${cz}-edge-${i}-${t}`));
@@ -1330,7 +1377,7 @@ export class Game {
         const kickerRoll = this.rng.next01();
         if (kickerRoll < 0.55) {
           const isMega = kickerRoll < 0.10;
-          const lx = ox + this.rng.rangeFloat(-half + 4, half - 4);
+          const lx = this.rng.rangeFloat(floorLxMin, floorLxMax);
           const lz = oz + this.rng.rangeFloat(-half + 4, half - 4);
           // Width drives the Kenney ramp's spawn-time scale + the
           // collision hit-box. Mega ramp = bigger launch power.
@@ -1382,7 +1429,7 @@ export class Game {
       // there so the wall-side chunks regularly get one.
       const wantTent = inWallTentBand && this.rng.next01() < 0.25;
       const placeProp = (template: { mesh: Mesh; radius: number }, kind: string): void => {
-        const lx = ox + this.rng.rangeFloat(-half + 4, half - 4);
+        const lx = this.rng.rangeFloat(floorLxMin, floorLxMax);
         const lz = oz + this.rng.rangeFloat(-half + 4, half - 4);
         const baseY = this.surfaceY(lx, lz);
         const inst = template.mesh.createInstance(`${kind}-${cx}-${cz}`);
@@ -1399,7 +1446,7 @@ export class Game {
       // (was 5–10) since 9 chunks now contribute.
       const flowerCount = this.rng.rangeInt(2, 5);
       for (let i = 0; i < flowerCount; i++) {
-        const lx = ox + this.rng.rangeFloat(-half + 1, half - 1);
+        const lx = this.rng.rangeFloat(floorLxMin, floorLxMax);
         const lz = oz + this.rng.rangeFloat(-half + 1, half - 1);
         const variant = this.flowerTemplates[this.rng.rangeInt(0, this.flowerTemplates.length)];
         const flower = variant.createInstance(`flower-${cx}-${cz}-${i}`);
@@ -1881,22 +1928,29 @@ export class Game {
 
       // Wall gravity: when the rider has climbed past the wall foot,
       // gravity's lateral projection on the wall surface pulls them
-      // back toward x=0. For our wallRise=0.760, that lateral
-      // acceleration is g·wallRise²/(1+wallRise²) ≈ 3.6 m/s². Without
-      // this the rider would float at whatever height their carve
-      // momentum got them to and never come back down. The position
-      // nudge is half-damped near the wall foot (factor = depth/80)
-      // so a quick clip onto the wall doesn't snap the rider back —
-      // they only feel the strong return-to-centre once they've
-      // committed several metres up.
+      // back toward x=0. For a slope dy/dx = m, that horizontal force
+      // is g·sin(θ)·cos(θ) = g·m/(1+m²). With wallRise=0.760 that's
+      // ≈4.7 m/s² of inward acceleration. We integrate it into a
+      // persisted wallReturnVel so the speed builds up over time
+      // (the previous commit applied a*dt² to position directly,
+      // which gave ~0.0005 m per frame — effectively zero return
+      // force). When the rider is back on the floor we reset the
+      // velocity so it doesn't bleed into normal carving.
       const ax = Math.abs(this.rider.root.position.x);
       if (this.grounded && ax > this.wallFootX) {
         const wallDepth = ax - this.wallFootX;
-        const lateralAccel = 9.8 * this.wallRise * this.wallRise
+        const lateralAccel = 9.8 * this.wallRise
           / (1 + this.wallRise * this.wallRise);
         const dir = this.rider.root.position.x > 0 ? -1 : +1;
+        // Damped near the wall foot (factor = depth/80, capped at 1)
+        // so a glance off the floor edge doesn't immediately snap the
+        // rider back — they only feel the full pull once they've
+        // committed several metres up the wall.
         const factor = Math.min(1, wallDepth / 80);
-        this.rider.root.position.x += dir * lateralAccel * factor * 0.5 * dt * dt;
+        this.wallReturnVel += dir * lateralAccel * factor * dt;
+        this.rider.root.position.x += this.wallReturnVel * dt;
+      } else {
+        this.wallReturnVel = 0;
       }
     }
 
@@ -1909,7 +1963,16 @@ export class Game {
       // take over from their current Y so they arc off naturally
       // instead of snapping to the lower surface (which would put
       // them on phantom ground beneath the visible cliff face).
-      const droppedOffCliff = this.prevGroundLevel !== null
+      // BUT: skip cliff-detect when the rider is on the wall (or just
+      // came off it). Wall surfaceY drops up to 0.76 m per metre of
+      // X movement, which at high lateral speed + 60 fps can exceed
+      // CLIFF_STEP_M and falsely fire the cliff path. Same when
+      // crossing back from wall to floor: the wall's Y can be many
+      // metres above the floor's, and that's a normal slide-down,
+      // not a cliff.
+      const onWall = Math.abs(this.rider.root.position.x) > this.wallFootX;
+      const droppedOffCliff = !onWall && !this.prevWasOnWall
+        && this.prevGroundLevel !== null
         && (this.prevGroundLevel - groundLevel) > this.CLIFF_STEP_M;
       if (droppedOffCliff) {
         this.grounded = false;
@@ -1926,10 +1989,12 @@ export class Game {
         this.rider.root.position.y = groundLevel;
       }
       this.prevGroundLevel = groundLevel;
+      this.prevWasOnWall = Math.abs(this.rider.root.position.x) > this.wallFootX;
     } else {
       // Reset the cliff-detect baseline whenever airborne so the next
       // landing doesn't compare against a stale grounded sample.
       this.prevGroundLevel = null;
+      this.prevWasOnWall = false;
     }
 
     this.checkInteractions();
