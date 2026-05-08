@@ -1,55 +1,41 @@
-name: EAS Build (Android APK)
+name: APK Build (GitHub-hosted)
 
-# Local-build mode for the Github-APK-Transition branch + main once
-# this lands. Replaces `eas build --no-wait` (cloud build, costs an
-# EAS credit) with `eas build --local` (full Gradle / Metro /
-# prebuild / signing on this Ubuntu runner). Costs zero EAS credits;
-# uses GitHub Actions free-tier minutes (Ubuntu = cheap, ~35 min
-# per build).
+# GitHub-hosted Gradle build for snow. Replaces the previous
+# `eas build --local` approach (which kept failing on prebuild
+# / icon path / expo-doctor) with the same recipe that already
+# produces working APKs for the endless-escape sister project:
+# run `expo prebuild` on the runner, build with Gradle, sign
+# with the Expo-template debug keystore, publish to a GitHub
+# Release.
 #
-# The signing keystore is still fetched from EAS's credential
-# service via EXPO_TOKEN — same key that signs cloud builds, so the
-# resulting APK installs as an UPDATE on existing testers'
-# devices (same package + same key = Android update flow, all
-# profile / IndexedDB / localStorage data preserved).
+# Why assembleRelease (not assembleDebug): release builds bake
+# the JS bundle into the APK and disable Metro/dev-server
+# lookup, so the APK runs fully standalone. assembleDebug would
+# still try to fetch JS from `npx expo start` at runtime and
+# show a red error screen when no Metro is reachable.
 #
-# Triggers:
-#   - workflow_dispatch (manual, with profile picker) — primary path
-#     while testing this branch. Fire from the Actions tab on phone
-#     or web.
-#   - push to main + native-touching paths — auto-fires once merged,
-#     same path-routing as before.
-#   - push to Github-APK-Transition-snow — test-fire branch, lets
-#     Claude trigger builds via workflow-file edit + push without
-#     needing real GitHub API access.
+# Keystore note: the Expo template's debug keystore signs the
+# release APK. This is a DIFFERENT key from the EAS-managed
+# keystore that signed previous cloud builds, so existing
+# testers must UNINSTALL their current build before installing
+# the first APK from this workflow (Android update flow rejects
+# a different signature). Profile / IndexedDB / localStorage
+# data is lost on that one-time reinstall — accepted trade-off
+# for getting a working build pipeline. Subsequent debug-keystore
+# APKs install as normal updates and preserve data.
 #
-# APK output:
-#   - Uploaded as a GitHub Actions artifact named
-#     "where-is-the-bottom-<profile>-<runNumber>". Retention 30 days.
-#   - Download via mobile GitHub app: repo → Actions → run →
-#     Artifacts. Or via web at the same path.
-#   - For tester distribution later we can switch to GitHub Release
-#     (stable URL, no auth juggling). Artifact is fine for the
-#     first test-fire run.
+# OTA updates flow through eas-update.yml unchanged. EAS Update
+# matches on project ID + runtimeVersion + channel, not signing
+# key, so OTAs land on the debug-signed APK identically to how
+# they landed on the EAS-signed cloud builds.
 
 on:
   workflow_dispatch:
-    inputs:
-      profile:
-        type: choice
-        description: 'EAS build profile'
-        default: preview
-        options:
-          - development
-          - preview
-          - production
   push:
     branches:
       - main
-      # Test-fire branch for the local-build transition. Any push to
-      # this branch that touches a file in `paths` (notably the
-      # workflow file itself) auto-fires the workflow. Remove once
-      # the branch is merged to main.
+      # Test-fire branch for the GitHub-hosted-build transition.
+      # Remove from this list once merged to main.
       - Github-APK-Transition-snow
     paths:
       - 'package.json'
@@ -60,96 +46,126 @@ on:
       - 'metro.config.js'
       - 'android/**'
       - 'ios/**'
-      - 'assets/icon.png'
-      - 'assets/adaptive-icon.png'
-      - 'assets/splash-icon.png'
+      # Source PNG for the icon — assets/icon.png + adaptive-icon.png
+      # are .gitignored generated outputs, so listing menu-bg here
+      # is the only way an icon-art change triggers a rebuild.
+      - 'src/assets/menu-bg.png'
       - '.github/workflows/eas-build.yml'
 
 permissions:
-  contents: read
+  # softprops/action-gh-release needs write access to publish the
+  # release + upload the APK as an asset.
+  contents: write
+
+concurrency:
+  group: apk-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
+    name: Build Android APK
     runs-on: ubuntu-latest
-    # Cap at 60 min in case Gradle hangs on a dependency download —
-    # better to fail fast than burn the whole free-tier budget.
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repo
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
-      # JDK 17 is required for Gradle 8.x (Expo SDK 51's Gradle
-      # baseline). Temurin is the standard pick for Actions.
-      - uses: actions/setup-java@v4
+      - name: Set up Java (Temurin 17)
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # eas build --local shells out to Gradle, which needs
-      # ANDROID_HOME + build-tools + a target platform installed.
-      # GitHub's ubuntu-latest image no longer ships these by
-      # default. This action installs the SDK manager, auto-accepts
-      # licenses, exports ANDROID_HOME / ANDROID_SDK_ROOT, and
-      # pre-fetches the package set Expo SDK 51 targets so Gradle
-      # doesn't have to re-resolve them mid-build.
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-      # No cache: 'npm' / npm ci because package-lock.json is in
-      # .gitignore. Plain install matches the OTA workflow.
-      - run: npm install --no-audit --no-fund
+      # No `npm ci` because package-lock.json is .gitignored in
+      # this repo. Plain install matches the OTA workflow.
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
 
-      # Generate assets/icon.png + assets/adaptive-icon.png on the
-      # runner BEFORE eas-cli takes over. In --local mode the
-      # eas-build-post-install hook (which normally generates these
-      # via npm run web:build) fires AFTER expo prebuild, so prebuild
-      # dies on missing icons (withAndroidDangerousBaseMod ENOENT).
-      # Pre-generating here means the icons get copied into the
-      # build sandbox alongside the rest of the workspace, and
-      # prebuild finds them.
-      - run: node scripts/make-icon.mjs
+      # Generates src/html-bundle.ts (the singlefile JS/HTML the
+      # WebView loads) AND assets/icon.png + adaptive-icon.png
+      # (read by expo prebuild via app.json). Both are .gitignored
+      # generated outputs; we materialise them on the runner here
+      # so prebuild + Gradle find them in the workspace.
+      - name: Build web bundle + icons
+        run: npm run web:build
 
-      - id: profile
-        # Manual workflow_dispatch supplies a profile via inputs;
-        # path-triggered pushes don't, so default to preview.
-        run: |
-          if [ -n "${{ github.event.inputs.profile }}" ]; then
-            echo "name=${{ github.event.inputs.profile }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "name=preview" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Build APK locally
-        # `--local` runs the entire build pipeline on this runner:
-        # eas-cli invokes the eas-build-post-install npm hook
-        # (npm run web:build, which makes html-bundle.ts + icons),
-        # expo prebuild generates android/, Gradle compiles the
-        # native side + bundles JS via Metro, and the output APK
-        # is signed with the EAS-managed keystore (fetched via
-        # EXPO_TOKEN). No EAS cloud credit consumed.
-        run: |
-          npx eas-cli@latest build --platform android \
-            --profile ${{ steps.profile.outputs.name }} \
-            --local --non-interactive \
-            --output=./app-build.apk
+      - name: Generate android/ project (expo prebuild)
+        run: npx expo prebuild --platform android --clean
         env:
-          # Token name flexibility: prefers EXPO_TOKEN, falls back
-          # to SNOWBOARD or SNOW (the names already in this repo's
-          # secret store).
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
+          EXPO_NO_TELEMETRY: '1'
 
-      - name: Upload APK artifact
-        # 30-day retention so the tester install link stays alive
-        # for several weeks (Actions default is 7 days, too short
-        # for a low-frequency build). Artifact name embeds profile
-        # and run number so multiple parallel builds don't clobber.
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-
+
+      # assembleRelease bundles the JS into the APK and signs with
+      # the Expo-template's debug keystore (release.signingConfig
+      # defaults to signingConfigs.debug in the prebuild output),
+      # so no GitHub Secrets / upload-key setup is needed.
+      - name: Build release APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx4g"
+
+      - name: Locate APK
+        id: apk
+        run: |
+          APK=$(find android/app/build/outputs/apk/release -name "*.apk" -print -quit)
+          if [ -z "$APK" ]; then
+            echo "::error::No APK found under android/app/build/outputs/apk/release"
+            exit 1
+          fi
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
+          echo "name=where-is-the-bottom-build-${{ github.run_number }}.apk" >> "$GITHUB_OUTPUT"
+
+      - name: Read OTA version label
+        id: ver
+        run: |
+          OTA=$(grep -oE "OTA #[0-9]+[^']*" src/version.ts | head -1 || echo "unknown")
+          echo "ota=$OTA" >> "$GITHUB_OUTPUT"
+
+      - name: Rename APK for upload
+        run: cp "${{ steps.apk.outputs.path }}" "${{ steps.apk.outputs.name }}"
+
+      - name: Upload APK as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: where-is-the-bottom-${{ steps.profile.outputs.name }}-${{ github.run_number }}
-          path: ./app-build.apk
+          name: ${{ steps.apk.outputs.name }}
+          path: ${{ steps.apk.outputs.name }}
           if-no-files-found: error
-          retention-days: 30
+
+      # Auto-publish a GitHub Release on every push so testers
+      # always have a stable URL for the latest build. Manual
+      # (workflow_dispatch) runs skip this and just leave the APK
+      # as a workflow artifact you can download from the run page.
+      - name: Publish GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: snow-build-${{ github.run_number }}
+          name: "Where's the Bottom? APK build #${{ github.run_number }}"
+          body: |
+            Auto-built from commit `${{ github.sha }}`.
+
+            **${{ steps.ver.outputs.ota }}**
+
+            Standalone sideload APK (release variant, JS bundled). Install via:
+            1. Download the APK below.
+            2. On your Android device, allow "install from unknown sources" for your browser / file manager.
+            3. **First install of this build line:** uninstall the previous version first (different keystore — Android won't update over it). Local saves will be lost on this one-time reinstall.
+            4. Open the downloaded APK to install.
+          files: ${{ steps.apk.outputs.name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
