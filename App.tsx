@@ -182,17 +182,31 @@ export default function App(): React.JSX.Element {
     return () => { cancelled = true; };
   }, []);
 
-  // Auto check + fetch + reload on launch. Runs in the background so
-  // a slow network never blocks startup. fallbackToCacheTimeout in
-  // app.json (3000 ms) wasn't enough for the 23 MiB OTA to download
-  // before launch — this fires AFTER the WebView is up and gives the
-  // OTA the full session to fetch. autoReload=true means we restart
-  // the app the moment the update is ready, so the user sees the new
-  // build mid-session instead of having to kill + relaunch (which
-  // typically happens before the background download even finishes).
+  // Auto check + fetch + reload on launch, then a 90 s poll for the
+  // rest of the session. Runs in the background so a slow network
+  // never blocks startup. fallbackToCacheTimeout in app.json (3000 ms)
+  // isn't enough for the ~20 MiB OTA to download before launch — this
+  // fires AFTER the WebView is up and gives the OTA the full session
+  // to fetch. autoReload=true means we restart the app the moment the
+  // update is ready, so the user sees the new build mid-session
+  // instead of having to kill + relaunch.
+  //
+  // The 90 s interval handles the case where the user opens the app
+  // BEFORE the EAS workflow finished publishing the new bundle: the
+  // first check returns "up to date", and without polling the user
+  // would have to manually press the Settings → Check for Updates
+  // button (or cold-restart) to see the bundle once it lands. Polling
+  // every 90 s catches it within at most one and a half minutes of
+  // the workflow completing.
+  //
+  // Trade-off: a fresh OTA arriving mid-game reloads the app, which
+  // interrupts the current run. Acceptable per user request; the
+  // alternative ("ready - tap to reload" banner) is what the
+  // explicit Check for Updates button already does.
   useEffect(() => {
     const t = setTimeout(() => { void runUpdateCheck(webviewRef, /* autoReload */ true); }, 1500);
-    return () => clearTimeout(t);
+    const i = setInterval(() => { void runUpdateCheck(webviewRef, /* autoReload */ true); }, 90 * 1000);
+    return () => { clearTimeout(t); clearInterval(i); };
   }, []);
 
   return (

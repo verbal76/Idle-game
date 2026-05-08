@@ -47,8 +47,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: npm install -g eas-cli
-      - run: npm install
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
       - id: profile
         # Manual workflow_dispatch supplies a profile via inputs.
         # Path-triggered pushes don't, so default to preview.
@@ -59,8 +59,11 @@ jobs:
             echo "name=preview" >> "$GITHUB_OUTPUT"
           fi
       - name: Trigger EAS Build
+        # npx eas-cli@latest skips the global install (~25 s); cache:
+        # 'npm' + npm ci makes the dep install a cache hit on second
+        # push onward (~60 s saved).
         run: |
-          eas build --platform android \
+          npx eas-cli@latest build --platform android \
             --profile ${{ steps.profile.outputs.name }} \
             --non-interactive --no-wait
         env:
