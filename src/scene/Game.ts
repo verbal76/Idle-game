@@ -6,6 +6,7 @@ import {
 } from '@babylonjs/core';
 import type { StickValue } from '../input/TwinStickInput';
 import type { UpgradeLevels } from '../profiles/IndexedDbStore';
+import { soundFx } from '../audio/SoundFx';
 import { buildRider, RiderRig } from './Rider';
 import { loadObjByMaterial } from './loadObj';
 import { decodeDataUrlToBuffer, meshBounds, parseStl } from './loadStl';
@@ -64,6 +65,13 @@ export interface GameCallbacks {
   // bar should be hidden; count > 0 shows ×N.M multiplier and the
   // current chain length.
   onComboChange?: (count: number, multiplier: number) => void;
+  // Halfpipe ring streak meter. streak = current chain (resets to 0
+  // when a ring is missed); best = persistent high-water mark
+  // loaded from localStorage at boot.
+  onRingStreak?: (streak: number, best: number) => void;
+  // Fired once at the start of a halfpipe session so the HUD can
+  // show the intro popup.
+  onHalfpipeIntro?: () => void;
 }
 
 type RiderState = 'normal' | 'bailing' | 'recovering';
@@ -91,7 +99,7 @@ interface ChunkData {
   // Halfpipe ring targets — flip-through bonuses. Tick checks rider
   // distance against each ring; once collected the mesh gets hidden
   // and `collected` is flipped so the rider can't double-dip.
-  rings?: Array<{ x: number; y: number; z: number; mesh: AbstractMesh; collected: boolean }>;
+  rings?: Array<{ x: number; y: number; z: number; mesh: AbstractMesh; collected: boolean; missed: boolean }>;
   // Halfpipe boost strips — speed multipliers in the trough. Tick
   // checks if the rider is over a strip and bumps boostUntil.
   boosts?: Array<{ x: number; z: number; halfX: number; halfZ: number }>;
@@ -214,6 +222,20 @@ export class Game {
   // rider crosses a speed-strip; targetSpeed in the speed-update
   // block multiplies by 1.3 while now < boostUntil.
   private boostUntil = 0;
+  // Ring streak: current chain of consecutively-collected halfpipe
+  // rings. Resets to 0 when a ring is missed (rider's z passes the
+  // ring's z + 5 m without entering the collection sphere). Best is
+  // a persistent high-water mark loaded from localStorage at boot
+  // and saved any time `ringStreak` exceeds it. Fires
+  // onRingStreak(streak, best) so the HUD can refresh.
+  private ringStreak = 0;
+  private bestRingStreak = 0;
+  private static readonly RING_BEST_KEY = 'idle-boarder.bestRingStreak';
+  // Tracks whether we already played the boost whoosh for the
+  // current boost activation, so passing over a strip while a
+  // previous boost is still ramping doesn't double-trigger the
+  // sound on every frame.
+  private boostSoundPlayingUntil = 0;
   // Heading clamp — symmetric forward cone of ±80°, 10° buffer from the
   // ±90° stall pocket (cos²(80°) ≈ 0.03 → ~3% target speed at the limit:
   // a real scrub-brake state, not a hard stop). Applied to BOTH modes
@@ -355,6 +377,27 @@ export class Game {
   ) {
     this.mode = mode;
     this.upgrades = upgrades;
+
+    // Load persisted best ring streak. localStorage may be absent in
+    // some embedded WebView contexts; treat any failure as "no best
+    // yet" rather than crashing the whole Game constructor.
+    try {
+      const raw = window.localStorage?.getItem(Game.RING_BEST_KEY);
+      const n = raw ? Number.parseInt(raw, 10) : 0;
+      if (Number.isFinite(n) && n > 0) this.bestRingStreak = n;
+    } catch {
+      // localStorage blocked / unavailable → start fresh
+    }
+
+    // Halfpipe intro callback fires once per session. main.ts shows a
+    // popup with the controls / mechanics when this lands. Deferred
+    // to next tick so the HUD has a chance to mount before the event.
+    if (mode === 'half-pipe') {
+      setTimeout(() => this.callbacks.onHalfpipeIntro?.(), 0);
+    }
+    // Push the loaded best to the HUD so the ring widget shows
+    // "best: N" right away even before the first ring is collected.
+    setTimeout(() => this.callbacks.onRingStreak?.(0, this.bestRingStreak), 0);
 
     this.engine = new Engine(canvas, true, { stencil: true });
     this.scene = new Scene(this.engine);
@@ -1803,7 +1846,7 @@ export class Game {
         // rotate 90° around X to stand it up.
         ring.rotation.x = Math.PI / 2;
         features.push(ring);
-        rings.push({ x: ringX, y: ringY, z: ringZ, mesh: ring, collected: false });
+        rings.push({ x: ringX, y: ringY, z: ringZ, mesh: ring, collected: false, missed: false });
       }
 
       // Boost strip in the trough every 3rd chunk. Sized 6 m × 4 m,
@@ -2072,12 +2115,13 @@ export class Game {
     // (set by the strip-detect loop further down), targetSpeed gets a
     // 1.3× kick so the rider visibly accelerates over the strip.
     const boostActive = performance.now() < this.boostUntil;
-    // 1.5× multiplier (was 1.3×). User reported boost strips "didn't
-    // do anything" — between the gradual lerp catchup and the brief
-    // 800 ms duration, the previous 1.3× was too subtle to feel.
-    // Bumped to 1.5× and the duration is now 1200 ms (set in
-    // checkInteractions).
-    const boostMult = boostActive ? 1.5 : 1.0;
+    // 2.0× multiplier (was 1.5×). User asked to "double the boost
+    // on the yellow squares" — taking that to mean the speedup
+    // delta should double from +0.5x to +1.0x of base, so total
+    // multiplier 2.0×. Combined with the new 1200 ms duration and
+    // the rising-edge whoosh sound, the boost should now feel like
+    // a real shove forward.
+    const boostMult = boostActive ? 2.0 : 1.0;
     const targetSpeed = this.maxSpeed * (0.5 + 0.5 * cosH * cosH) * boostMult;
     if (this.grounded) {
       const brake = Math.abs(sinH);
@@ -2506,6 +2550,32 @@ export class Game {
               // multiplier — flying through a ring should feel
               // rewarded by the chain you've built.
               this.coinsCollected += Math.round(3 * this.comboMultiplier());
+              // Streak: increment current and roll the persistent best
+              // forward if we just passed it. localStorage write is
+              // fire-and-forget; if it fails the runtime value still
+              // updates correctly.
+              this.ringStreak++;
+              if (this.ringStreak > this.bestRingStreak) {
+                this.bestRingStreak = this.ringStreak;
+                try {
+                  window.localStorage?.setItem(
+                    Game.RING_BEST_KEY,
+                    String(this.bestRingStreak),
+                  );
+                } catch { /* storage blocked, runtime value still good */ }
+              }
+              soundFx.playRingChime();
+              this.callbacks.onRingStreak?.(this.ringStreak, this.bestRingStreak);
+            } else if (!ring.missed && r.z > ring.z + 5) {
+              // Rider passed the ring's Z without collecting it →
+              // streak resets. The +5 m threshold is past the ring
+              // body so a clean miss isn't ambiguous (rider was
+              // never going to enter the 3 m sphere from there).
+              ring.missed = true;
+              if (this.ringStreak > 0) {
+                this.ringStreak = 0;
+                this.callbacks.onRingStreak?.(0, this.bestRingStreak);
+              }
             }
           }
         }
@@ -2519,7 +2589,16 @@ export class Game {
             if (this.grounded
               && Math.abs(r.x - b.x) < b.halfX
               && Math.abs(r.z - b.z) < b.halfZ) {
-              this.boostUntil = performance.now() + 1200;
+              const now = performance.now();
+              // Only play the whoosh on the rising edge of a fresh
+              // boost activation; passing over a long strip while a
+              // previous boost is still active just extends the
+              // duration silently.
+              if (now > this.boostSoundPlayingUntil) {
+                soundFx.playBoostWhoosh();
+                this.boostSoundPlayingUntil = now + 450;
+              }
+              this.boostUntil = now + 1200;
             }
           }
         }

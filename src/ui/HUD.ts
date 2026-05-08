@@ -12,6 +12,10 @@ export interface HUDRefs {
   comboBar: HTMLElement;
   comboMult: HTMLElement;
   comboCount: HTMLElement;
+  ringWidget: HTMLElement;
+  ringStreak: HTMLElement;
+  ringBest: HTMLElement;
+  halfpipeIntro: HTMLElement;
   pauseMenu: HTMLElement;
   resumeBtn: HTMLButtonElement;
   switchBtn: HTMLButtonElement;
@@ -32,6 +36,24 @@ export function buildHUD(root: HTMLElement): HUDRefs {
       <div class="combo-bar" id="combo-bar" style="display:none">
         <span class="combo-mult" id="combo-mult">×1.0</span>
         <span class="combo-count" id="combo-count">1 chain</span>
+      </div>
+      <div class="ring-widget" id="ring-widget" style="display:none">
+        <span class="ring-icon">◯</span>
+        <span class="ring-streak" id="ring-streak">0</span>
+        <span class="ring-best" id="ring-best">best 0</span>
+      </div>
+      <div id="halfpipe-intro" class="fullscreen-panel halfpipe-intro" style="display:none">
+        <div class="halfpipe-intro-card">
+          <h1>Half-pipe</h1>
+          <ul class="halfpipe-intro-list">
+            <li><span class="hp-icon hp-icon-strip">▮</span> <b>Yellow strips</b> in the trough — speed boost</li>
+            <li><span class="hp-icon hp-icon-ring">◯</span> <b>Magenta rings</b> — flip-through bonus + streak (miss one and the streak resets)</li>
+            <li><span class="hp-icon">⤺</span> <b>Hit the lip</b> — bounces you back into the bowl</li>
+            <li><span class="hp-icon">▲</span> <b>Hold the up arrow</b> — tighter, deeper carve</li>
+            <li><span class="hp-icon">+</span> Chain landings within 5 s — combo multiplier</li>
+          </ul>
+          <p class="halfpipe-intro-hint">Tap to dismiss</p>
+        </div>
       </div>
       <div class="dpad-left">
         <button class="dpad-btn up" id="dpad-up" aria-label="Straighten">▲</button>
@@ -76,6 +98,10 @@ export function buildHUD(root: HTMLElement): HUDRefs {
     comboBar:        root.querySelector<HTMLElement>('#combo-bar')!,
     comboMult:       root.querySelector<HTMLElement>('#combo-mult')!,
     comboCount:      root.querySelector<HTMLElement>('#combo-count')!,
+    ringWidget:      root.querySelector<HTMLElement>('#ring-widget')!,
+    ringStreak:      root.querySelector<HTMLElement>('#ring-streak')!,
+    ringBest:        root.querySelector<HTMLElement>('#ring-best')!,
+    halfpipeIntro:   root.querySelector<HTMLElement>('#halfpipe-intro')!,
     pauseMenu:       root.querySelector<HTMLElement>('#pause-menu')!,
     resumeBtn:       root.querySelector<HTMLButtonElement>('#resume')!,
     switchBtn:       root.querySelector<HTMLButtonElement>('#switch-style')!,

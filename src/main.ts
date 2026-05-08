@@ -8,6 +8,7 @@ import { showSettings } from './ui/Settings';
 import { showContinuePrompt } from './ui/ContinuePrompt';
 import { buildHUD } from './ui/HUD';
 import { ArrowPadInput } from './input/ArrowPadInput';
+import { soundFx } from './audio/SoundFx';
 import { ActionButtons } from './input/ActionButtons';
 import { MusicPlayer } from './audio/MusicPlayer';
 import { Game } from './scene/Game';
@@ -149,6 +150,15 @@ async function runSession(
     const hud = buildHUD(screen);
     const dpad = new ArrowPadInput(hud.leftBtn, hud.rightBtn, hud.upBtn);
     const buttons = new ActionButtons(hud.jumpBtn, hud.flipBtn);
+    // Resume the SoundFx AudioContext on the first user input.
+    // Browsers (Chrome, Safari, Android WebView) keep it suspended
+    // until the user gestures, so the very first ring chime / boost
+    // whoosh would otherwise drop silently.
+    const wake = () => {
+      soundFx.resume();
+      hud.hud.removeEventListener('pointerdown', wake);
+    };
+    hud.hud.addEventListener('pointerdown', wake);
     const upgrades = profiles.activeProfile!.upgrades ?? { speed: 0, jump: 0, magnet: 0 };
 
     // Label the Switch Style button to indicate the destination mode,
@@ -167,6 +177,32 @@ async function runSession(
         hud.comboBar.style.display = 'flex';
         hud.comboMult.textContent = `×${mult.toFixed(1)}`;
         hud.comboCount.textContent = `${count} chain`;
+      },
+      // Halfpipe ring streak HUD. Show the widget if either the
+      // current streak or the persistent best is non-zero — so a
+      // returning player sees their best ring count from the moment
+      // they enter the pipe.
+      onRingStreak: (streak, best) => {
+        if (streak <= 0 && best <= 0) {
+          hud.ringWidget.style.display = 'none';
+          return;
+        }
+        hud.ringWidget.style.display = 'flex';
+        hud.ringStreak.textContent = String(streak);
+        hud.ringBest.textContent = `best ${best}`;
+      },
+      // First-time intro overlay for the halfpipe. Auto-dismisses
+      // after 6 s OR on tap, whichever comes first. Single shared
+      // dismiss handler so we don't leak listeners across sessions.
+      onHalfpipeIntro: () => {
+        hud.halfpipeIntro.style.display = 'flex';
+        const dismiss = () => {
+          hud.halfpipeIntro.style.display = 'none';
+          hud.halfpipeIntro.removeEventListener('click', dismiss);
+          clearTimeout(timer);
+        };
+        const timer = setTimeout(dismiss, 6000);
+        hud.halfpipeIntro.addEventListener('click', dismiss);
       },
       // onFell only paints the overlay. Currency is credited in finish()
       // below — that way Quit and Switch Style also keep what you earned.
