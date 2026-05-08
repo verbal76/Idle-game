@@ -1,4 +1,5 @@
 import { ProfileService } from '../profiles/ProfileService';
+import { bouncyTextHtml } from '../util/bouncyText';
 
 export type MenuChoice = 'half-pipe' | 'downhill' | 'switch-profile' | 'upgrades' | 'settings' | 'quit';
 
@@ -8,7 +9,7 @@ export function showMainMenu(root: HTMLElement, profiles: ProfileService): Promi
     root.innerHTML = `
       <div class="fullscreen-panel menu-bg">
         <button class="gear-btn corner" id="menu-settings" aria-label="Settings">⚙</button>
-        <h1>Where's the Bottom?</h1>
+        <h1 class="title-bouncy">${bouncyTextHtml("Where's the Bottom?")}</h1>
         <p class="muted">${escapeHtml(p.name)} — ${p.currency} ❄</p>
         <div class="list">
           <button id="downhill">Downhill (idle)</button>

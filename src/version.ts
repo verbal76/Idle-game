@@ -20,4 +20,4 @@
 // in a bug report identifies the exact build the user is on.
 
 export const BUILD_VERSION = "build #2 - rename: Where's the Bottom?";
-export const OTA_VERSION   = 'OTA #15  - bug report captures previous-run tail (crash debugging)';
+export const OTA_VERSION   = 'OTA #16  - bouncy wavy game title at top of menus';
