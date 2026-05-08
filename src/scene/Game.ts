@@ -178,10 +178,15 @@ export class Game {
   private readonly halfPipeSlopeRad = 0.40;  // ~23° — pipe descends visibly
   private cliffs = new Map<number, number>();
 
-  private readonly HP_PIPE_HALF = 9.0;          // distance from centerline to lip (= HP_PIPE_WIDTH / 2)
-  private readonly HP_FLAT_HALF = 5.0;          // flat floor zone before transition
-  private readonly HP_PIPE_RADIUS = 4.0;        // = HP_PIPE_HALF - HP_FLAT_HALF
-  private readonly HP_LIP_HEIGHT = 0.6;         // small vertical lip at the top
+  // Halfpipe geometry. Bumped wider + deeper per user request:
+  // pipe 18 m → 24 m wide, transition curve 4 m → 6 m radius (so the
+  // walls peak 6 m above the trough), flat trough 10 m → 12 m. Lip
+  // height up a touch so the visible curl over the top still reads
+  // at the new bigger scale.
+  private readonly HP_PIPE_HALF = 12.0;         // distance from centerline to lip (= HP_PIPE_WIDTH / 2)
+  private readonly HP_FLAT_HALF = 6.0;          // flat floor zone before transition
+  private readonly HP_PIPE_RADIUS = 6.0;        // = HP_PIPE_HALF - HP_FLAT_HALF
+  private readonly HP_LIP_HEIGHT = 0.8;         // small vertical lip at the top
   private readonly HP_CONTEXT_WIDTH = 220;
   // Lip-light geometry. Poles sit 1.5 m back from the lip (x=±10.5)
   // so they're clear of the rider's bounce line at x=±9, and rise 5 m
@@ -281,6 +286,10 @@ export class Game {
   // kept around because the regular jump charge code reads it on the
   // rising edge.
   private prevJumpHeld = false;
+  // Edge-detect for the UP arrow ("deep lean") so we can fire a one-
+  // shot instant lean-toward-target kick on the rising edge instead
+  // of waiting for the per-frame lerp to ramp up.
+  private prevForwardHeld = false;
 
   private heading = 0;
   private edgeAngle = 0;
@@ -1960,12 +1969,29 @@ export class Game {
     // current speed. To break out of a hard turn, the player still
     // has to actively counter-lean (push stickX the other way) —
     // UP just lets that counter-lean go deeper, faster.
+    //
+    // User feedback ("the up arrow has some lag once you hit it,
+    // and it needs to react faster"): the previous 1.6× multiplier
+    // gave a ~0.4 s exponential to the new deeper target. Bumped to
+    // 4.5× (per-frame catchup ~50%) so the rider's lean visibly
+    // snaps over within ~0.1 s of pressing UP, plus an immediate
+    // additive kick on the rising edge to skip the first slow
+    // frames of the lerp entirely.
     const forwardBoost = this.input.forwardHeld?.() ?? false;
+    const forwardBoostJustPressed = forwardBoost && !this.prevForwardHeld;
+    this.prevForwardHeld = forwardBoost;
     const effectiveMaxLean = forwardBoost ? 0.99 : this.maxLean;
     const thetaMax = Math.min(effectiveMaxLean, physThetaMax);
     const targetEdge = stickX * thetaMax;
-    const baseLeanRate = forwardBoost ? this.leanResponse * 1.6 : this.leanResponse;
+    const baseLeanRate = forwardBoost ? this.leanResponse * 4.5 : this.leanResponse;
     const leanRate = stickActive ? baseLeanRate : baseLeanRate * 0.35;
+    if (forwardBoostJustPressed && stickActive) {
+      // Instant kick toward the new deeper target on the rising edge
+      // of UP, so the response is felt in frame 1 instead of waiting
+      // for the lerp to ramp up. 60% of the gap closed immediately;
+      // the remaining 40% lerps in over the next handful of frames.
+      this.edgeAngle += (targetEdge - this.edgeAngle) * 0.6;
+    }
     this.edgeAngle += (targetEdge - this.edgeAngle) * Math.min(1, leanRate * dt);
 
     if (this.grounded) {
