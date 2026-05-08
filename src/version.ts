@@ -19,5 +19,5 @@
 // alongside the existing commit/built/runtime fields, so a paste
 // in a bug report identifies the exact build the user is on.
 
-export const BUILD_VERSION = "build #2 - rename: Where's the Bottom?";
-export const OTA_VERSION   = 'OTA #19  - new-profile direct flow + music auto-resume';
+export const BUILD_VERSION = "build #3 - new menu-bg + app icon (boarder art)";
+export const OTA_VERSION   = 'OTA #20  - new start menu art';
