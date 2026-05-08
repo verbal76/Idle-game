@@ -88,6 +88,17 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      # eas build --local shells out to Gradle, which needs
+      # ANDROID_HOME + build-tools + a target platform installed.
+      # GitHub's ubuntu-latest image no longer ships these by
+      # default. This action installs the SDK manager, auto-accepts
+      # licenses, exports ANDROID_HOME / ANDROID_SDK_ROOT, and
+      # pre-fetches the package set Expo SDK 51 targets so Gradle
+      # doesn't have to re-resolve them mid-build.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
       # No cache: 'npm' / npm ci because package-lock.json is in
       # .gitignore. Plain install matches the OTA workflow.
       - run: npm install --no-audit --no-fund
