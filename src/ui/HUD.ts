@@ -6,6 +6,7 @@ export interface HUDRefs {
   settingsOverlay: HTMLElement;
   leftBtn: HTMLElement;
   rightBtn: HTMLElement;
+  upBtn: HTMLElement;
   jumpBtn: HTMLElement;
   flipBtn: HTMLElement;
   pauseMenu: HTMLElement;
@@ -26,8 +27,11 @@ export function buildHUD(root: HTMLElement): HUDRefs {
         <button class="pause-btn" id="pause">II</button>
       </div>
       <div class="dpad-left">
-        <button class="dpad-btn left" id="dpad-left">◀</button>
-        <button class="dpad-btn right" id="dpad-right">▶</button>
+        <button class="dpad-btn up" id="dpad-up" aria-label="Straighten">▲</button>
+        <div class="dpad-row">
+          <button class="dpad-btn left" id="dpad-left">◀</button>
+          <button class="dpad-btn right" id="dpad-right">▶</button>
+        </div>
       </div>
       <div class="actions-right">
         <button class="action-btn flip" id="flip">FLIP</button>
@@ -59,6 +63,7 @@ export function buildHUD(root: HTMLElement): HUDRefs {
     settingsOverlay: root.querySelector<HTMLElement>('#settings-overlay')!,
     leftBtn:         root.querySelector<HTMLElement>('#dpad-left')!,
     rightBtn:        root.querySelector<HTMLElement>('#dpad-right')!,
+    upBtn:           root.querySelector<HTMLElement>('#dpad-up')!,
     jumpBtn:         root.querySelector<HTMLElement>('#jump')!,
     flipBtn:         root.querySelector<HTMLElement>('#flip')!,
     pauseMenu:       root.querySelector<HTMLElement>('#pause-menu')!,

@@ -147,7 +147,7 @@ async function runSession(
   return new Promise<RunMode | null>((resolve) => {
     screen.innerHTML = '';
     const hud = buildHUD(screen);
-    const dpad = new ArrowPadInput(hud.leftBtn, hud.rightBtn);
+    const dpad = new ArrowPadInput(hud.leftBtn, hud.rightBtn, hud.upBtn);
     const buttons = new ActionButtons(hud.jumpBtn, hud.flipBtn);
     const upgrades = profiles.activeProfile!.upgrades ?? { speed: 0, jump: 0, magnet: 0 };
 
@@ -159,6 +159,7 @@ async function runSession(
       leftStick: () => dpad.left,
       jumpHeld: () => buttons.jumpHeld,
       flipHeld: () => buttons.flipHeld,
+      forwardHeld: () => dpad.upHeld,
     }, {
       onScore: (label) => { hud.score.textContent = label; },
       // onFell only paints the overlay. Currency is credited in finish()

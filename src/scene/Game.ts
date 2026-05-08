@@ -49,6 +49,7 @@ export interface GameInput {
   leftStick(): StickValue;
   jumpHeld(): boolean;
   flipHeld(): boolean;
+  forwardHeld?(): boolean;
 }
 
 export interface GameCallbacks {
@@ -171,6 +172,13 @@ export class Game {
   private readonly HP_PIPE_RADIUS = 4.0;        // = HP_PIPE_HALF - HP_FLAT_HALF
   private readonly HP_LIP_HEIGHT = 0.6;         // small vertical lip at the top
   private readonly HP_CONTEXT_WIDTH = 220;
+  // Lip-light geometry. Poles sit 1.5 m back from the lip (x=±10.5)
+  // so they don't interfere with grinding at x=±9, and rise 5 m above
+  // the lip for an overhead lamp angle.
+  private readonly HP_POLE_HEIGHT = 5.0;
+  private readonly HP_POLE_OFFSET = 1.5;
+  private hpPoleTemplate!: Mesh;
+  private hpLampTemplate!: Mesh;
   // Heading clamp — symmetric forward cone of ±80°, 10° buffer from the
   // ±90° stall pocket (cos²(80°) ≈ 0.03 → ~3% target speed at the limit:
   // a real scrub-brake state, not a hard stop). Applied to BOTH modes
@@ -698,6 +706,32 @@ export class Game {
     // Native OBJ X bounds are -0.5..+0.5 → width 1.0. Spawn code uses
     // this constant to compute scaling for a target world-space width.
     this.rampTemplate = { metal, roof, concrete, nativeSize: 1.0 };
+
+    // Half-pipe lip lights. Pole = thin dark cylinder; lamp head =
+    // small box with full emissive so it glows against the dusk sky.
+    // Templates are hidden; spawnHalfPipeChunk createInstance's two
+    // pairs per chunk (one on each lip), parented to a frame so they
+    // tilt with the pipe's slope.
+    const poleMat = new StandardMaterial('hp-pole-mat', this.scene);
+    poleMat.diffuseColor = new Color3(0.18, 0.18, 0.20);
+    poleMat.specularColor = new Color3(0.05, 0.05, 0.05);
+    const polePrototype = MeshBuilder.CreateCylinder('hp-pole-template', {
+      height: this.HP_POLE_HEIGHT, diameter: 0.18
+    }, this.scene);
+    polePrototype.material = poleMat;
+    polePrototype.isVisible = false;
+
+    const lampMat = new StandardMaterial('hp-lamp-mat', this.scene);
+    lampMat.diffuseColor = new Color3(0.95, 0.92, 0.70);
+    lampMat.emissiveColor = new Color3(1.00, 0.93, 0.58);
+    lampMat.specularColor = new Color3(0, 0, 0);
+    const lampPrototype = MeshBuilder.CreateBox('hp-lamp-template', {
+      width: 0.6, height: 0.22, depth: 0.45
+    }, this.scene);
+    lampPrototype.material = lampMat;
+    lampPrototype.isVisible = false;
+    this.hpPoleTemplate = polePrototype;
+    this.hpLampTemplate = lampPrototype;
 
     // Flowers ~30 cm tall — small accent dots on the slope.
     this.flowerTemplates = [
@@ -1498,6 +1532,16 @@ export class Game {
     const meshHeight = this.chunkSize / Math.cos(this.activeSlope);
     const halfDepth = meshHeight / 2;
 
+    // Frame for the chunk's pipe geometry. Parent context, pipe, and
+    // lip lights to this frame so a single rotation tilts them all
+    // together; previously each mesh was positioned in world coords
+    // and tilted independently, which made anchoring the lip lights
+    // (which need to sit ON the tilted lip) more fiddly than it
+    // should be.
+    const frame = new TransformNode(`hp-frame-${cz}`, this.scene);
+    frame.position.set(ox, cy, oz);
+    frame.rotation.x = this.activeSlope;
+
     const context = MeshBuilder.CreateGround(`hp-ctx-${cz}`, {
       width: this.HP_CONTEXT_WIDTH, height: meshHeight, subdivisions: 1
     }, this.scene);
@@ -1507,8 +1551,8 @@ export class Game {
     // and that produces visible z-fighting (the checker pattern across
     // the halfpipe floor). 5 cm is invisible at the camera distance,
     // pipe is rendered on top, no fight.
-    context.position.set(ox, cy - 0.05, oz);
-    context.rotation.x = this.activeSlope;
+    context.parent = frame;
+    context.position.set(0, -0.05, 0);
 
     const FLAT = this.HP_FLAT_HALF;
     const R = this.HP_PIPE_RADIUS;
@@ -1543,11 +1587,47 @@ export class Game {
       pathArray: [path1, path2]
     }, this.scene);
     pipe.material = this.snowMat;
-    pipe.position.set(ox, cy, oz);
-    // Same rotation flip as the context above — was tilting uphill.
-    pipe.rotation.x = this.activeSlope;
+    pipe.parent = frame;
+    pipe.position.set(0, 0, 0);
+
+    // Lip lights: two poles per side per chunk, spaced ~40 m apart
+    // along the run. Each pole + lamp instance is parented to the
+    // chunk frame so it tilts with the pipe. Lamps are emissive
+    // boxes — no actual scene lights, so we don't blow Babylon's
+    // 4-lights-per-material cap and the per-pole cost is one
+    // InstancedMesh + one TransformNode op.
+    const lipY = R + LIP;
+    const polePoleY = lipY + this.HP_POLE_HEIGHT / 2;
+    const lampY = lipY + this.HP_POLE_HEIGHT;
+    const polePositions: Array<[number, number]> = [];
+    for (const sign of [-1, +1]) {
+      const px = sign * (HALF + this.HP_POLE_OFFSET);
+      // Two poles per chunk, evenly spaced along the chunk's local Z.
+      polePositions.push([px, -halfDepth * 0.5]);
+      polePositions.push([px, +halfDepth * 0.5]);
+    }
 
     const features: AbstractMesh[] = [pipe];
+
+    for (let i = 0; i < polePositions.length; i++) {
+      const [px, pz] = polePositions[i];
+      const pole = this.hpPoleTemplate.createInstance(`hp-pole-${cz}-${i}`);
+      pole.parent = frame;
+      pole.position.set(px, polePoleY, pz);
+      features.push(pole);
+
+      const lamp = this.hpLampTemplate.createInstance(`hp-lamp-${cz}-${i}`);
+      lamp.parent = frame;
+      // Lamp head shifts slightly inward (toward pipe centre) so it
+      // visually overhangs the lip — reads as "shining down into the
+      // pipe" instead of straight up.
+      lamp.position.set(px - Math.sign(px) * 0.30, lampY, pz);
+      features.push(lamp);
+    }
+    // Frame must be disposed when the chunk rolls off; cast it
+    // through AbstractMesh same way spawnRamp does its anchor so
+    // the existing features-array dispose loop catches it.
+    features.push(frame as unknown as AbstractMesh);
 
     const kickers: ChunkData['kickers'] = [];
     const rocks: ChunkData['rocks'] = [];
@@ -1737,9 +1817,21 @@ export class Game {
 
     const sinThetaMax = Math.min(0.99, (carveV * carveV) / (this.SIDECUT * this.G));
     const physThetaMax = Math.asin(sinThetaMax);
-    const thetaMax = Math.min(this.maxLean, physThetaMax);
+    // Forward arrow held = "deep lean" modifier. Raises the lean cap
+    // from the default 40° to ~57°, which through tan(edge) in the
+    // carve formula below pushes turn rate from ω = V/SIDECUT · 0.84
+    // up to ω = V/SIDECUT · 1.55 — a real ultra-sharp carve. The
+    // physical centripetal limit (physThetaMax) still applies, so
+    // the rider can't lean past what gravity supports for their
+    // current speed. To break out of a hard turn, the player still
+    // has to actively counter-lean (push stickX the other way) —
+    // UP just lets that counter-lean go deeper, faster.
+    const forwardBoost = this.input.forwardHeld?.() ?? false;
+    const effectiveMaxLean = forwardBoost ? 0.99 : this.maxLean;
+    const thetaMax = Math.min(effectiveMaxLean, physThetaMax);
     const targetEdge = stickX * thetaMax;
-    const leanRate = stickActive ? this.leanResponse : this.leanResponse * 0.35;
+    const baseLeanRate = forwardBoost ? this.leanResponse * 1.6 : this.leanResponse;
+    const leanRate = stickActive ? baseLeanRate : baseLeanRate * 0.35;
     this.edgeAngle += (targetEdge - this.edgeAngle) * Math.min(1, leanRate * dt);
 
     if (this.grounded) {
