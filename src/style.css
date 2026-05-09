@@ -59,7 +59,7 @@ html, body {
   white-space: nowrap;
   pointer-events: none;
   text-align: center;
-  color: #ff00ff; /* TEST OTA #29: magenta to confirm CSS delivery — revert after */
+  color: #ffd166;
   text-shadow:
     0 2px 0 rgba(239, 71, 111, 0.92),
     0 4px 0 rgba(120, 30, 60, 0.65),
@@ -343,7 +343,14 @@ html, body {
   border-color: rgba(255, 240, 200, 0.8);
 }
 
-.gear-btn {
+/* Both selectors so the chromeless rule wins both inside .fullscreen-
+   panel (where .fullscreen-panel button at 0,1,1 was overriding plain
+   .gear-btn at 0,1,0 — that's why the gear kept rendering with the
+   blue menu-button background even though OTA delivery was working)
+   AND in #hud where there's no competing rule. .fullscreen-panel
+   .gear-btn is 0,2,0 which beats .fullscreen-panel button's 0,1,1. */
+.gear-btn,
+.fullscreen-panel .gear-btn {
   background: transparent; color: #fff;
   border: none;
   width: 52px; height: 52px;
