@@ -395,18 +395,27 @@ html, body {
   border-color: rgba(255, 240, 200, 0.8);
 }
 
-/* Settings gear button — used in the HUD top-bar and as a corner
-   shortcut on full-screen menu panels. */
+/* Settings gear — used in the HUD top-bar and as a corner shortcut
+   on full-screen menu panels. Pure icon, no button chrome (filled
+   bg / border made it read as a "blank rectangle with something in
+   it" against the menu art). 52×52 size kept for a comfortable
+   touch target; subtle text-shadow keeps the glyph legible against
+   bright backgrounds, and the :active dim gives a tap feedback
+   without re-introducing the chrome. */
 .gear-btn {
-  background: rgba(20, 32, 56, 0.82); color: #fff;
-  border: 2px solid rgba(160, 200, 240, 0.55);
+  background: transparent; color: #fff;
+  border: none;
   width: 52px; height: 52px;
-  border-radius: 12px;
-  font: inherit; font-size: 22px;
+  font: inherit; font-size: 30px;
   display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer;
-  min-width: 0;
+  min-width: 0; padding: 0;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  opacity: 0.85;
+  transition: opacity 0.12s ease;
 }
+.gear-btn:hover  { opacity: 1; }
+.gear-btn:active { opacity: 0.55; }
 #hud .top-bar .gear-btn { margin-left: auto; }
 .fullscreen-panel .gear-btn.corner {
   position: absolute;
