@@ -20,4 +20,4 @@
 // in a bug report identifies the exact build the user is on.
 
 export const BUILD_VERSION = "build #4 - re-encoded icon (Sharp/libvips compat fix)";
-export const OTA_VERSION   = 'OTA #23 - gear icon (no button chrome)';
+export const OTA_VERSION   = 'OTA #24 - re-publish (post-APK-#107 timestamp)';
