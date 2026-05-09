@@ -2,15 +2,24 @@ name: EAS Update (OTA)
 
 # Path-routed: this workflow handles JS-only changes, eas-build.yml
 # handles native changes. The two path lists are complementary so
-# every push to main fires roughly one of the two (a mixed JS+native
-# push fires both, which is fine — the APK rebuild covers it
-# eventually).
+# every push fires roughly one of the two (a mixed JS+native push
+# fires both, which is fine — the APK rebuild covers it eventually).
 
 on:
   workflow_dispatch:
   push:
     branches:
       - main
+      # GitHub-hosted-build branch is the de-facto main while we use
+      # the free GitHub Actions build pipeline instead of paid EAS
+      # cloud builds. OTAs need to fire from here so JS-only changes
+      # pushed to this branch reach testers without going through
+      # main first. APKs sideloaded from this branch are signed with
+      # the same Expo-template debug keystore on every build, and
+      # EAS Update routes by channel + projectID + runtimeVersion
+      # (not by signing key or branch), so OTAs published from this
+      # branch land on those installed APKs identically.
+      - Github-APK-Transition-snow
     paths-ignore:
       - 'package.json'
       - 'package-lock.json'
