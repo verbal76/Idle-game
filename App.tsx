@@ -213,11 +213,26 @@ export default function App(): React.JSX.Element {
     <View style={styles.root}>
       <StatusBar hidden />
       <WebView
+        // key tied to the running update's ID. When Updates.reloadAsync()
+        // swaps in a new JS bundle, OTA_INFO.updateId changes — React
+        // sees a different key and unmounts the old WebView, creating
+        // a fresh one with the new HTML_BUNDLE. Without this, the
+        // native Android WebView instance can persist across reloads
+        // and serve stale CSS / DOM even though the imported
+        // HTML_BUNDLE constant has changed.
+        key={OTA_INFO.updateId ?? 'embedded'}
         ref={webviewRef}
-        source={{ html: HTML_BUNDLE, baseUrl: 'https://localhost/' }}
+        // baseUrl carries the updateId so any URL-keyed caches the
+        // WebView keeps internally are scoped to a single OTA.
+        source={{ html: HTML_BUNDLE, baseUrl: `https://localhost/${OTA_INFO.updateId ?? 'embedded'}/` }}
         originWhitelist={['*']}
         javaScriptEnabled
         domStorageEnabled
+        // Disable HTTP/disk cache: every WebView load is fresh from
+        // the inline HTML string. Belt-and-suspenders alongside the
+        // key+baseUrl change so we can't accidentally serve stale
+        // CSS / JS from a previous OTA's render.
+        cacheEnabled={false}
         // file:// URIs from Asset.downloadAsync() need this on Android
         // for HTMLAudioElement to load them when the page origin is
         // https://localhost/. Default is false; flip it on so audio
