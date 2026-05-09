@@ -11,13 +11,8 @@ html, body {
 }
 #renderCanvas {
   position: fixed; inset: 0; width: 100vw; height: 100vh; outline: none; display: block;
-  /* Slight saturation/contrast bump frames the dusk haze and makes the
-     low-poly snow read as colored, not flat. Imperceptible CPU cost on
-     mobile WebView since it's a single fixed-pipeline filter. */
   filter: saturate(1.08) contrast(1.04);
 }
-/* Soft vignette overlays the canvas (and only the canvas — sits below
-   #screen so HUD / menus stay full-bright). Pure CSS, zero render cost. */
 #renderCanvas::after { content: ''; }
 .vignette {
   position: fixed; inset: 0; pointer-events: none; z-index: 1;
@@ -33,51 +28,24 @@ html, body {
   background: rgba(11, 19, 32, 0.92);
   backdrop-filter: blur(8px);
   padding: env(safe-area-inset-top, 16px) env(safe-area-inset-right, 16px) env(safe-area-inset-bottom, 16px) env(safe-area-inset-left, 16px);
-  /* Soft fade-in so menus don't snap into existence — polish that
-     converts the flow from "debug build" to "intentional UI". */
   animation: panel-fade 220ms cubic-bezier(0.2, 0, 0.2, 1);
 }
 @keyframes panel-fade {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: none; }
 }
-/* Menu / lobby screens use the snowboard hero illustration as a
-   background. Dark gradient overlay keeps button text readable. */
 .fullscreen-panel.menu-bg {
   background:
     linear-gradient(rgba(11, 19, 32, 0.55), rgba(11, 19, 32, 0.78)),
     url('./assets/menu-bg.png') center/cover no-repeat;
   backdrop-filter: none;
 }
-/* Title-at-top + content-at-bottom layout for the three menu screens
- * that show the bouncy game title (MainMenu / ContinuePrompt /
- * ProfileSelect). The h1.title-bouncy is `position: absolute` so it
- * sits at the top regardless of flex flow; switching the panel to
- * `justify-content: flex-end` with a vh-scaled bottom inset pushes
- * the rest of the content (subtitle, profile list, action buttons)
- * into roughly the bottom third — keeps the snowboarder hero
- * illustration unobscured in the middle of the screen. Settings /
- * Upgrades / etc. keep the default centred layout. */
 .fullscreen-panel.menu-bg-stacked {
   justify-content: flex-end;
   padding-bottom: clamp(20px, 8vh, 80px);
 }
 .fullscreen-panel h1 { font-size: 30px; letter-spacing: 0.08em; font-weight: 700; }
 
-/* Bouncy / wavy game title for the menu screens. Positioned
- * absolute at the top of the panel so it sits between the safe-
- * area inset and the snowboarder hero illustration regardless of
- * what the rest of the panel content is (subtitle, buttons,
- * lists). Sizing and top offset both use clamp() so it adapts to
- * portrait vs landscape and small vs large devices without
- * overlapping the hero in either orientation.
- *
- * The bounce + colour wave run independently — letter-by-letter
- * bounce gives the "fun" feel, the gradient sweep across the text
- * adds the "wavy" pop. Each letter has a staggered animation-
- * delay applied inline (see bouncyText.ts) so the wave travels
- * left-to-right.
- */
 .title-bouncy {
   position: absolute;
   top: clamp(20px, 6.5vh, 80px);
@@ -91,7 +59,7 @@ html, body {
   white-space: nowrap;
   pointer-events: none;
   text-align: center;
-  color: #ffd166; /* fallback if background-clip:text is unsupported */
+  color: #ff00ff; /* TEST OTA #29: magenta to confirm CSS delivery — revert after */
   text-shadow:
     0 2px 0 rgba(239, 71, 111, 0.92),
     0 4px 0 rgba(120, 30, 60, 0.65),
@@ -99,9 +67,6 @@ html, body {
 }
 .title-bouncy span {
   display: inline-block;
-  /* animation-delay is set per-letter inline by bouncyTextHtml() so
-   * the wave travels across the title. The bounce loop itself
-   * runs at 1.6 s per cycle. */
   animation: title-bounce 1.6s ease-in-out infinite;
   transform-origin: 50% 100%;
 }
@@ -112,9 +77,6 @@ html, body {
   60%  { transform: translateY(-8%)  rotate(3deg);  }
   100% { transform: translateY(0)    rotate(0);   }
 }
-/* Optional landscape-specific tightening: short viewport heights
- * (<= 480 px) get a smaller top inset and font so the title still
- * fits above the hero on rotated phones. */
 @media (max-height: 500px) {
   .title-bouncy {
     top: clamp(8px, 4vh, 40px);
@@ -221,16 +183,6 @@ html, body {
   display: flex; gap: 14px; align-items: center;
 }
 
-/* Vertical jump-charge bar on the far right edge — runs from ~22%
- * down from the top to ~22% up from the bottom (so a thumb resting
- * on the JUMP button doesn't cover it). Track stays visible at low
- * opacity even when not charging so the player learns the
- * mechanic exists; fill rises bottom-up via the --charge CSS var
- * fed by Game's onChargeChange callback. When charge hits ~1.0
- * the track gets a `.full` class and pulses scale 1.0 ↔ 1.12 so
- * the player knows they're at max and any further hold won't pay
- * off — release to launch.
- */
 .jump-charge-bar {
   position: absolute;
   right: 12px;
@@ -375,10 +327,6 @@ html, body {
   background: rgba(40, 90, 160, 0.92);
   padding: 22px 24px;
   font-size: 18px;
-  /* Jump-charge ring. CSS var --charge runs 0..1, fed from Game's
-     onChargeChange callback. The conic-gradient layer paints over the
-     button background while held; releases instantly when --charge
-     drops back to 0. */
   --charge: 0;
   background:
     conic-gradient(rgba(255, 200, 80, 0.9) calc(var(--charge) * 360deg), transparent 0),
@@ -395,13 +343,6 @@ html, body {
   border-color: rgba(255, 240, 200, 0.8);
 }
 
-/* Settings gear — used in the HUD top-bar and as a corner shortcut
-   on full-screen menu panels. Pure icon, no button chrome (filled
-   bg / border made it read as a "blank rectangle with something in
-   it" against the menu art). 52×52 size kept for a comfortable
-   touch target; subtle text-shadow keeps the glyph legible against
-   bright backgrounds, and the :active dim gives a tap feedback
-   without re-introducing the chrome. */
 .gear-btn {
   background: transparent; color: #fff;
   border: none;
@@ -423,8 +364,6 @@ html, body {
   right: max(env(safe-area-inset-right, 12px), 12px);
 }
 
-/* About panel: definition-list of build identifier fields. Two-column
-   row so labels align and SHA / timestamps stay readable. */
 .about-list {
   display: flex; flex-direction: column; gap: 6px;
   min-width: 320px; max-width: 560px;
@@ -447,7 +386,6 @@ html, body {
   border: 1px solid rgba(255, 200, 100, 0.4);
   border-radius: 8px; padding: 8px 12px;
 }
-/* Settings panel — labelled control rows (volume slider, etc.). */
 .setting-row {
   display: flex; align-items: center; gap: 12px;
   min-width: 320px; max-width: 480px;
