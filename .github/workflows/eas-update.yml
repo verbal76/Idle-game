@@ -1,10 +1,5 @@
 name: EAS Update (OTA)
 
-# Path-routed: this workflow handles JS-only changes, eas-build.yml
-# handles native changes. The two path lists are complementary so
-# every push fires roughly one of the two (a mixed JS+native push
-# fires both, which is fine — the APK rebuild covers it eventually).
-
 on:
   workflow_dispatch:
   push:
@@ -49,6 +44,23 @@ jobs:
         run: npm run web:build
         env:
           NODE_ENV: production
+      # Verify the new CSS actually made it into the regenerated
+      # html-bundle.ts. If web:build's vite step silently keeps old
+      # output (or if anything bypasses style.css imports), we ship
+      # an OTA with stale CSS and the device looks unchanged. This
+      # grep makes the failure mode loud.
+      - name: Verify html-bundle.ts has fresh CSS
+        run: |
+          BUNDLE='src/__generated__/html-bundle.ts'
+          echo "=== Bundle size ==="
+          wc -c "$BUNDLE"
+          echo ""
+          echo "=== gear-btn CSS rules (occurrence count) ==="
+          echo "transparent (new chromeless): $(grep -o 'background:transparent' "$BUNDLE" | wc -l)"
+          echo "#142038d1 (old chrome):        $(grep -o 'background:#142038d1' "$BUNDLE" | wc -l)"
+          echo ""
+          echo "=== gear-btn rule excerpt (first match) ==="
+          grep -o '\.gear-btn{[^}]*}' "$BUNDLE" | head -1
       - name: Publish OTA update
         run: |
           MSG="$(git log -1 --pretty=%s | head -c 100)"
@@ -60,29 +72,10 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
           NODE_ENV: production
-      # CRITICAL: Re-link channel "preview" to branch "preview" on every
-      # publish. The channel had been pinned to a stale update group from
-      # May 3 — every push to the branch since then was invisible to the
-      # channel, so the device's checkForUpdateAsync kept returning the
-      # stale May-3 update (or "up to date" when its createdAt was older
-      # than the embedded build). The cloud-build flow used to set this
-      # link automatically; we lost that when we switched to raw expo
-      # prebuild + Gradle. Running this on every publish is idempotent
-      # and cheap, and guards against the link getting un-set in the
-      # future.
       - name: Re-link channel preview → branch preview
         run: |
           npx eas-cli@latest channel:edit preview \
             --branch preview \
             --non-interactive
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
-      - name: Diagnose channel + branch state
-        run: |
-          echo '=== eas channel:view preview (post-relink) ==='
-          npx eas-cli@latest channel:view preview --json --non-interactive || true
-          echo ''
-          echo '=== eas update:list --branch preview ==='
-          npx eas-cli@latest update:list --branch preview --limit 5 --json --non-interactive || true
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
