@@ -60,18 +60,26 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
           NODE_ENV: production
-      # Diagnostic: dump the channel → branch mapping and the latest
-      # updates on the preview branch. If checkForUpdateAsync on the
-      # device returns isAvailable=false despite a successful publish,
-      # this output reveals whether channel "preview" is actually
-      # linked to branch "preview" (sometimes EAS re-points channels
-      # to specific update groups instead of dynamic branches), and
-      # confirms the runtime version the latest update was published
-      # against. Safe to leave in until OTA delivery is confirmed
-      # working end-to-end; cheap (~5 s, no extra publish).
+      # CRITICAL: Re-link channel "preview" to branch "preview" on every
+      # publish. The channel had been pinned to a stale update group from
+      # May 3 — every push to the branch since then was invisible to the
+      # channel, so the device's checkForUpdateAsync kept returning the
+      # stale May-3 update (or "up to date" when its createdAt was older
+      # than the embedded build). The cloud-build flow used to set this
+      # link automatically; we lost that when we switched to raw expo
+      # prebuild + Gradle. Running this on every publish is idempotent
+      # and cheap, and guards against the link getting un-set in the
+      # future.
+      - name: Re-link channel preview → branch preview
+        run: |
+          npx eas-cli@latest channel:edit preview \
+            --branch preview \
+            --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
       - name: Diagnose channel + branch state
         run: |
-          echo '=== eas channel:view preview ==='
+          echo '=== eas channel:view preview (post-relink) ==='
           npx eas-cli@latest channel:view preview --json --non-interactive || true
           echo ''
           echo '=== eas update:list --branch preview ==='
