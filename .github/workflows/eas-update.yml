@@ -10,15 +10,6 @@ on:
   push:
     branches:
       - main
-      # GitHub-hosted-build branch is the de-facto main while we use
-      # the free GitHub Actions build pipeline instead of paid EAS
-      # cloud builds. OTAs need to fire from here so JS-only changes
-      # pushed to this branch reach testers without going through
-      # main first. APKs sideloaded from this branch are signed with
-      # the same Expo-template debug keystore on every build, and
-      # EAS Update routes by channel + projectID + runtimeVersion
-      # (not by signing key or branch), so OTAs published from this
-      # branch land on those installed APKs identically.
       - Github-APK-Transition-snow
     paths-ignore:
       - 'package.json'
@@ -51,47 +42,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      # No cache: 'npm' / npm ci because package-lock.json is in
-      # .gitignore — those modes require a committed lock file. We
-      # keep `npx eas-cli@latest` (still saves ~25 s vs the global
-      # install) but drop the rest of the speedup until we either
-      # commit a lock file or switch to a different cache key.
       - run: npm install --no-audit --no-fund
-      # TEMPORARY: apply the landing rubber-bounce fix to Game.ts at
-      # bundle time. The proper source change can't be pushed via the
-      # local git proxy this session (403 on writes), and Game.ts is
-      # too large to round-trip through the MCP tool API as a single
-      # argument. The script is idempotent and aborts cleanly if any
-      # anchor doesn't match. Delete this step and the script in the
-      # same commit that lands the source-level fix.
       - name: Apply temporary bounce-fix patch to Game.ts
         run: node scripts/apply-bounce-fix-patch.mjs
       - name: Regenerate html-bundle.ts (CRITICAL for OTA correctness)
-        # eas-update bundles the React Native app via Metro on this
-        # runner — and the WebView app's compiled bundle lives in
-        # src/__generated__/html-bundle.ts as a string constant
-        # imported by App.tsx. Without this step, Metro picks up
-        # whatever stale html-bundle.ts is in git and ships THAT,
-        # so OTA-only feature changes (game logic in src/scene/
-        # Game.ts, About panel additions, version.ts bumps) never
-        # reach the device. PR #46 silently dropped this step when
-        # reverting npm ci → npm install, which is why every OTA
-        # from #5 through #7 has been re-uploading the same frozen
-        # bundle from PR #34's commit (11c2966). Don't delete this
-        # again. EAS Build's post-install hook regenerates the
-        # bundle on the EAS build VM, so APKs are unaffected; this
-        # step is the OTA-side equivalent.
         run: npm run web:build
         env:
           NODE_ENV: production
       - name: Publish OTA update
-        # Publish to the EAS branch literally named "preview" so the
-        # channel "preview" (declared in eas.json's preview build profile)
-        # picks up the update on the installed APK. Message is the head
-        # commit subject so the EAS dashboard correlates updates with
-        # specific commits. npx eas-cli@latest skips the global install
-        # step entirely (was ~25 s); cache: 'npm' on setup-node makes
-        # npm ci a cache hit on the second push onward (~60 s saved).
         run: |
           MSG="$(git log -1 --pretty=%s | head -c 100)"
           npx eas-cli@latest update \
@@ -100,9 +58,23 @@ jobs:
             --non-interactive \
             --message "$MSG"
         env:
-          # Token name flexibility: prefer EXPO_TOKEN, fall back to the
-          # SNOWBOARD / SNOW secret names already in this repo. NODE_ENV
-          # set so eas-cli's underlying Metro bundling runs in production
-          # mode (minified + dead-code-stripped).
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
           NODE_ENV: production
+      # Diagnostic: dump the channel → branch mapping and the latest
+      # updates on the preview branch. If checkForUpdateAsync on the
+      # device returns isAvailable=false despite a successful publish,
+      # this output reveals whether channel "preview" is actually
+      # linked to branch "preview" (sometimes EAS re-points channels
+      # to specific update groups instead of dynamic branches), and
+      # confirms the runtime version the latest update was published
+      # against. Safe to leave in until OTA delivery is confirmed
+      # working end-to-end; cheap (~5 s, no extra publish).
+      - name: Diagnose channel + branch state
+        run: |
+          echo '=== eas channel:view preview ==='
+          npx eas-cli@latest channel:view preview --json --non-interactive || true
+          echo ''
+          echo '=== eas update:list --branch preview ==='
+          npx eas-cli@latest update:list --branch preview --limit 5 --json --non-interactive || true
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
