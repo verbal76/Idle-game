@@ -20,6 +20,7 @@ on:
       - 'assets/splash-icon.png'
       - '.github/workflows/**'
       - 'README.md'
+      - 'MOBILE_GAME_DEV_RULES.md'
       - '.gitignore'
 
 permissions:
@@ -44,11 +45,6 @@ jobs:
         run: npm run web:build
         env:
           NODE_ENV: production
-      # Verify the new CSS actually made it into the regenerated
-      # html-bundle.ts. If web:build's vite step silently keeps old
-      # output (or if anything bypasses style.css imports), we ship
-      # an OTA with stale CSS and the device looks unchanged. This
-      # grep makes the failure mode loud.
       - name: Verify html-bundle.ts has fresh CSS
         run: |
           BUNDLE='src/__generated__/html-bundle.ts'
