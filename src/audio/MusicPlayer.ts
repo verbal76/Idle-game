@@ -15,36 +15,20 @@ declare global {
   }
 }
 
-// Tiny background-music player that owns one HTMLAudioElement, cycles
-// the playlist on track end, and exposes a 0..1 volume knob the
-// settings UI can drive. Lives at the bootstrap layer so it survives
-// across runs (Game gets disposed and recreated each session).
-//
-// Autoplay note: WebView/browser autoplay policies block .play() until
-// the user interacts with the page. Bootstrap calls start() from the
-// first menu-button click; calling it earlier silently no-ops.
 export class MusicPlayer {
   private audio: HTMLAudioElement;
   private playlist: Track[] = [];
   private trackIdx = 0;
   private wantPlaying = false;
   private volume = 0.7;
-  // Last advance-on-error timestamp; rate-limited to once / 500 ms so a
-  // bad track that fires repeated `error` events can't spin into a
-  // runaway advance loop.
   private lastErrorAdvance = 0;
 
   constructor() {
     const a = new Audio();
-    // 'metadata' instead of 'auto' — only the current track preloads
-    // its header, not all three at boot.
     a.preload = 'metadata';
     a.loop = false;
     a.volume = this.volume;
     a.addEventListener('ended', () => this.advance());
-    // Track-load error (corrupt asset, network blip, missing file): hop
-    // to the next track instead of getting stuck silently. Rate-limited
-    // so a chain of error events can't recurse the playlist.
     a.addEventListener('error', () => {
       const now = performance.now();
       if (now - this.lastErrorAdvance < 500) return;
@@ -53,9 +37,6 @@ export class MusicPlayer {
     });
     this.audio = a;
 
-    // Pick up URLs already injected by App.tsx if the early shot won
-    // the race against bundle parse time. Fallback for the late-load
-    // case is the 'music-urls' CustomEvent listener below.
     if (Array.isArray(window.__MUSIC_URLS__)) {
       this.playlist = window.__MUSIC_URLS__;
     }
@@ -64,25 +45,11 @@ export class MusicPlayer {
       if (!Array.isArray(detail)) return;
       this.playlist = detail as Track[];
       this.trackIdx = 0;
-      // If a previous start() set wantPlaying = true on an empty
-      // playlist, kick playback now that we have URLs.
       if (this.wantPlaying && !this.audio.src) {
         void this.start();
       }
     });
 
-    // Auto-resume guards for the "music stops mid-song on the menu
-    // screens" symptom. The Android WebView aggressively pauses
-    // background audio when:
-    //   * the WebView loses focus (user backgrounded the app, then
-    //     came back)
-    //   * memory pressure trips an audio focus loss
-    //   * the page is hidden behind another overlay
-    // The HTMLAudioElement's `pause` event fires for all of those.
-    // If we wanted to be playing, retry start() — idempotent and
-    // self-recovers without burning a play() request when the
-    // browser actually wants the audio paused (the play() promise
-    // rejects on autoplay block; we silence and try again later).
     const resumeIfWanted = () => {
       if (!this.wantPlaying) return;
       if (this.playlist.length === 0) return;
@@ -91,17 +58,11 @@ export class MusicPlayer {
       }
     };
     a.addEventListener('pause', () => {
-      // 200 ms delay: when advance() / loadCurrent() swap audio.src,
-      // pause fires synchronously before the new track plays. Don't
-      // race with that — wait, then verify paused state and retry.
       setTimeout(resumeIfWanted, 200);
     });
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) resumeIfWanted();
     });
-    // Watchdog: every 5 s, if we want to be playing and aren't,
-    // try again. Catches the case where the WebView paused us due
-    // to focus / power reasons that didn't fire a discrete event.
     setInterval(resumeIfWanted, 5000);
 
     // Stop audio when the page is about to unload — primarily to
@@ -110,13 +71,21 @@ export class MusicPlayer {
     // new bundle creates a fresh MusicPlayer and calls start();
     // without this, both the old and new audio elements briefly
     // overlap and the user hears the soundtrack double-firing
-    // ~1 second apart. Explicitly hard-pause (bypasses the
-    // wantPlaying retry watchdog above) so the audio actually
-    // stops instead of getting auto-resumed by the pause→start
-    // cycle.
+    // ~1 second apart.
     const hardStop = () => {
       this.wantPlaying = false;
-      try { this.audio.pause(); } catch { /* audio may be detached */ }
+      try {
+        this.audio.pause();
+        // Detach the source — pause() alone doesn't always silence
+        // the underlying Android MediaPlayer instantly (a small
+        // playback buffer keeps emitting for ~50–200 ms after the
+        // pause request). Setting src='' + load() forces the native
+        // layer to release the audio resource immediately, closing
+        // the double-music overlap window with the new WebView's
+        // MusicPlayer during an OTA reload.
+        this.audio.src = '';
+        try { this.audio.load(); } catch { /* load on empty src may throw */ }
+      } catch { /* audio may be detached */ }
     };
     window.addEventListener('pagehide', hardStop);
     window.addEventListener('beforeunload', hardStop);
@@ -134,11 +103,6 @@ export class MusicPlayer {
 
   getVolume(): number { return this.volume; }
 
-  // Try to begin or resume playback. Idempotent — safe to call from
-  // every menu click; the underlying HTMLAudioElement only takes
-  // action when state actually changes. No-op when the playlist is
-  // empty; calling later (after the music-urls event lands) starts
-  // playback as expected.
   async start(): Promise<void> {
     this.wantPlaying = true;
     if (this.playlist.length === 0) return;
@@ -154,8 +118,6 @@ export class MusicPlayer {
     this.audio.pause();
   }
 
-  // Hop to the next track manually (also wired to the audio's `ended`
-  // event for natural rotation through the playlist).
   next(): void { this.advance(); }
 
   currentTitle(): string {
