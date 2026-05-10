@@ -35,9 +35,19 @@ html, body {
   to   { opacity: 1; transform: none; }
 }
 .fullscreen-panel.menu-bg {
-  background:
+  background-color: #0b1320;
+  background-image:
     linear-gradient(rgba(11, 19, 32, 0.55), rgba(11, 19, 32, 0.78)),
-    url('./assets/menu-bg.png') center/cover no-repeat;
+    url('./assets/menu-bg.png');
+  background-position: center, center top;
+  /* 120vmax × 120vmax = ~120% of cover for the square menu-bg art.
+     vmax picks whichever viewport dimension dominates (height in
+     portrait, width in landscape) so the image stays bigger than
+     the container in both orientations. center-top anchors the
+     boarder's head at the panel top — overflow crops the
+     snowboard bottom, not the face. */
+  background-size: 100% 100%, 120vmax 120vmax;
+  background-repeat: no-repeat;
   backdrop-filter: none;
 }
 .fullscreen-panel.menu-bg-stacked {
@@ -343,12 +353,6 @@ html, body {
   border-color: rgba(255, 240, 200, 0.8);
 }
 
-/* Both selectors so the chromeless rule wins both inside .fullscreen-
-   panel (where .fullscreen-panel button at 0,1,1 was overriding plain
-   .gear-btn at 0,1,0 — that's why the gear kept rendering with the
-   blue menu-button background even though OTA delivery was working)
-   AND in #hud where there's no competing rule. .fullscreen-panel
-   .gear-btn is 0,2,0 which beats .fullscreen-panel button's 0,1,1. */
 .gear-btn,
 .fullscreen-panel .gear-btn {
   background: transparent; color: #fff;
@@ -426,4 +430,28 @@ html, body {
   border: 1px solid rgba(160, 200, 240, 0.25);
   border-radius: 6px; padding: 8px;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px;
+}
+
+/* Landscape Settings panel: short viewport heights would otherwise
+   stack the 7+ buttons vertically and overflow the bottom of the
+   screen. Switch the .list to a 2-column grid so the buttons fit in
+   the available height without scrolling. The 540px height threshold
+   matches a typical phone in landscape orientation; tablets in
+   landscape are tall enough to keep the single-column layout. */
+@media (orientation: landscape) and (max-height: 540px) {
+  .fullscreen-panel .list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    width: min(640px, 90vw);
+  }
+  .fullscreen-panel .list button {
+    min-width: 0;
+  }
+  /* The status / "Now playing" lines should still span the full
+     width so they're not awkwardly squeezed into one column. */
+  .fullscreen-panel .list > p {
+    grid-column: 1 / -1;
+    text-align: center;
+  }
 }
