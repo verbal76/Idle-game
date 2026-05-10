@@ -112,6 +112,18 @@ async function runUpdateCheck(ref: React.RefObject<WebView | null>, autoReload: 
     await Updates.fetchUpdateAsync();
     if (autoReload) {
       injectUpdateStatus(ref, 'reloading');
+      // Stop audio in the old WebView context BEFORE the bundle swap,
+      // otherwise the old context's HTMLAudioElement keeps playing
+      // for ~500 ms while the new bundle initialises a fresh
+      // MusicPlayer and starts its own audio — user hears the
+      // soundtrack twice, slightly out of phase. MusicPlayer listens
+      // for this custom event and hard-pauses itself.
+      ref.current?.injectJavaScript(
+        `try{window.dispatchEvent(new Event('music-pause-before-reload'));}catch(e){};true;`
+      );
+      // Tiny delay to let the pause command land in the WebView's
+      // event loop before we tear down the JS context.
+      await new Promise(r => setTimeout(r, 80));
       await Updates.reloadAsync();
     } else {
       injectUpdateStatus(ref, 'ready');
@@ -182,27 +194,6 @@ export default function App(): React.JSX.Element {
     return () => { cancelled = true; };
   }, []);
 
-  // Auto check + fetch + reload on launch, then a 90 s poll for the
-  // rest of the session. Runs in the background so a slow network
-  // never blocks startup. fallbackToCacheTimeout in app.json (3000 ms)
-  // isn't enough for the ~20 MiB OTA to download before launch — this
-  // fires AFTER the WebView is up and gives the OTA the full session
-  // to fetch. autoReload=true means we restart the app the moment the
-  // update is ready, so the user sees the new build mid-session
-  // instead of having to kill + relaunch.
-  //
-  // The 90 s interval handles the case where the user opens the app
-  // BEFORE the EAS workflow finished publishing the new bundle: the
-  // first check returns "up to date", and without polling the user
-  // would have to manually press the Settings → Check for Updates
-  // button (or cold-restart) to see the bundle once it lands. Polling
-  // every 90 s catches it within at most one and a half minutes of
-  // the workflow completing.
-  //
-  // Trade-off: a fresh OTA arriving mid-game reloads the app, which
-  // interrupts the current run. Acceptable per user request; the
-  // alternative ("ready - tap to reload" banner) is what the
-  // explicit Check for Updates button already does.
   useEffect(() => {
     const t = setTimeout(() => { void runUpdateCheck(webviewRef, /* autoReload */ true); }, 1500);
     const i = setInterval(() => { void runUpdateCheck(webviewRef, /* autoReload */ true); }, 90 * 1000);
@@ -222,21 +213,11 @@ export default function App(): React.JSX.Element {
         // HTML_BUNDLE constant has changed.
         key={OTA_INFO.updateId ?? 'embedded'}
         ref={webviewRef}
-        // baseUrl carries the updateId so any URL-keyed caches the
-        // WebView keeps internally are scoped to a single OTA.
         source={{ html: HTML_BUNDLE, baseUrl: `https://localhost/${OTA_INFO.updateId ?? 'embedded'}/` }}
         originWhitelist={['*']}
         javaScriptEnabled
         domStorageEnabled
-        // Disable HTTP/disk cache: every WebView load is fresh from
-        // the inline HTML string. Belt-and-suspenders alongside the
-        // key+baseUrl change so we can't accidentally serve stale
-        // CSS / JS from a previous OTA's render.
         cacheEnabled={false}
-        // file:// URIs from Asset.downloadAsync() need this on Android
-        // for HTMLAudioElement to load them when the page origin is
-        // https://localhost/. Default is false; flip it on so audio
-        // streams without rebuilding the bundle.
         allowFileAccess
         allowFileAccessFromFileURLs
         mediaPlaybackRequiresUserAction={false}
@@ -246,9 +227,6 @@ export default function App(): React.JSX.Element {
         overScrollMode="never"
         injectedJavaScriptBeforeContentLoaded={INJECTED_JS_BEFORE}
         onLoadEnd={() => {
-          // Belt-and-suspenders: re-inject after load so the web side
-          // picks up window.__OTA__ even if the early injection lost
-          // the race on Android cold start.
           webviewRef.current?.injectJavaScript(INJECTED_JS_AFTER);
         }}
         onMessage={createMessageHandler(webviewRef)}

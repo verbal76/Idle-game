@@ -103,6 +103,28 @@ export class MusicPlayer {
     // try again. Catches the case where the WebView paused us due
     // to focus / power reasons that didn't fire a discrete event.
     setInterval(resumeIfWanted, 5000);
+
+    // Stop audio when the page is about to unload — primarily to
+    // prevent the old WebView's HTMLAudioElement from continuing
+    // to play during an `Updates.reloadAsync()` bundle swap. The
+    // new bundle creates a fresh MusicPlayer and calls start();
+    // without this, both the old and new audio elements briefly
+    // overlap and the user hears the soundtrack double-firing
+    // ~1 second apart. Explicitly hard-pause (bypasses the
+    // wantPlaying retry watchdog above) so the audio actually
+    // stops instead of getting auto-resumed by the pause→start
+    // cycle.
+    const hardStop = () => {
+      this.wantPlaying = false;
+      try { this.audio.pause(); } catch { /* audio may be detached */ }
+    };
+    window.addEventListener('pagehide', hardStop);
+    window.addEventListener('beforeunload', hardStop);
+    // Custom event fired by App.tsx native side immediately before
+    // Updates.reloadAsync(). Belt-and-suspenders alongside pagehide,
+    // because pagehide on Android WebView during a JS-bundle swap
+    // is not consistently fired.
+    window.addEventListener('music-pause-before-reload', hardStop);
   }
 
   setVolume(v: number): void {
