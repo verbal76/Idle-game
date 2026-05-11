@@ -1,0 +1,41 @@
+name: Prune Artifacts
+
+# Keep only the 3 most recent artifacts repo-wide so we stay under the
+# storage quota. Runs daily, manually, and after every EAS build.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_run:
+    workflows: ['EAS Build (Android APK)']
+    types: [completed]
+
+permissions:
+  actions: write
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete all but the 3 newest artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const KEEP = 3;
+            const { owner, repo } = context.repo;
+            const all = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              { owner, repo, per_page: 100 }
+            );
+            const sorted = all.sort(
+              (a, b) => new Date(b.created_at) - new Date(a.created_at)
+            );
+            const toDelete = sorted.slice(KEEP);
+            core.info(`Found ${sorted.length} artifacts; keeping ${Math.min(KEEP, sorted.length)}, deleting ${toDelete.length}.`);
+            for (const a of toDelete) {
+              core.info(`Deleting ${a.name} (id=${a.id}, created=${a.created_at})`);
+              await github.rest.actions.deleteArtifact({
+                owner, repo, artifact_id: a.id,
+              });
+            }
