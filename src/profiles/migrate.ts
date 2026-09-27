@@ -2,7 +2,7 @@ import type { ProfileStats, SaveData, UpgradeLevels } from './IndexedDbStore';
 import { defaultStats } from '../game/records';
 
 export function defaultUpgrades(): UpgradeLevels {
-  return { speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0 };
+  return { speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0, ringMagnet: 0, comboWindow: 0, grace: 0 };
 }
 
 /**

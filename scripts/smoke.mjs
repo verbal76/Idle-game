@@ -369,6 +369,16 @@ async function main() {
       if (speed.desc !== `${cur} m/s → ${next} m/s`) fail(`Top Speed read-out: ${speed.desc}`);
       if (speed.pips !== 20 || speed.on !== lvl) fail(`pips ${speed.on}/${speed.pips} for level ${lvl}`);
       if (!(await page.isVisible('#shop-balance'))) fail('balance header missing');
+      // #20: the new upgrades are listed; Grace has 4 levels at 40 ❄.
+      const names = await page.$$eval('.upgrade-name', els => els.map(e => e.textContent));
+      for (const n of ['Ring Magnet', 'Combo Window', 'Grace']) {
+        if (!names.some(t => t.includes(n))) fail(`${n} missing from the shop`);
+      }
+      const grace = await page.$$eval('.upgrade-row', rows => {
+        const r = rows.find(x => x.querySelector('.upgrade-name').textContent.includes('Grace'));
+        return { pips: r.querySelectorAll('.pip').length, price: r.querySelector('.upgrade-buy').textContent };
+      });
+      if (grace.pips !== 4 || !grace.price.includes('40')) fail(`Grace row: ${JSON.stringify(grace)}`);
       await page.click('#upgrades-back');
       await page.waitForSelector('#downhill');
     });

@@ -6,10 +6,13 @@ export interface PurchasableUpgrade {
   baseCost: number;
   costStep: number;
   maxLevel: number;
+  // Explicit per-level prices (overrides the linear ramp), e.g. Grace.
+  costs?: number[];
 }
 
 /** Linear ramp: baseCost, baseCost + step, … per level already owned. */
 export function costForNext(def: PurchasableUpgrade, currentLevel: number): number {
+  if (def.costs) return def.costs[currentLevel];
   return def.baseCost + currentLevel * def.costStep;
 }
 

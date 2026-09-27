@@ -12,6 +12,9 @@ export const effects = {
   spinMult: (l: number) => 1 + l * 0.04,
   flipMult: (l: number) => 1 + l * 0.04,
   flakeMult: (l: number) => 1 + l * 0.05,
+  ringRadius: (l: number) => 3 + l * 0.1,             // m
+  comboWindowMs: (l: number) => 5000 + l * 250,
+  graceSaves: (l: number) => l,
 };
 
 const pct = (m: number) => `+${Math.round((m - 1) * 100)}%`;
@@ -27,6 +30,7 @@ export interface UpgradeDef {
   baseCost: number;
   costStep: number;
   maxLevel: number;
+  costs?: number[];
   /** Human-readable effect at a level, e.g. "23.5 m/s". */
   effect: (level: number) => string;
 }
@@ -49,6 +53,13 @@ export const UPGRADES: UpgradeDef[] = [
     effect: l => `${pct(effects.flipMult(l))} flip` },
   { id: 'coin',   label: 'Flake Bonus', description: '+5% snowflakes per level',  baseCost: 10, costStep: 2, maxLevel: 20,
     effect: l => `×${effects.flakeMult(l).toFixed(2)} ❄` },
+  { id: 'ringMagnet',  label: 'Ring Magnet',  description: 'bigger half-pipe ring catch', baseCost: 10, costStep: 2, maxLevel: 20,
+    effect: l => `${effects.ringRadius(l).toFixed(1)} m catch` },
+  { id: 'comboWindow', label: 'Combo Window', description: 'more time to chain tricks',  baseCost: 10, costStep: 2, maxLevel: 20,
+    effect: l => `${(effects.comboWindowMs(l) / 1000).toFixed(2)} s window` },
+  { id: 'grace',       label: 'Grace',        description: 'survive a crash: it becomes a bail', baseCost: 40, costStep: 40, maxLevel: 4,
+    costs: [40, 80, 120, 160],
+    effect: l => `${effects.graceSaves(l)} save${effects.graceSaves(l) === 1 ? '' : 's'} / run` },
 ];
 
 /** "current → next" for the shop row, or just the current value at max. */

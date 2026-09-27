@@ -42,6 +42,8 @@ export interface GameCallbacks {
   onCrash?: () => void;
   // Every non-bail landing that did something: a trick (with its payout
   // after combo and Flake Bonus) or a sketchy landing.
+  // A Grace save was used (saves left this run).
+  onGrace?: (left: number) => void;
   onTrick?: (t: { name: string; payout: number; comboMult: number; outcome: LandingOutcome; switch: boolean }) => void;
 }
 
@@ -68,11 +70,10 @@ export class Game {
   private terrain!: Terrain;
   private streamer!: ChunkStreamer;
 
-  // Combo: chained clean landings within COMBO_TIMEOUT_MS raise the
-  // payout multiplier ×1.0 → ×3.0 (5+ chain); a bail resets it.
+  // Combo: chained clean landings within the combo window (5 s, longer
+  // with Combo Window) raise the payout multiplier ×1.0 → ×3.0 (5+).
   private comboCount = 0;
   private lastTrickAt = 0;
-  private readonly COMBO_TIMEOUT_MS = 5000;
   private boostUntil = 0;
   // Ring streak resets when a ring is passed without being collected.
   private ringStreak = 0;
@@ -116,6 +117,8 @@ export class Game {
   private coinsCollected = 0;
   // Downhill 50 m segments already paid for (see game/economy.ts).
   private distanceSegmentsPaid = 0;
+  // Grace saves left this run.
+  private gracesLeft = 0;
   // Bank at run start; the HUD shows bank + this run's earnings live.
   private bankAtStart = 0;
   private fellAlready = false;
@@ -200,11 +203,12 @@ export class Game {
     mode: GameMode,
     private readonly input: GameInput,
     private readonly callbacks: GameCallbacks = {},
-    upgrades: UpgradeLevels = { speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0 },
+    upgrades: UpgradeLevels = { speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0, ringMagnet: 0, comboWindow: 0, grace: 0 },
     options: GameOptions = {},
   ) {
     this.mode = mode;
     this.upgrades = upgrades;
+    this.gracesLeft = effects.graceSaves(upgrades.grace ?? 0);
     this.bestRingStreak = options.bestRingStreak ?? 0;
 
     // Deferred so the HUD is mounted before it fires.
@@ -301,6 +305,8 @@ export class Game {
   private get flipRateScaled(): number {
     return this.flipRate * effects.flipMult(this.upgrades.flip ?? 0);
   }
+  private get comboWindowMs(): number { return effects.comboWindowMs(this.upgrades.comboWindow ?? 0); }
+  private get ringRadius(): number { return effects.ringRadius(this.upgrades.ringMagnet ?? 0); }
   private get coinMultiplier(): number {
     return effects.flakeMult(this.upgrades.coin ?? 0);
   }
@@ -603,8 +609,8 @@ export class Game {
         if (landing.isTrick) {
           this.flipsLanded += landing.flips;
           if (landing.halfTurns > 0) this.spinsLanded++;
-          // Chained tricks within COMBO_TIMEOUT_MS raise the multiplier.
-          if (this.comboCount > 0 && this.clock - this.lastTrickAt < this.COMBO_TIMEOUT_MS) {
+          // Chained tricks within the combo window raise the multiplier.
+          if (this.comboCount > 0 && this.clock - this.lastTrickAt < this.comboWindowMs) {
             this.comboCount++;
           } else {
             this.comboCount = 1;
@@ -850,7 +856,7 @@ export class Game {
     const r = this.rider.root.position;
     const invulnerable = this.state !== 'normal';
 
-    if (this.comboCount > 0 && this.clock - this.lastTrickAt > this.COMBO_TIMEOUT_MS) {
+    if (this.comboCount > 0 && this.clock - this.lastTrickAt > this.comboWindowMs) {
       this.comboCount = 0;
       this.callbacks.onComboChange?.(0, 1);
     }
@@ -865,8 +871,9 @@ export class Game {
             const dx = r.x - ring.x;
             const dy = r.y - ring.y;
             const dz = r.z - ring.z;
-            // 3 m catch radius around the ring centre.
-            if (dx * dx + dy * dy + dz * dz < 9.0) {
+            // 3 m catch radius around the ring centre (Ring Magnet grows it).
+            const rr = this.ringRadius;
+            if (dx * dx + dy * dy + dz * dz < rr * rr) {
               ring.collected = true;
               ring.mesh.isVisible = false;
               spawnRingFlicker(this.scene, ring.x, ring.y, ring.z);
@@ -921,6 +928,13 @@ export class Game {
           const hr = o.radius ?? 1.5;
           if (segmentHitsCircle(this.stepFromX, this.stepFromZ, r.x, r.z, o.x, o.z, hr)
             && r.y - (this.terrain.surfaceY(o.x, o.z)) < 1.55 && r.y - surfaceAtRider < 1.55) {
+            // Grace turns a run-ending hit into a bail while saves remain.
+            if (this.gracesLeft > 0) {
+              this.gracesLeft--;
+              this.callbacks.onGrace?.(this.gracesLeft);
+              this.startBail();
+              return;
+            }
             this.fall();
             return;
           }

@@ -14,7 +14,7 @@ function legacy(extra: Record<string, unknown> = {}): SaveData {
 describe('migrateSave', () => {
   it('backfills upgrades on a pre-upgrades save without touching progress', () => {
     const d = migrateSave(legacy());
-    expect(d.upgrades).toEqual({ speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0 });
+    expect(d.upgrades).toEqual({ speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0, ringMagnet: 0, comboWindow: 0, grace: 0 });
     expect(d.currency).toBe(137);
     expect(d.longestDownhillMeters).toBe(812);
     expect(d.settings.musicVolume).toBe(0.4);
@@ -22,7 +22,7 @@ describe('migrateSave', () => {
 
   it('keeps earned levels, backfills later upgrades, and drops the dead magnet key', () => {
     const d = migrateSave(legacy({ upgrades: { speed: 4, jump: 2, magnet: 0 } }));
-    expect(d.upgrades).toEqual({ speed: 4, jump: 2, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0 });
+    expect(d.upgrades).toEqual({ speed: 4, jump: 2, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0, ringMagnet: 0, comboWindow: 0, grace: 0 });
     expect('magnet' in d.upgrades).toBe(false);
   });
 

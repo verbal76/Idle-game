@@ -22,7 +22,7 @@ describe('swept obstacle collision in play (#14)', () => {
     vi.useFakeTimers({ now: 1_700_000_000_000, toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout'] });
     const game = new Game(new Stage({} as HTMLCanvasElement), 'downhill', {
       leftStick: () => ({ x: 0, y: 0 }), jumpHeld: () => false, flipHeld: () => false,
-    }, {}, { speed: 20, jump: 0, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0 });
+    }, {}, { speed: 20, jump: 0, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0, ringMagnet: 0, comboWindow: 0, grace: 0 });
     game.start();
     const g = game as unknown as G;
     g.engine.getDeltaTime = () => 50;                      // 20 fps (dt cap)

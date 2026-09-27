@@ -4,7 +4,7 @@ import type { SaveData } from '../profiles/IndexedDbStore';
 
 const speed: PurchasableUpgrade = { id: 'speed', baseCost: 10, costStep: 2, maxLevel: 20 };
 const profile = (currency: number, level = 0) => ({
-  currency, upgrades: { speed: level, jump: 0, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0 },
+  currency, upgrades: { speed: level, jump: 0, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0, ringMagnet: 0, comboWindow: 0, grace: 0 },
 }) as unknown as SaveData;
 
 describe('purchaseUpgrade', () => {
@@ -44,5 +44,18 @@ describe('shop read-outs (#18)', () => {
     expect(effectPreview(def('turn'), 0)).toBe('40° lean → 41° lean');
     expect(effectPreview(def('coin'), 1)).toBe('×1.05 ❄ → ×1.10 ❄');
     expect(effectPreview(def('flip'), 20)).toBe('+80% flip');
+  });
+});
+
+describe('Grace pricing (#20)', () => {
+  it('costs 40/80/120/160 and caps at 4 levels', () => {
+    const grace = UPGRADES.find(u => u.id === 'grace')!;
+    expect([0, 1, 2, 3].map(l => costForNext(grace, l))).toEqual([40, 80, 120, 160]);
+    const p = profile(1000);
+    let bought = 0;
+    while (purchaseUpgrade(p, grace)) bought++;
+    expect(bought).toBe(4);
+    expect(p.currency).toBe(1000 - 400);
+    expect(effectPreview(grace, 1)).toBe('1 save / run → 2 saves / run');
   });
 });

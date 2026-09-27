@@ -5,7 +5,7 @@ import type { SaveData } from '../profiles/IndexedDbStore';
 const profile = (): SaveData => ({
   id: 'p', name: 'P', createdAtMs: 0, lastPlayedMs: 0, currency: 5, unlocks: [],
   bestHalfPipeScore: 0, longestDownhillMeters: 0,
-  upgrades: { speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0 },
+  upgrades: { speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0, ringMagnet: 0, comboWindow: 0, grace: 0 },
   settings: { musicVolume: 1, sfxVolume: 1 }, seenHalfpipeIntro: false, stats: defaultStats(),
 });
 const run = (over: Partial<RunStats>): RunStats => ({

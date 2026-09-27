@@ -13,6 +13,9 @@ export interface UpgradeLevels {
   // Split out of the old combined 'Air Control' (spin) upgrade.
   flip: number;
   coin: number;
+  ringMagnet: number;   // half-pipe ring catch radius
+  comboWindow: number;  // longer trick-combo window
+  grace: number;        // run-ending hits survived per run (max 4)
 }
 
 export interface ProfileStats {
