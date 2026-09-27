@@ -30,8 +30,18 @@ export interface GameInput {
   forwardHeld?(): boolean;
 }
 
+export interface HudReadout {
+  meters: number;
+  altitude: number | null;   // Downhill only
+  flakes: number;            // live balance, whole snowflakes
+  flips: number;
+  spins: number;
+}
+
 export interface GameCallbacks {
   onScore?: (label: string) => void;
+  // The same numbers as onScore, structured for the HUD chips.
+  onHud?: (h: HudReadout) => void;
   onFell?: (stats: { distanceMeters: number; flips: number; spins: number; coins: number }) => void;
   // Jump charge 0..1, reported only when it moves by ≥1%.
   onChargeChange?: (charge: number) => void;
@@ -793,6 +803,7 @@ export class Game {
     if (label !== this.lastScoreLabel) {
       this.lastScoreLabel = label;
       this.callbacks.onScore?.(label);
+      this.callbacks.onHud?.({ meters, altitude, flakes: liveBank, flips: this.flipsLanded, spins: this.spinsLanded });
     }
 
     this.scene.render();

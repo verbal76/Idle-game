@@ -209,7 +209,7 @@ async function runSession(
       flipHeld: () => buttons.flipHeld,
       forwardHeld: () => dpad.upHeld,
     }, {
-      onScore: (label) => { hud.score.textContent = label; },
+      onHud: (h) => hud.setReadout(h),
       onComboChange: (count, mult) => {
         if (count <= 0) { hud.comboBar.style.display = 'none'; return; }
         hud.comboBar.style.display = 'flex';

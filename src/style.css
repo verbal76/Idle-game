@@ -140,11 +140,26 @@ html, body {
   font: inherit; font-size: 18px; font-weight: 700;
   min-width: 52px;
 }
-#hud .score {
-  font-variant-numeric: tabular-nums; font-weight: 800; font-size: 22px;
-  color: #0b1320;
-  background: rgba(255, 255, 255, 0.85);
-  padding: 4px 12px; border-radius: 10px;
+/* HUD read-outs: one chip per number (distance, altitude, snowflakes,
+   tricks) instead of a single run-on string. */
+.hud-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; pointer-events: none; max-width: 62vw; }
+.chip {
+  display: inline-flex; align-items: baseline; gap: 3px;
+  font-variant-numeric: tabular-nums; font-weight: 800; font-size: 18px; line-height: 1.1;
+  color: #0b1320; background: rgba(255, 255, 255, 0.88);
+  padding: 4px 10px; border-radius: 999px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+.chip small { font-size: 12px; font-weight: 700; opacity: 0.7; }
+.chip-icon { font-size: 14px; opacity: 0.75; }
+.chip-dist { font-size: 20px; }
+.chip-alt { background: rgba(210, 230, 255, 0.88); }
+.chip-flakes { background: rgba(255, 209, 102, 0.95); color: #3a1a00; }
+.chip-tricks { background: rgba(20, 32, 56, 0.82); color: #fff; }
+.chip-tricks b + .chip-icon { margin-left: 6px; }
+@media (max-height: 420px) {
+  .chip { font-size: 15px; padding: 3px 8px; }
+  .chip-dist { font-size: 16px; }
 }
 
 .dpad-left {

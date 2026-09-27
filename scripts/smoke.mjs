@@ -523,6 +523,38 @@ async function main() {
       if (problems.length) fail(problems.join('\n'));
     });
 
+    await step('HUD chips: distance, altitude (downhill only), snowflakes, tricks (#24)', async () => {
+      const read = () => page.evaluate(() => {
+        const v = (id) => document.getElementById(id);
+        const shown = (id) => getComputedStyle(v(id)).display !== 'none';
+        const bar = document.querySelector('.hud-chips').getBoundingClientRect();
+        const actions = document.querySelector('.top-actions').getBoundingClientRect();
+        return {
+          dist: Number(v('chip-dist').textContent), alt: shown('chip-alt-wrap'),
+          flakes: v('chip-flakes').textContent, tricks: shown('chip-tricks-wrap'),
+          overlap: bar.right > actions.left - 4,
+        };
+      });
+      for (const mode of ['downhill', 'half-pipe']) {
+        await page.click(`#${mode}`);
+        await page.setViewportSize(LANDSCAPE);
+        await page.waitForSelector('#hud');
+        if (await page.isVisible('#halfpipe-intro')) await page.click('#halfpipe-intro');
+        const a = await read();
+        await page.waitForTimeout(1500);
+        const b = await read();
+        if (!(b.dist > a.dist)) fail(`${mode}: distance chip not advancing ${a.dist} -> ${b.dist}`);
+        if (b.alt !== (mode === 'downhill')) fail(`${mode}: altitude chip shown=${b.alt}`);
+        if (!/^\d[\d,]*$/.test(b.flakes)) fail(`${mode}: snowflake chip '${b.flakes}'`);
+        if (b.tricks) fail(`${mode}: tricks chip shown before any trick`);
+        if (b.overlap) fail(`${mode}: chips run into the pause/settings buttons at ${LANDSCAPE.width}x${LANDSCAPE.height}`);
+        await page.click('#pause');
+        await quitRun();
+        await page.setViewportSize(PORTRAIT);
+        await page.waitForSelector('#downhill');
+      }
+    });
+
     console.log('smoke: PASS');
   } finally {
     await browser.close();

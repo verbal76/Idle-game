@@ -1,6 +1,9 @@
+import type { HudReadout } from '../scene/Game';
 export interface HUDRefs {
   hud: HTMLElement;
   score: HTMLElement;
+  // Updates the distance / altitude / snowflakes / tricks chips.
+  setReadout: (h: HudReadout) => void;
   pauseBtn: HTMLButtonElement;
   settingsBtn: HTMLButtonElement;
   settingsOverlay: HTMLElement;
@@ -36,7 +39,12 @@ export function buildHUD(root: HTMLElement): HUDRefs {
   root.innerHTML = `
     <div id="hud">
       <div class="top-bar">
-        <span class="score" id="score">0 m</span>
+        <div class="hud-chips" id="score">
+          <span class="chip chip-dist"><b id="chip-dist">0</b><small>m</small></span>
+          <span class="chip chip-alt" id="chip-alt-wrap" style="display:none"><span class="chip-icon">↧</span><b id="chip-alt">0</b><small>m</small></span>
+          <span class="chip chip-flakes"><span class="chip-icon">❄</span><b id="chip-flakes">0</b></span>
+          <span class="chip chip-tricks" id="chip-tricks-wrap" style="display:none"><span class="chip-icon">↻</span><b id="chip-flips">0</b><span class="chip-icon">⟲</span><b id="chip-spins">0</b></span>
+        </div>
         <div class="ring-widget" id="ring-widget" style="display:none">
           <span class="ring-icon">◯</span>
           <span class="ring-streak" id="ring-streak">0</span>
@@ -111,6 +119,7 @@ export function buildHUD(root: HTMLElement): HUDRefs {
   return {
     hud:             root.querySelector<HTMLElement>('#hud')!,
     score:           root.querySelector<HTMLElement>('#score')!,
+    setReadout:      makeReadout(root),
     pauseBtn:        root.querySelector<HTMLButtonElement>('#pause')!,
     settingsBtn:     root.querySelector<HTMLButtonElement>('#hud-settings')!,
     settingsOverlay: root.querySelector<HTMLElement>('#settings-overlay')!,
@@ -154,4 +163,27 @@ export function showHalfpipeIntro(hud: HUDRefs): Promise<void> {
     };
     hud.halfpipeIntro.addEventListener('click', dismiss);
   });
+}
+
+// Separate chips instead of one run-on string; each DOM write only
+// happens when that chip's text actually changes.
+function makeReadout(root: HTMLElement): (h: HudReadout) => void {
+  const q = (id: string) => root.querySelector<HTMLElement>(`#${id}`)!;
+  const el = {
+    dist: q('chip-dist'), alt: q('chip-alt'), altWrap: q('chip-alt-wrap'),
+    flakes: q('chip-flakes'), flips: q('chip-flips'), spins: q('chip-spins'), tricksWrap: q('chip-tricks-wrap'),
+  };
+  const last = new Map<HTMLElement, string>();
+  const put = (e: HTMLElement, v: string) => { if (last.get(e) !== v) { last.set(e, v); e.textContent = v; } };
+  const vis = new Map<HTMLElement, boolean>();
+  const display = (e: HTMLElement, on: boolean) => { if (vis.get(e) !== on) { vis.set(e, on); e.style.display = on ? '' : 'none'; } };
+  return (h) => {
+    put(el.dist, String(h.meters));
+    display(el.altWrap, h.altitude !== null);
+    if (h.altitude !== null) put(el.alt, String(h.altitude));
+    put(el.flakes, h.flakes.toLocaleString('en-US'));
+    display(el.tricksWrap, h.flips + h.spins > 0);
+    put(el.flips, String(h.flips));
+    put(el.spins, String(h.spins));
+  };
 }
