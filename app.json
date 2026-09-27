@@ -28,7 +28,10 @@
     },
     "updates": {
       "url": "https://u.expo.dev/147c7fa1-88de-4800-8c08-c5e6411f069e",
-      "fallbackToCacheTimeout": 0
+      "fallbackToCacheTimeout": 0,
+      "requestHeaders": {
+        "expo-channel-name": "preview"
+      }
     },
     "runtimeVersion": {
       "policy": "appVersion"

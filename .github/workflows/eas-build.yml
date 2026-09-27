@@ -1,27 +1,42 @@
-name: EAS Build (Android APK)
+name: APK Build (GitHub-hosted)
 
-# Path-routed: fires on push to main when the diff touches anything
-# that affects native code (deps, app.json, eas.json, native dirs,
-# bundler config, app icons). Complement of eas-update.yml's
-# paths-ignore list — together they cover every file in the repo, so
-# every push fires roughly one of the two. workflow_dispatch on the
-# Actions tab still lets you kick a build manually with a profile
-# choice (development / preview / production).
+# GitHub-hosted Gradle build for snow. Replaces the previous
+# `eas build --local` approach (which kept failing on prebuild
+# / icon path / expo-doctor) with the same recipe that already
+# produces working APKs for the endless-escape sister project:
+# run `expo prebuild` on the runner, build with Gradle, sign
+# with the Expo-template debug keystore, publish to a GitHub
+# Release.
+#
+# Why assembleRelease (not assembleDebug): release builds bake
+# the JS bundle into the APK and disable Metro/dev-server
+# lookup, so the APK runs fully standalone. assembleDebug would
+# still try to fetch JS from `npx expo start` at runtime and
+# show a red error screen when no Metro is reachable.
+#
+# Keystore note: the Expo template's debug keystore signs the
+# release APK. This is a DIFFERENT key from the EAS-managed
+# keystore that signed previous cloud builds, so existing
+# testers must UNINSTALL their current build before installing
+# the first APK from this workflow (Android update flow rejects
+# a different signature). Profile / IndexedDB / localStorage
+# data is lost on that one-time reinstall — accepted trade-off
+# for getting a working build pipeline. Subsequent debug-keystore
+# APKs install as normal updates and preserve data.
+#
+# OTA updates flow through eas-update.yml unchanged. EAS Update
+# matches on project ID + runtimeVersion + channel, not signing
+# key, so OTAs land on the debug-signed APK identically to how
+# they landed on the EAS-signed cloud builds.
 
 on:
   workflow_dispatch:
-    inputs:
-      profile:
-        type: choice
-        description: 'EAS build profile'
-        default: preview
-        options:
-          - development
-          - preview
-          - production
   push:
     branches:
       - main
+      # Test-fire branch for the GitHub-hosted-build transition.
+      # Remove from this list once merged to main.
+      - Github-APK-Transition-snow
     paths:
       - 'package.json'
       - 'package-lock.json'
@@ -31,44 +46,126 @@ on:
       - 'metro.config.js'
       - 'android/**'
       - 'ios/**'
-      - 'assets/icon.png'
-      - 'assets/adaptive-icon.png'
-      - 'assets/splash-icon.png'
+      # Source PNG for the icon — assets/icon.png + adaptive-icon.png
+      # are .gitignored generated outputs, so listing menu-bg here
+      # is the only way an icon-art change triggers a rebuild.
+      - 'src/assets/menu-bg.png'
       - '.github/workflows/eas-build.yml'
 
 permissions:
-  contents: read
+  # softprops/action-gh-release needs write access to publish the
+  # release + upload the APK as an asset.
+  contents: write
+
+concurrency:
+  group: apk-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
+    name: Build Android APK
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
-          node-version: '20'
-      # No cache: 'npm' / npm ci — see eas-update.yml for the same
-      # reason (package-lock.json is .gitignored).
-      - run: npm install --no-audit --no-fund
-      - id: profile
-        # Manual workflow_dispatch supplies a profile via inputs.
-        # Path-triggered pushes don't, so default to preview.
-        run: |
-          if [ -n "${{ github.event.inputs.profile }}" ]; then
-            echo "name=${{ github.event.inputs.profile }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "name=preview" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Trigger EAS Build
-        # npx eas-cli@latest skips the global install (~25 s); cache:
-        # 'npm' + npm ci makes the dep install a cache hit on second
-        # push onward (~60 s saved).
-        run: |
-          npx eas-cli@latest build --platform android \
-            --profile ${{ steps.profile.outputs.name }} \
-            --non-interactive --no-wait
+          node-version: '22'
+
+      - name: Set up Java (Temurin 17)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # No `npm ci` because package-lock.json is .gitignored in
+      # this repo. Plain install matches the OTA workflow.
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      # Generates src/html-bundle.ts (the singlefile JS/HTML the
+      # WebView loads) AND assets/icon.png + adaptive-icon.png
+      # (read by expo prebuild via app.json). Both are .gitignored
+      # generated outputs; we materialise them on the runner here
+      # so prebuild + Gradle find them in the workspace.
+      - name: Build web bundle + icons
+        run: npm run web:build
+
+      - name: Generate android/ project (expo prebuild)
+        run: npx expo prebuild --platform android --clean
         env:
-          # Token name flexibility: prefers EXPO_TOKEN, then falls back
-          # to SNOWBOARD or SNOW (the names already in this repo's
-          # secret store).
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
+          EXPO_NO_TELEMETRY: '1'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-
+
+      # assembleRelease bundles the JS into the APK and signs with
+      # the Expo-template's debug keystore (release.signingConfig
+      # defaults to signingConfigs.debug in the prebuild output),
+      # so no GitHub Secrets / upload-key setup is needed.
+      - name: Build release APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx4g"
+
+      - name: Locate APK
+        id: apk
+        run: |
+          APK=$(find android/app/build/outputs/apk/release -name "*.apk" -print -quit)
+          if [ -z "$APK" ]; then
+            echo "::error::No APK found under android/app/build/outputs/apk/release"
+            exit 1
+          fi
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
+          echo "name=where-is-the-bottom-build-${{ github.run_number }}.apk" >> "$GITHUB_OUTPUT"
+
+      - name: Read OTA version label
+        id: ver
+        run: |
+          OTA=$(grep -oE "OTA #[0-9]+[^']*" src/version.ts | head -1 || echo "unknown")
+          echo "ota=$OTA" >> "$GITHUB_OUTPUT"
+
+      - name: Rename APK for upload
+        run: cp "${{ steps.apk.outputs.path }}" "${{ steps.apk.outputs.name }}"
+
+      - name: Upload APK as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.name }}
+          path: ${{ steps.apk.outputs.name }}
+          if-no-files-found: error
+
+      # Auto-publish a GitHub Release on every push so testers
+      # always have a stable URL for the latest build. Manual
+      # (workflow_dispatch) runs skip this and just leave the APK
+      # as a workflow artifact you can download from the run page.
+      - name: Publish GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: snow-build-${{ github.run_number }}
+          name: "Where's the Bottom? APK build #${{ github.run_number }}"
+          body: |
+            Auto-built from commit `${{ github.sha }}`.
+
+            **${{ steps.ver.outputs.ota }}**
+
+            Standalone sideload APK (release variant, JS bundled). Install via:
+            1. Download the APK below.
+            2. On your Android device, allow "install from unknown sources" for your browser / file manager.
+            3. **First install of this build line:** uninstall the previous version first (different keystore — Android won't update over it). Local saves will be lost on this one-time reinstall.
+            4. Open the downloaded APK to install.
+          files: ${{ steps.apk.outputs.name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
