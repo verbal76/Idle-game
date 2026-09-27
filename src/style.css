@@ -455,3 +455,7 @@ html, body {
     text-align: center;
   }
 }
+
+/* After the run-ending crash the pause/settings controls are gone; the
+   fell screen is the only thing that can appear. */
+#hud.run-over .top-actions { visibility: hidden; }

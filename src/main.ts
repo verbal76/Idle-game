@@ -166,6 +166,7 @@ async function runSession(
 
     hud.switchBtn.textContent = mode === 'half-pipe' ? 'Switch to Downhill' : 'Switch to Half-pipe';
 
+    let crashed = false;
     const game = new Game(getStage(canvas), mode, {
       leftStick: () => dpad.left,
       jumpHeld: () => buttons.jumpHeld,
@@ -198,6 +199,14 @@ async function runSession(
         const timer = setTimeout(dismiss, 6000);
         hud.halfpipeIntro.addEventListener('click', dismiss);
       },
+      // Lock the pause/settings controls the moment the run-ending hit
+      // lands, so the pause menu can't open under the fell screen.
+      onCrash: () => {
+        crashed = true;
+        hud.pauseBtn.disabled = true;
+        hud.settingsBtn.disabled = true;
+        hud.hud.classList.add('run-over');
+      },
       onFell: (stats) => {
         hud.fellStats.textContent =
           `Distance: ${stats.distanceMeters} m  •  +${displayFlakes(stats.coins)} ❄  •  Flips: ${stats.flips}`;
@@ -212,6 +221,8 @@ async function runSession(
     }, upgrades);
     game.setBankSnapshot(profiles.activeProfile?.currency ?? 0);
     game.start();
+    // End-to-end test hook (only when the page URL carries ?e2e).
+    if (location.search.includes('e2e')) (window as unknown as { __wtb?: unknown }).__wtb = { game };
 
     let finished = false;
     const finish = (next: RunNext) => {
@@ -233,6 +244,7 @@ async function runSession(
     };
 
     hud.pauseBtn.addEventListener('click', () => {
+      if (crashed) return;
       game.pause();
       hud.pauseMenu.style.display = 'flex';
     });
@@ -242,6 +254,7 @@ async function runSession(
     });
 
     hud.settingsBtn.addEventListener('click', async () => {
+      if (crashed) return;
       game.pause();
       hud.settingsOverlay.style.display = 'flex';
       await showSettings(hud.settingsOverlay, music, profiles);

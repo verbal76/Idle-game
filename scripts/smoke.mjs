@@ -74,7 +74,7 @@ async function main() {
       }
     });
     page.setDefaultTimeout(90_000);
-    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.goto(`http://127.0.0.1:${port}/?e2e`);
 
     const checkNoCrash = async (where) => {
       const crashed = await page.evaluate(() => document.body.firstElementChild?.tagName === 'PRE');
@@ -149,6 +149,25 @@ async function main() {
 
     await step('downhill run', () => ride('downhill'));
     await step('half-pipe run', () => ride('half-pipe'));
+    await step('crash locks pause; only the fell screen shows (#9)', async () => {
+      await page.click('#downhill');
+      await page.setViewportSize(LANDSCAPE);
+      await page.waitForSelector('#hud');
+      await page.waitForTimeout(800);
+      await page.evaluate(() => {
+        window.__wtb.game.fall();
+        document.getElementById('pause').click();     // tap pause right after the hit
+        document.getElementById('hud-settings').click();
+      });
+      await page.waitForSelector('#fell-overlay', { state: 'visible' });
+      if (await page.isVisible('#pause-menu')) fail('pause menu opened after the crash');
+      if (await page.isVisible('#settings-overlay')) fail('settings opened after the crash');
+      if (await page.isVisible('#pause')) fail('pause button still visible after the crash');
+      await page.click('#fell-ok');
+      await page.setViewportSize(PORTRAIT);
+      await page.waitForSelector('#downhill');
+    });
+
     await step('upgrade double-tap buys once (#3)', async () => {
       // 10.7 ❄: menu must show whole flakes (#4), and one purchase leaves
       // the 0.7 fraction in the bank.

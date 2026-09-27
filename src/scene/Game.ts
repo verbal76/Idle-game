@@ -35,6 +35,8 @@ export interface GameCallbacks {
   onComboChange?: (count: number, multiplier: number) => void;
   onRingStreak?: (streak: number, best: number) => void;
   onHalfpipeIntro?: () => void;
+  // The run-ending hit, fired immediately (onFell follows after 700 ms).
+  onCrash?: () => void;
 }
 
 type RiderState = 'normal' | 'bailing' | 'recovering';
@@ -884,6 +886,7 @@ export class Game {
   private fall(): void {
     this.fellAlready = true;
     this.running = false;
+    this.callbacks.onCrash?.();
     this.dustParticles.stop();
     this.rider.lean.rotation.z = 0;
     this.rider.body.rotation.x = 0;
