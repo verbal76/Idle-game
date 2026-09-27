@@ -26,6 +26,11 @@ describe('migrateSave', () => {
     expect('magnet' in d.upgrades).toBe(false);
   });
 
+  it('adds the half-pipe intro flag unseen, and keeps it once seen (#8)', () => {
+    expect(migrateSave(legacy()).seenHalfpipeIntro).toBe(false);
+    expect(migrateSave(legacy({ seenHalfpipeIntro: true })).seenHalfpipeIntro).toBe(true);
+  });
+
   it('is idempotent', () => {
     const once = migrateSave(legacy({ upgrades: { speed: 3, jump: 1, turn: 2, charge: 0, spin: 5, coin: 7 } }));
     const twice = migrateSave(structuredClone(once));

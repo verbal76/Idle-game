@@ -24,6 +24,8 @@ export interface SaveData {
   longestDownhillMeters: number;
   upgrades: UpgradeLevels;
   settings: { musicVolume: number; sfxVolume: number };
+  // First-time half-pipe intro already shown to this profile.
+  seenHalfpipeIntro?: boolean;
 }
 
 interface BoarderDB extends DBSchema {

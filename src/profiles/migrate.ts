@@ -19,5 +19,6 @@ export function migrateSave(d: SaveData): SaveData {
   // the shop, always 0.
   delete u.magnet;
   d.upgrades = u as UpgradeLevels;
+  if (typeof d.seenHalfpipeIntro !== 'boolean') d.seenHalfpipeIntro = false;
   return d;
 }

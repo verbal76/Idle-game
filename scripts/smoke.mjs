@@ -148,6 +148,36 @@ async function main() {
     };
 
     await step('downhill run', () => ride('downhill'));
+    await step('half-pipe intro: once per profile, run paused behind it (#8)', async () => {
+      await page.click('#half-pipe');
+      await page.setViewportSize(LANDSCAPE);
+      await page.waitForSelector('#halfpipe-intro', { state: 'visible' });
+      const before = await page.textContent('#score');
+      await page.waitForTimeout(1500);
+      if (await page.textContent('#score') !== before) fail('run advanced while the intro was up');
+      await page.click('#halfpipe-intro');
+      await page.waitForFunction((b) => document.getElementById('score').textContent !== b, before);
+      // How to play is in the pause menu and returns to it.
+      await page.click('#pause');
+      await page.click('#pause-howto');
+      await page.waitForSelector('#halfpipe-intro', { state: 'visible' });
+      await page.click('#halfpipe-intro');
+      await page.waitForSelector('#pause-menu', { state: 'visible' });
+      await page.click('#quit');
+      await page.setViewportSize(PORTRAIT);
+      await page.waitForSelector('#half-pipe');
+      // Second ride: no intro.
+      await page.click('#half-pipe');
+      await page.setViewportSize(LANDSCAPE);
+      await page.waitForSelector('#hud');
+      await page.waitForTimeout(600);
+      if (await page.isVisible('#halfpipe-intro')) fail('intro shown again on the second ride');
+      await page.click('#pause');
+      await page.click('#quit');
+      await page.setViewportSize(PORTRAIT);
+      await page.waitForSelector('#downhill');
+    });
+
     await step('half-pipe run', () => ride('half-pipe'));
     await step('crash locks pause; only the fell screen shows (#9)', async () => {
       await page.click('#downhill');

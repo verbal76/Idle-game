@@ -21,6 +21,7 @@ export interface HUDRefs {
   resumeBtn: HTMLButtonElement;
   pauseUpgradesBtn: HTMLButtonElement;
   pauseSettingsBtn: HTMLButtonElement;
+  pauseHowToBtn: HTMLButtonElement;
   switchBtn: HTMLButtonElement;
   quitBtn: HTMLButtonElement;
   fellOverlay: HTMLElement;
@@ -80,6 +81,7 @@ export function buildHUD(root: HTMLElement): HUDRefs {
           <button id="resume">Resume</button>
           <button id="pause-upgrades">Upgrades 🛍</button>
           <button id="pause-settings">Settings ⚙</button>
+          <button id="pause-howto" style="display:none">How to play</button>
           <button id="switch-style">Switch Style</button>
           <button id="quit" class="danger">Quit run</button>
         </div>
@@ -119,6 +121,7 @@ export function buildHUD(root: HTMLElement): HUDRefs {
     resumeBtn:       root.querySelector<HTMLButtonElement>('#resume')!,
     pauseUpgradesBtn: root.querySelector<HTMLButtonElement>('#pause-upgrades')!,
     pauseSettingsBtn: root.querySelector<HTMLButtonElement>('#pause-settings')!,
+    pauseHowToBtn:   root.querySelector<HTMLButtonElement>('#pause-howto')!,
     switchBtn:       root.querySelector<HTMLButtonElement>('#switch-style')!,
     quitBtn:         root.querySelector<HTMLButtonElement>('#quit')!,
     fellOverlay:     root.querySelector<HTMLElement>('#fell-overlay')!,
@@ -127,4 +130,17 @@ export function buildHUD(root: HTMLElement): HUDRefs {
     fellUpgradesBtn: root.querySelector<HTMLButtonElement>('#fell-upgrades')!,
     fellSwitchBtn:   root.querySelector<HTMLButtonElement>('#fell-switch')!,
   };
+}
+
+/** Shows the half-pipe how-to card; resolves when the player taps it. */
+export function showHalfpipeIntro(hud: HUDRefs): Promise<void> {
+  return new Promise((resolve) => {
+    hud.halfpipeIntro.style.display = 'flex';
+    const dismiss = () => {
+      hud.halfpipeIntro.style.display = 'none';
+      hud.halfpipeIntro.removeEventListener('click', dismiss);
+      resolve();
+    };
+    hud.halfpipeIntro.addEventListener('click', dismiss);
+  });
 }

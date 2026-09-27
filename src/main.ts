@@ -8,7 +8,7 @@ import { showMainMenu, MenuChoice } from './ui/MainMenu';
 import { showUpgrades } from './ui/Upgrades';
 import { showSettings } from './ui/Settings';
 import { showContinuePrompt } from './ui/ContinuePrompt';
-import { buildHUD } from './ui/HUD';
+import { buildHUD, showHalfpipeIntro } from './ui/HUD';
 import { ArrowPadInput } from './input/ArrowPadInput';
 import { soundFx } from './audio/SoundFx';
 import { ActionButtons } from './input/ActionButtons';
@@ -189,16 +189,6 @@ async function runSession(
         hud.ringStreak.textContent = String(streak);
         hud.ringBest.textContent = `best ${best}`;
       },
-      onHalfpipeIntro: () => {
-        hud.halfpipeIntro.style.display = 'flex';
-        const dismiss = () => {
-          hud.halfpipeIntro.style.display = 'none';
-          hud.halfpipeIntro.removeEventListener('click', dismiss);
-          clearTimeout(timer);
-        };
-        const timer = setTimeout(dismiss, 6000);
-        hud.halfpipeIntro.addEventListener('click', dismiss);
-      },
       // Lock the pause/settings controls the moment the run-ending hit
       // lands, so the pause menu can't open under the fell screen.
       onCrash: () => {
@@ -221,6 +211,21 @@ async function runSession(
     }, upgrades);
     game.setBankSnapshot(profiles.activeProfile?.currency ?? 0);
     game.start();
+    // First half-pipe ride for this profile: show the how-to card with
+    // the run paused until the player taps it. Afterwards it lives in the
+    // pause menu as "How to play".
+    if (mode === 'half-pipe') {
+      hud.pauseHowToBtn.style.display = '';
+      const p = profiles.activeProfile;
+      if (p && !p.seenHalfpipeIntro) {
+        game.pause();
+        void showHalfpipeIntro(hud).then(async () => {
+          p.seenHalfpipeIntro = true;
+          await profiles.save();
+          if (!finished) game.resume();
+        });
+      }
+    }
     // End-to-end test hook (only when the page URL carries ?e2e).
     if (location.search.includes('e2e')) (window as unknown as { __wtb?: unknown }).__wtb = { game };
 
@@ -280,6 +285,11 @@ async function runSession(
       hud.settingsOverlay.style.display = 'none';
       hud.settingsOverlay.innerHTML = '';
       game.setBankSnapshot(profiles.activeProfile?.currency ?? 0);
+      hud.pauseMenu.style.display = 'flex';
+    });
+    hud.pauseHowToBtn.addEventListener('click', async () => {
+      hud.pauseMenu.style.display = 'none';
+      await showHalfpipeIntro(hud);
       hud.pauseMenu.style.display = 'flex';
     });
     hud.pauseSettingsBtn.addEventListener('click', async () => {

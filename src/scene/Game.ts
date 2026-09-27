@@ -34,7 +34,6 @@ export interface GameCallbacks {
   // count = 0 hides the combo meter.
   onComboChange?: (count: number, multiplier: number) => void;
   onRingStreak?: (streak: number, best: number) => void;
-  onHalfpipeIntro?: () => void;
   // The run-ending hit, fired immediately (onFell follows after 700 ms).
   onCrash?: () => void;
 }
@@ -187,10 +186,7 @@ export class Game {
       // storage unavailable: no best yet
     }
 
-    // Deferred so the HUD is mounted before these fire.
-    if (mode === 'half-pipe') {
-      setTimeout(() => this.callbacks.onHalfpipeIntro?.(), 0);
-    }
+    // Deferred so the HUD is mounted before it fires.
     setTimeout(() => this.callbacks.onRingStreak?.(0, this.bestRingStreak), 0);
 
     this.engine = stage.engine;
