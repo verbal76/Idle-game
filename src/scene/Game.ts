@@ -11,6 +11,7 @@ import { buildRider, RiderRig } from './Rider';
 import { loadObjByMaterial } from './loadObj';
 import { decodeDataUrlToBuffer, meshBounds, parseStl } from './loadStl';
 import { SeedRng } from '../world/SeedRng';
+import { stepJumpCharge } from '../game/jumpCharge';
 import treeBasicObj from '../assets/tree-pine-basic.obj?raw';
 import treeDetailedObj from '../assets/tree-pine-detailed.obj?raw';
 // Kenney rock STLs. Vite inlines each as a base64 data URL because of
@@ -272,6 +273,16 @@ export class Game {
   // floor (|x| ≤ wallFootX) so it doesn't bleed into normal carving.
   private wallReturnVel = 0;
   private jumpCharge = 0;
+  // Release-edge gate for the jump charge. Set true on every landing
+  // so a player who held the jump button continuously through the
+  // airborne arc cannot start re-charging on the very next ground
+  // frame (which would then fire the release branch a few frames
+  // later and re-launch them — the "rubber bounce" symptom).
+  // Cleared as soon as the input layer reports the button released
+  // (or when the player consumes a charged jump). Net effect: each
+  // jump requires its own fresh press, matching the "release to
+  // jump again" pattern in most platformers.
+  private jumpReleaseRequired = false;
   // Last value reported via onChargeChange — prevents per-frame DOM
   // updates while charge sits at zero (idle riding) or at 1 (max held).
   private lastReportedCharge = 0;
@@ -2013,6 +2024,7 @@ export class Game {
     this.idleTime = 0;
     this.verticalVelocity = 0;
     this.jumpCharge = 0;
+    this.jumpReleaseRequired = true;
   }
 
   private startRecovery(): void {
@@ -2222,11 +2234,12 @@ export class Game {
     }
 
     if (this.grounded) {
-      if (this.input.jumpHeld()) {
-        this.jumpCharge = Math.min(1, this.jumpCharge + dt * this.chargeRateScaled);
-      } else if (this.jumpCharge > 0) {
-        this.verticalVelocity = (this.jumpMin + this.jumpCharge * (this.jumpMaxScaled - this.jumpMin));
-        this.jumpCharge = 0;
+      const jump = { charge: this.jumpCharge, releaseRequired: this.jumpReleaseRequired };
+      const launch = stepJumpCharge(jump, this.input.jumpHeld(), dt, this.chargeRateScaled);
+      this.jumpCharge = jump.charge;
+      this.jumpReleaseRequired = jump.releaseRequired;
+      if (launch !== null) {
+        this.verticalVelocity = this.jumpMin + launch * (this.jumpMaxScaled - this.jumpMin);
         this.grounded = false;
       }
     }
@@ -2266,6 +2279,12 @@ export class Game {
         // the cliff transition; their y just snaps to the new
         // groundLevel via the normal else-branch.
         this.justLanded = true;
+        // Lock out jump-charge re-accumulation until the player
+        // releases the button. Prevents the "rubber bounce" where
+        // a continuously-held jump input starts charging on the
+        // landing frame and triggers a release-jump a few frames
+        // later. Player must let go and re-press to charge again.
+        this.jumpReleaseRequired = true;
 
         if (this.isCleanLanding()) {
           if (Math.abs(this.flipRotation) > Math.PI * 1.5) {
