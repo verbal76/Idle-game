@@ -576,6 +576,77 @@ async function main() {
       await page.waitForSelector('#downhill');
     });
 
+    await step('SFX: slider persists and controls the synthesized sounds (#26)', async () => {
+      await page.evaluate(() => {
+        window.__sfxStarts = 0;
+        // Oscillators and noise buffers (which override start()).
+        for (const C of [OscillatorNode, AudioBufferSourceNode]) {
+          const orig = C.prototype.start;
+          C.prototype.start = function (...a) { window.__sfxStarts++; return orig.apply(this, a); };
+        }
+      });
+      const setSfx = async (pct) => {
+        await page.click('#menu-settings');
+        await page.waitForSelector('#sfx-vol');
+        await page.evaluate((pct) => {
+          const el = document.getElementById('sfx-vol');
+          el.value = String(pct);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }, pct);
+        const label = await page.textContent('#sfx-vol-val');
+        if (label !== `${pct}%`) fail(`sfx label ${label}`);
+        await page.click('#settings-back');
+        await page.waitForSelector('#downhill');
+      };
+      const soundsDuringJumps = async () => {
+        await page.click('#downhill');
+        await page.setViewportSize(LANDSCAPE);
+        await page.waitForSelector('#hud');
+        // Keep the slope clear so a random rock can't end the run mid-test.
+        await page.evaluate(() => {
+          window.__clearRocks = setInterval(() => {
+            for (const c of window.__wtb.game.streamer.chunks.values()) c.rocks.length = 0;
+          }, 50);
+        });
+        await page.waitForTimeout(800);
+        const before = await page.evaluate(() => window.__sfxStarts);
+        const grounded = (on) => page.waitForFunction((on) => window.__wtb.game.grounded === on, on, { timeout: 20000 }).catch(async (e) => {
+          const g = await page.evaluate(() => { const g = window.__wtb.game; return { grounded: g.grounded, charge: g.jumpCharge, rel: g.jumpReleaseRequired, state: g.state, paused: g.paused, speed: g.speed, crashed: g.crashed, hud: document.getElementById('hud')?.className, overlays: [...document.querySelectorAll('.fullscreen-panel')].filter(e => getComputedStyle(e).display !== 'none').map(e => e.id || e.className) }; });
+          const box = await page.locator('#jump').boundingBox();
+          const top = await page.evaluate(({x, y}) => { const el = document.elementFromPoint(x, y); return el ? (el.id || el.className) : null; }, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
+          fail(`grounded=${on} timeout: ${JSON.stringify(g)} topAtJump=${top}`);
+        });
+        // One jump from the ground: the jump sound plays at launch.
+        await grounded(true);
+        await hold('#jump', 250);
+        await grounded(false);
+        await page.waitForTimeout(100);
+        const n = await page.evaluate(() => window.__sfxStarts) - before;
+        await page.evaluate(() => clearInterval(window.__clearRocks));
+        await page.click('#pause');
+        await quitRun();
+        await page.setViewportSize(PORTRAIT);
+        await page.waitForSelector('#downhill');
+        return n;
+      };
+      await setSfx(0);
+      const muted = await soundsDuringJumps();
+      if (muted !== 0) fail(`SFX at 0% still started ${muted} sounds`);
+      await setSfx(100);
+      const loud = await soundsDuringJumps();
+      if (loud < 2) fail(`expected the jump sound (2 voices) at 100%, got ${loud} sources`);
+      // Persisted per profile.
+      await setSfx(35);
+      await page.reload();
+      await page.click('#continue');
+      await page.click('#menu-settings');
+      const v = await page.$eval('#sfx-vol', el => el.value);
+      if (v !== '35') fail(`SFX volume not persisted: ${v}`);
+      await page.click('#settings-back');
+      await page.waitForSelector('#downhill');
+    });
+
     console.log('smoke: PASS');
   } finally {
     await browser.close();

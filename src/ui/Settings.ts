@@ -1,4 +1,5 @@
 import { MusicPlayer } from '../audio/MusicPlayer';
+import { soundFx } from '../audio/SoundFx';
 import { ProfileService } from '../profiles/ProfileService';
 import { showAbout } from './About';
 import { openBugReport, openFeatureRequest } from '../util/bugReport';
@@ -27,7 +28,7 @@ const STATUS_LABEL: Record<UpdateStatus, string> = {
 };
 
 // Single-purpose settings shell: routes to the About panel, holds the
-// music volume control, and exposes a manual update check.
+// music and sound-effect volume controls, and exposes a manual update check.
 export function showSettings(
   root: HTMLElement,
   music: MusicPlayer,
@@ -48,6 +49,7 @@ export function showSettings(
     const render = () => {
       const profile = profiles.activeProfile;
       const initialVol = Math.round(music.getVolume() * 100);
+      const initialSfx = Math.round(soundFx.getVolume() * 100);
       root.innerHTML = `
         <div class="fullscreen-panel">
           <h1>Settings</h1>
@@ -55,6 +57,11 @@ export function showSettings(
             <label for="music-vol" class="setting-label">Music volume</label>
             <input type="range" id="music-vol" min="0" max="100" value="${initialVol}" />
             <span class="setting-val" id="music-vol-val">${initialVol}%</span>
+          </div>
+          <div class="setting-row">
+            <label for="sfx-vol" class="setting-label">Sound effects</label>
+            <input type="range" id="sfx-vol" min="0" max="100" value="${initialSfx}" />
+            <span class="setting-val" id="sfx-vol-val">${initialSfx}%</span>
           </div>
           <p class="muted" id="music-now">Now playing: ${escapeHtml(music.currentTitle())}</p>
           <div class="list">
@@ -95,6 +102,20 @@ export function showSettings(
         }
       });
       slider.addEventListener('change', flushSave);
+
+      const sfxSlider = root.querySelector<HTMLInputElement>('#sfx-vol')!;
+      const sfxLabel = root.querySelector<HTMLElement>('#sfx-vol-val')!;
+      sfxSlider.addEventListener('input', () => {
+        const v = Number(sfxSlider.value) / 100;
+        soundFx.setVolume(v);
+        sfxLabel.textContent = `${sfxSlider.value}%`;
+        if (profile) {
+          profile.settings.sfxVolume = v;
+          queueSave();
+        }
+      });
+      // Preview at the chosen level when the drag ends.
+      sfxSlider.addEventListener('change', () => { soundFx.play('trick'); flushSave(); });
 
       const skipBtn = root.querySelector<HTMLButtonElement>('#music-skip')!;
       const nowLabel = root.querySelector<HTMLElement>('#music-now')!;

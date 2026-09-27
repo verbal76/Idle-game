@@ -1,5 +1,6 @@
 import { ProfileService } from '../profiles/ProfileService';
 import { costForNext, purchaseUpgrade } from '../game/shop';
+import { soundFx } from '../audio/SoundFx';
 import { displayFlakes } from '../game/economy';
 import { UPGRADES, effectPreview } from '../game/upgrades';
 
@@ -42,7 +43,10 @@ export function showUpgrades(root: HTMLElement, profiles: ProfileService): Promi
           busy = true;
           for (const b of listEl.querySelectorAll<HTMLButtonElement>('.upgrade-buy')) b.disabled = true;
           try {
-            if (purchaseUpgrade(p, u)) await profiles.save();
+            if (purchaseUpgrade(p, u)) {
+              soundFx.play('purchase');
+              await profiles.save();
+            }
           } finally {
             busy = false;
             render();

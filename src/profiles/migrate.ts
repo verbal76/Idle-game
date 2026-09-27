@@ -25,6 +25,12 @@ export function migrateSave(d: SaveData): SaveData {
   delete u.magnet;
   d.upgrades = u as UpgradeLevels;
   if (typeof d.seenHalfpipeIntro !== 'boolean') d.seenHalfpipeIntro = false;
+  // The SFX slider (#26) reads this; very old saves may lack it.
+  const st = (d.settings ?? {}) as Partial<SaveData['settings']>;
+  d.settings = {
+    musicVolume: typeof st.musicVolume === 'number' ? st.musicVolume : 0.7,
+    sfxVolume: typeof st.sfxVolume === 'number' ? st.sfxVolume : 1,
+  };
   d.stats = mergeStats(d.stats, d);
   // Milestones a player already reached pay out on their next banked run.
   if (!Array.isArray(d.milestones)) d.milestones = [];

@@ -581,6 +581,7 @@ export class Game {
       if (launch !== null) {
         this.verticalVelocity = this.jumpMin + launch * (this.jumpMaxScaled - this.jumpMin);
         this.grounded = false;
+        soundFx.play('jump');
       }
     }
     // Only touch the DOM when the charge moves by 1%.
@@ -665,6 +666,7 @@ export class Game {
         this.landingSquatUntil = this.clock + this.SQUAT_MS;
         this.impactBurstUntil = this.clock + this.BURST_MS;
         this.impactBurstY = Math.min(12, impactSpeed);
+        soundFx.play('land');
       }
     }
 

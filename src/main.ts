@@ -78,7 +78,13 @@ async function bootstrap(): Promise<void> {
   const music = new MusicPlayer();
   if (profiles.activeProfile) {
     music.setVolume(profiles.activeProfile.settings.musicVolume);
+    soundFx.setVolume(profiles.activeProfile.settings.sfxVolume);
   }
+  // A soft tick on menu buttons (not the in-run controls).
+  document.addEventListener('pointerdown', (e) => {
+    const b = (e.target as Element | null)?.closest?.('.fullscreen-panel button');
+    if (b && !(b as HTMLButtonElement).disabled) { soundFx.resume(); soundFx.play('tap'); }
+  }, { capture: true });
   // 250 ms delay so a freshly OTA-reloaded bundle gives the previous
   // WebView's HTMLAudioElement / Android MediaPlayer time to fully
   // release before this new one starts. Without this gap, the old
@@ -104,6 +110,7 @@ async function bootstrap(): Promise<void> {
 
       if (profiles.activeProfile) {
         music.setVolume(profiles.activeProfile.settings.musicVolume);
+        soundFx.setVolume(profiles.activeProfile.settings.sfxVolume);
       }
 
       if (!profiles.activeProfile) {
@@ -213,10 +220,16 @@ async function runSession(
       forwardHeld: () => dpad.upHeld,
     }, {
       onHud: (h) => hud.setReadout(h),
-      onTrick: (t) => callout(trickCallout(t)),
-      onGrace: (left) => callout(graceCallout(left)),
+      onTrick: (t) => {
+        const c = trickCallout(t);
+        callout(c);
+        soundFx.play(c.tone === 'big' ? 'bigTrick' : c.tone === 'trick' ? 'trick' : c.tone === 'sketchy' ? 'sketchy' : 'bail');
+      },
+      onGrace: (left) => { callout(graceCallout(left)); soundFx.play('grace'); },
       onComboChange: (count, mult) => {
         if (count <= 0) { hud.comboBar.style.display = 'none'; return; }
+        // Each chained trick rings a step higher.
+        if (count >= 2) soundFx.play('combo', Math.min(1.8, 1 + 0.08 * (count - 2)));
         hud.comboBar.style.display = 'flex';
         hud.comboMult.textContent = `×${mult.toFixed(1)}`;
         hud.comboCount.textContent = `${count} chain`;
@@ -234,6 +247,7 @@ async function runSession(
       // lands, so the pause menu can't open under the fell screen.
       onCrash: () => {
         crashed = true;
+        soundFx.play('crash');
         savePending();
         hud.pauseBtn.disabled = true;
         hud.settingsBtn.disabled = true;
@@ -265,7 +279,7 @@ async function runSession(
       }
     }
     // End-to-end test hook (only when the page URL carries ?e2e).
-    if (location.search.includes('e2e')) (window as unknown as { __wtb?: unknown }).__wtb = { game };
+    if (location.search.includes('e2e')) (window as unknown as { __wtb?: unknown }).__wtb = { game, sfx: soundFx };
 
     // Mirror the live run into the profile (unbanked) so an app kill
     // can't erase it; see game/pendingRun.ts.
@@ -334,7 +348,10 @@ async function runSession(
       const active = profiles.activeProfile;
       if (!active || !banked) return;
       hud.fellTitle.textContent = title;
-      hud.fellStats.innerHTML = runSummaryHtml(buildRunSummary(stats, banked, active.stats, goalLines(goalAwards)));
+      const summary = buildRunSummary(stats, banked, active.stats, goalLines(goalAwards));
+      hud.fellStats.innerHTML = runSummaryHtml(summary);
+      if (summary.anyNewBest) soundFx.play('newBest');
+      else if (goalAwards.length) soundFx.play('goal');
       hud.pauseMenu.style.display = 'none';
       hud.fellOverlay.style.display = 'flex';
     };

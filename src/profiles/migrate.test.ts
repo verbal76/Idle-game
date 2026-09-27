@@ -64,6 +64,12 @@ describe('migrateSave', () => {
     expect(migrateSave(d).milestones).toEqual(['runs-1']);
   });
 
+  it('keeps the chosen volumes and defaults a missing SFX volume to 100% (#26)', () => {
+    expect(migrateSave(legacy({})).settings).toEqual({ musicVolume: 0.4, sfxVolume: 1 });
+    expect(migrateSave(legacy({ settings: { musicVolume: 0.2 } })).settings).toEqual({ musicVolume: 0.2, sfxVolume: 1 });
+    expect(migrateSave(legacy({ settings: { musicVolume: 0.2, sfxVolume: 0.3 } })).settings.sfxVolume).toBe(0.3);
+  });
+
   it('is idempotent', () => {
     const once = migrateSave(legacy({ upgrades: { speed: 3, jump: 1, turn: 2, charge: 0, spin: 5, coin: 7 } }));
     const twice = migrateSave(structuredClone(once));
