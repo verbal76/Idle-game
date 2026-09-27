@@ -57,7 +57,9 @@ describe('pause freezes gameplay timers', () => {
     frames(1);
     expect(g.state).toBe('bailing');
     expect(g.boostUntil - g.clock).toBeGreaterThan(1100);
-    frames(60 * 3);                    // 3 s bail of play time elapses
+    frames(60);                        // 1 s in: still down
+    expect(g.state).toBe('bailing');
+    frames(90);                        // the 1.5 s bail elapses in play time
     expect(g.state).toBe('recovering');
     game.dispose();
     vi.useRealTimers();

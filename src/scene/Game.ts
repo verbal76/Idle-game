@@ -144,8 +144,9 @@ export class Game {
 
   private state: RiderState = 'normal';
   private stateEndsAt = 0;
-  private readonly bailDurationMs = 3000;
-  private readonly recoverDurationMs = 3000;
+  // A bail costs 1.5 s down + 1.5 s flickering recovery.
+  private readonly bailDurationMs = 1500;
+  private readonly recoverDurationMs = 1500;
   private readonly cleanLandTolerance = Math.PI / 4;
 
   private dustParticles!: ParticleSystem;

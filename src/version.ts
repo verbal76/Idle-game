@@ -20,4 +20,4 @@
 // in a bug report identifies the exact build the user is on.
 
 export const BUILD_VERSION = "build #4 - re-encoded icon (Sharp/libvips compat fix)";
-export const OTA_VERSION   = 'OTA #49 - Deep carve button label + icon';
+export const OTA_VERSION   = 'OTA #50 - shorter bails (1.5 s + 1.5 s)';
