@@ -30,6 +30,7 @@ export function migrateSave(d: SaveData): SaveData {
   d.settings = {
     musicVolume: typeof st.musicVolume === 'number' ? st.musicVolume : 0.7,
     sfxVolume: typeof st.sfxVolume === 'number' ? st.sfxVolume : 1,
+    haptics: typeof st.haptics === 'boolean' ? st.haptics : true,
   };
   d.stats = mergeStats(d.stats, d);
   // Milestones a player already reached pay out on their next banked run.

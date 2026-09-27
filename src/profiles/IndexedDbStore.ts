@@ -34,7 +34,7 @@ export interface SaveData {
   bestHalfPipeScore: number;
   longestDownhillMeters: number;
   upgrades: UpgradeLevels;
-  settings: { musicVolume: number; sfxVolume: number };
+  settings: { musicVolume: number; sfxVolume: number; haptics: boolean };
   // First-time half-pipe intro already shown to this profile.
   seenHalfpipeIntro?: boolean;
   stats: ProfileStats;

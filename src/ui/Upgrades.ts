@@ -1,6 +1,7 @@
 import { ProfileService } from '../profiles/ProfileService';
 import { costForNext, purchaseUpgrade } from '../game/shop';
 import { soundFx } from '../audio/SoundFx';
+import { haptics } from '../util/haptics';
 import { displayFlakes } from '../game/economy';
 import { UPGRADES, effectPreview } from '../game/upgrades';
 
@@ -45,6 +46,7 @@ export function showUpgrades(root: HTMLElement, profiles: ProfileService): Promi
           try {
             if (purchaseUpgrade(p, u)) {
               soundFx.play('purchase');
+              haptics.play('purchase');
               await profiles.save();
             }
           } finally {

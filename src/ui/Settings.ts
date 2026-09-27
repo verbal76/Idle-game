@@ -1,5 +1,6 @@
 import { MusicPlayer } from '../audio/MusicPlayer';
 import { soundFx } from '../audio/SoundFx';
+import { haptics } from '../util/haptics';
 import { ProfileService } from '../profiles/ProfileService';
 import { showAbout } from './About';
 import { openBugReport, openFeatureRequest } from '../util/bugReport';
@@ -28,7 +29,7 @@ const STATUS_LABEL: Record<UpdateStatus, string> = {
 };
 
 // Single-purpose settings shell: routes to the About panel, holds the
-// music and sound-effect volume controls, and exposes a manual update check.
+// music / sound-effect volume and vibration controls, and exposes a manual update check.
 export function showSettings(
   root: HTMLElement,
   music: MusicPlayer,
@@ -50,6 +51,7 @@ export function showSettings(
       const profile = profiles.activeProfile;
       const initialVol = Math.round(music.getVolume() * 100);
       const initialSfx = Math.round(soundFx.getVolume() * 100);
+      const hapticsOn = haptics.isEnabled();
       root.innerHTML = `
         <div class="fullscreen-panel">
           <h1>Settings</h1>
@@ -62,6 +64,10 @@ export function showSettings(
             <label for="sfx-vol" class="setting-label">Sound effects</label>
             <input type="range" id="sfx-vol" min="0" max="100" value="${initialSfx}" />
             <span class="setting-val" id="sfx-vol-val">${initialSfx}%</span>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label">Vibration</span>
+            <button id="haptics-toggle" class="toggle" aria-pressed="${hapticsOn}">${hapticsOn ? 'On' : 'Off'}</button>
           </div>
           <p class="muted" id="music-now">Now playing: ${escapeHtml(music.currentTitle())}</p>
           <div class="list">
@@ -114,6 +120,19 @@ export function showSettings(
           queueSave();
         }
       });
+      const hapticsBtn = root.querySelector<HTMLButtonElement>('#haptics-toggle')!;
+      hapticsBtn.addEventListener('click', () => {
+        const on = !haptics.isEnabled();
+        haptics.setEnabled(on);
+        hapticsBtn.textContent = on ? 'On' : 'Off';
+        hapticsBtn.setAttribute('aria-pressed', String(on));
+        if (on) haptics.play('trick');
+        if (profile) {
+          profile.settings.haptics = on;
+          flushSave();
+        }
+      });
+
       // Preview at the chosen level when the drag ends.
       sfxSlider.addEventListener('change', () => { soundFx.play('trick'); flushSave(); });
 

@@ -65,9 +65,14 @@ describe('migrateSave', () => {
   });
 
   it('keeps the chosen volumes and defaults a missing SFX volume to 100% (#26)', () => {
-    expect(migrateSave(legacy({})).settings).toEqual({ musicVolume: 0.4, sfxVolume: 1 });
-    expect(migrateSave(legacy({ settings: { musicVolume: 0.2 } })).settings).toEqual({ musicVolume: 0.2, sfxVolume: 1 });
+    expect(migrateSave(legacy({})).settings).toEqual({ musicVolume: 0.4, sfxVolume: 1, haptics: true });
+    expect(migrateSave(legacy({ settings: { musicVolume: 0.2 } })).settings).toEqual({ musicVolume: 0.2, sfxVolume: 1, haptics: true });
     expect(migrateSave(legacy({ settings: { musicVolume: 0.2, sfxVolume: 0.3 } })).settings.sfxVolume).toBe(0.3);
+  });
+
+  it('vibration defaults on, and an "off" choice is kept (#27)', () => {
+    expect(migrateSave(legacy({})).settings.haptics).toBe(true);
+    expect(migrateSave(legacy({ settings: { musicVolume: 1, sfxVolume: 1, haptics: false } })).settings.haptics).toBe(false);
   });
 
   it('is idempotent', () => {

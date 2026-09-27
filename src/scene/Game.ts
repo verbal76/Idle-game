@@ -5,6 +5,7 @@ import {
 import type { StickValue } from '../input/ArrowPadInput';
 import type { UpgradeLevels } from '../profiles/IndexedDbStore';
 import { soundFx } from '../audio/SoundFx';
+import { haptics } from '../util/haptics';
 import { buildRider, RiderRig } from './Rider';
 import { SeedRng } from '../world/SeedRng';
 import { stepJumpCharge } from '../game/jumpCharge';
@@ -667,6 +668,7 @@ export class Game {
         this.impactBurstUntil = this.clock + this.BURST_MS;
         this.impactBurstY = Math.min(12, impactSpeed);
         soundFx.play('land');
+        haptics.play('land');
       }
     }
 

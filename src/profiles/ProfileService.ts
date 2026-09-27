@@ -34,7 +34,7 @@ export class ProfileService {
       bestHalfPipeScore: 0,
       longestDownhillMeters: 0,
       upgrades: defaultUpgrades(),
-      settings: { musicVolume: 0.7, sfxVolume: 1 },
+      settings: { musicVolume: 0.7, sfxVolume: 1, haptics: true },
       seenHalfpipeIntro: false,
       stats: defaultStats(),
       milestones: [],

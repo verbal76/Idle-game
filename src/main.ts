@@ -12,6 +12,7 @@ import { showContinuePrompt } from './ui/ContinuePrompt';
 import { buildHUD, showHalfpipeIntro } from './ui/HUD';
 import { ArrowPadInput } from './input/ArrowPadInput';
 import { soundFx } from './audio/SoundFx';
+import { haptics } from './util/haptics';
 import { ActionButtons } from './input/ActionButtons';
 import { MusicPlayer } from './audio/MusicPlayer';
 import { Game } from './scene/Game';
@@ -79,6 +80,7 @@ async function bootstrap(): Promise<void> {
   if (profiles.activeProfile) {
     music.setVolume(profiles.activeProfile.settings.musicVolume);
     soundFx.setVolume(profiles.activeProfile.settings.sfxVolume);
+    haptics.setEnabled(profiles.activeProfile.settings.haptics);
   }
   // A soft tick on menu buttons (not the in-run controls).
   document.addEventListener('pointerdown', (e) => {
@@ -111,6 +113,7 @@ async function bootstrap(): Promise<void> {
       if (profiles.activeProfile) {
         music.setVolume(profiles.activeProfile.settings.musicVolume);
         soundFx.setVolume(profiles.activeProfile.settings.sfxVolume);
+        haptics.setEnabled(profiles.activeProfile.settings.haptics);
       }
 
       if (!profiles.activeProfile) {
@@ -223,9 +226,11 @@ async function runSession(
       onTrick: (t) => {
         const c = trickCallout(t);
         callout(c);
-        soundFx.play(c.tone === 'big' ? 'bigTrick' : c.tone === 'trick' ? 'trick' : c.tone === 'sketchy' ? 'sketchy' : 'bail');
+        const k = c.tone === 'big' ? 'bigTrick' : c.tone === 'trick' ? 'trick' : c.tone === 'sketchy' ? 'sketchy' : 'bail';
+        soundFx.play(k);
+        haptics.play(k);
       },
-      onGrace: (left) => { callout(graceCallout(left)); soundFx.play('grace'); },
+      onGrace: (left) => { callout(graceCallout(left)); soundFx.play('grace'); haptics.play('grace'); },
       onComboChange: (count, mult) => {
         if (count <= 0) { hud.comboBar.style.display = 'none'; return; }
         // Each chained trick rings a step higher.
@@ -248,6 +253,7 @@ async function runSession(
       onCrash: () => {
         crashed = true;
         soundFx.play('crash');
+        haptics.play('crash');
         savePending();
         hud.pauseBtn.disabled = true;
         hud.settingsBtn.disabled = true;
@@ -279,7 +285,7 @@ async function runSession(
       }
     }
     // End-to-end test hook (only when the page URL carries ?e2e).
-    if (location.search.includes('e2e')) (window as unknown as { __wtb?: unknown }).__wtb = { game, sfx: soundFx };
+    if (location.search.includes('e2e')) (window as unknown as { __wtb?: unknown }).__wtb = { game, sfx: soundFx, haptics };
 
     // Mirror the live run into the profile (unbanked) so an app kill
     // can't erase it; see game/pendingRun.ts.

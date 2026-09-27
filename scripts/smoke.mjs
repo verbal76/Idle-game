@@ -647,6 +647,53 @@ async function main() {
       await page.waitForSelector('#downhill');
     });
 
+    await step('vibration: game events buzz; the toggle turns it off and persists (#27)', async () => {
+      const arm = () => page.evaluate(() => {
+        window.__buzz = [];
+        Object.defineProperty(Navigator.prototype, 'vibrate', { configurable: true, value: (p) => { window.__buzz.push(p); return true; } });
+      });
+      const eventsBuzz = async () => {
+        await page.click('#downhill');
+        await page.setViewportSize(LANDSCAPE);
+        await page.waitForSelector('#hud');
+        await page.evaluate(() => {
+          window.__buzz.length = 0;
+          const cb = window.__wtb.game.callbacks;
+          cb.onTrick({ name: 'CORK 360', payout: 2, comboMult: 1, outcome: 'clean', switch: false });
+        });
+        await page.waitForTimeout(100);
+        await page.evaluate(() => window.__wtb.game.callbacks.onGrace(0));
+        const got = await page.evaluate(() => window.__buzz.slice());
+        await page.click('#pause');
+        await quitRun();
+        await page.setViewportSize(PORTRAIT);
+        await page.waitForSelector('#downhill');
+        return got;
+      };
+      const toggle = async (want) => {
+        await page.click('#menu-settings');
+        await page.waitForSelector('#haptics-toggle');
+        if ((await page.textContent('#haptics-toggle')) !== want) await page.click('#haptics-toggle');
+        if ((await page.textContent('#haptics-toggle')) !== want) fail('vibration toggle did not switch');
+        await page.click('#settings-back');
+        await page.waitForSelector('#downhill');
+      };
+      await arm();
+      await toggle('On');
+      const on = await eventsBuzz();
+      if (JSON.stringify(on) !== JSON.stringify([[20, 40, 30], [30, 40, 30]])) fail(`expected big-trick + grace patterns, got ${JSON.stringify(on)}`);
+      await toggle('Off');
+      const off = await eventsBuzz();
+      if (off.length) fail(`vibration off but got ${JSON.stringify(off)}`);
+      await page.reload();
+      await page.click('#continue');
+      await page.click('#menu-settings');
+      if ((await page.textContent('#haptics-toggle')) !== 'Off') fail('vibration setting not persisted');
+      await page.click('#haptics-toggle');                // leave it on
+      await page.click('#settings-back');
+      await page.waitForSelector('#downhill');
+    });
+
     console.log('smoke: PASS');
   } finally {
     await browser.close();

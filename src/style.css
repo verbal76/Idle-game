@@ -598,3 +598,7 @@ html, body {
   .callout { animation-name: callout-fade; }
   @keyframes callout-fade { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
 }
+
+/* On/Off switch in Settings (Vibration). */
+.fullscreen-panel .setting-row .toggle { min-width: 72px; padding: 6px 14px; font-weight: 700; }
+.fullscreen-panel .setting-row .toggle[aria-pressed="false"] { background: rgba(255, 255, 255, 0.08); color: rgba(255, 255, 255, 0.7); }
