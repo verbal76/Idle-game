@@ -15,6 +15,7 @@ import { ActionButtons } from './input/ActionButtons';
 import { MusicPlayer } from './audio/MusicPlayer';
 import { Game } from './scene/Game';
 import { Stage } from './scene/Stage';
+import { addFlakes, displayFlakes } from './game/economy';
 
 declare global {
   interface Window {
@@ -199,7 +200,7 @@ async function runSession(
       },
       onFell: (stats) => {
         hud.fellStats.textContent =
-          `Distance: ${stats.distanceMeters} m  •  +${stats.coins} ❄  •  Flips: ${stats.flips}`;
+          `Distance: ${stats.distanceMeters} m  •  +${displayFlakes(stats.coins)} ❄  •  Flips: ${stats.flips}`;
         hud.fellOverlay.style.display = 'flex';
       },
       onChargeChange: (charge) => {
@@ -220,7 +221,7 @@ async function runSession(
       const stats = game.getRunStats();
       const active = profiles.activeProfile;
       if (active) {
-        active.currency += stats.coins;
+        active.currency = addFlakes(active.currency, stats.coins);
         if (stats.distanceMeters > active.longestDownhillMeters) {
           active.longestDownhillMeters = stats.distanceMeters;
         }

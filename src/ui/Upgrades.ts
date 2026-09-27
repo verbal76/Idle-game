@@ -1,5 +1,6 @@
 import { ProfileService } from '../profiles/ProfileService';
 import { costForNext, purchaseUpgrade } from '../game/shop';
+import { displayFlakes } from '../game/economy';
 
 export type UpgradeId = 'speed' | 'jump' | 'turn' | 'charge' | 'spin' | 'coin';
 
@@ -46,7 +47,7 @@ export function showUpgrades(root: HTMLElement, profiles: ProfileService): Promi
       root.innerHTML = `
         <div class="fullscreen-panel menu-bg">
           <h1>UPGRADES</h1>
-          <p class="muted">${p.currency} ❄</p>
+          <p class="muted">${displayFlakes(p.currency)} ❄</p>
           <div class="upgrades-list" id="upgrades-list"></div>
           <div class="row"><button id="upgrades-back">Back</button></div>
         </div>

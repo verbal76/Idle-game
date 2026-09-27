@@ -150,7 +150,11 @@ async function main() {
     await step('downhill run', () => ride('downhill'));
     await step('half-pipe run', () => ride('half-pipe'));
     await step('upgrade double-tap buys once (#3)', async () => {
-      await patchProfile({ currency: 10 });
+      // 10.7 ❄: menu must show whole flakes (#4), and one purchase leaves
+      // the 0.7 fraction in the bank.
+      await patchProfile({ currency: 10.7 });
+      const menu = await page.textContent('.fullscreen-panel');
+      if (!/— 10 ❄/.test(menu)) fail(`menu should show 10 ❄ for 10.7, got: ${menu}`);
       await page.click('#upgrades');
       await page.waitForSelector('.upgrade-buy:not([disabled])');
       await page.evaluate(() => {

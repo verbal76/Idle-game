@@ -8,6 +8,7 @@ import { soundFx } from '../audio/SoundFx';
 import { buildRider, RiderRig } from './Rider';
 import { SeedRng } from '../world/SeedRng';
 import { stepJumpCharge } from '../game/jumpCharge';
+import { addFlakes, displayFlakes } from '../game/economy';
 import type { SceneAssets } from './SceneAssets';
 import type { Stage } from './Stage';
 import { Terrain, type GameMode } from './Terrain';
@@ -576,7 +577,7 @@ export class Game {
             }
             this.lastTrickAt = trickNow;
             const mult = this.comboMultiplier();
-            this.coinsCollected += Math.round(flipsThisLanding * mult * this.coinMultiplier);
+            this.coinsCollected = addFlakes(this.coinsCollected, flipsThisLanding * mult * this.coinMultiplier);
             this.callbacks.onComboChange?.(this.comboCount, mult);
           }
           this.flipRotation = 0;
@@ -723,7 +724,7 @@ export class Game {
     const altTag = altitude !== null ? `${altitude} m ↧  •  ` : '';
     const flipTag = this.flipsLanded > 0 ? `  •  ${this.flipsLanded} flip${this.flipsLanded > 1 ? 's' : ''}` : '';
     const spinTag = this.spinsLanded > 0 ? `  •  ${this.spinsLanded} spin${this.spinsLanded > 1 ? 's' : ''}` : '';
-    const liveBank = this.bankAtStart + this.coinsCollected;
+    const liveBank = displayFlakes(this.bankAtStart + this.coinsCollected);
     const coinTag = `  •  ${liveBank} ❄`;
     const label = `${altTag}${meters} m${coinTag}${flipTag}${spinTag}`;
     if (label !== this.lastScoreLabel) {
@@ -814,7 +815,7 @@ export class Game {
               ring.collected = true;
               ring.mesh.isVisible = false;
               spawnRingFlicker(this.scene, ring.x, ring.y, ring.z);
-              this.coinsCollected += Math.round(3 * this.comboMultiplier() * this.coinMultiplier);
+              this.coinsCollected = addFlakes(this.coinsCollected, 3 * this.comboMultiplier() * this.coinMultiplier);
               this.ringStreak++;
               if (this.ringStreak > this.bestRingStreak) {
                 this.bestRingStreak = this.ringStreak;

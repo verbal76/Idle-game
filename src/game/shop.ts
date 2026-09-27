@@ -1,4 +1,5 @@
 import type { SaveData, UpgradeLevels } from '../profiles/IndexedDbStore';
+import { addFlakes } from './economy';
 
 export interface PurchasableUpgrade {
   id: keyof UpgradeLevels;
@@ -22,7 +23,7 @@ export function purchaseUpgrade(p: SaveData, def: PurchasableUpgrade): boolean {
   if (level >= def.maxLevel) return false;
   const cost = costForNext(def, level);
   if (p.currency < cost) return false;
-  p.currency -= cost;
+  p.currency = addFlakes(p.currency, -cost);
   p.upgrades[def.id] = level + 1;
   return true;
 }

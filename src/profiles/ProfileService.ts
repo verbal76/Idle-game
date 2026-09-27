@@ -1,10 +1,10 @@
-import { IndexedDbStore, SaveData } from './IndexedDbStore';
+import type { ProfileStore, SaveData } from './IndexedDbStore';
 import { defaultUpgrades, migrateSave } from './migrate';
 
 export class ProfileService {
   private active: SaveData | null = null;
 
-  constructor(private store: IndexedDbStore) {}
+  constructor(private store: ProfileStore) {}
 
   async init(): Promise<void> {
     const id = await this.store.getActiveId();

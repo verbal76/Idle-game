@@ -1,6 +1,7 @@
 import { ProfileService } from '../profiles/ProfileService';
 import { bouncyTextHtml } from '../util/bouncyText';
 import { escapeHtml } from '../util/escapeHtml';
+import { displayFlakes } from '../game/economy';
 
 export type MenuChoice = 'half-pipe' | 'downhill' | 'switch-profile' | 'upgrades' | 'settings' | 'quit';
 
@@ -11,7 +12,7 @@ export function showMainMenu(root: HTMLElement, profiles: ProfileService): Promi
       <div class="fullscreen-panel menu-bg menu-bg-stacked">
         <button class="gear-btn corner" id="menu-settings" aria-label="Settings">⚙</button>
         <h1 class="title-bouncy">${bouncyTextHtml("Where's the Bottom?")}</h1>
-        <p class="muted">${escapeHtml(p.name)} — ${p.currency} ❄</p>
+        <p class="muted">${escapeHtml(p.name)} — ${displayFlakes(p.currency)} ❄</p>
         <div class="list">
           <button id="downhill">Downhill (idle)</button>
           <button id="half-pipe">Half-pipe</button>

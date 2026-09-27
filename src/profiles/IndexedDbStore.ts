@@ -31,11 +31,21 @@ interface BoarderDB extends DBSchema {
   meta: { key: string; value: string };
 }
 
+/** Persistence used by ProfileService (IndexedDB in the app, memory in tests). */
+export interface ProfileStore {
+  list(): Promise<SaveData[]>;
+  get(id: string): Promise<SaveData | undefined>;
+  put(profile: SaveData): Promise<void>;
+  delete(id: string): Promise<void>;
+  getActiveId(): Promise<string | null>;
+  setActiveId(id: string | null): Promise<void>;
+}
+
 const DB_NAME = 'boarder';
 const DB_VERSION = 1;
 const ACTIVE_KEY = 'activeProfileId';
 
-export class IndexedDbStore {
+export class IndexedDbStore implements ProfileStore {
   private dbPromise: Promise<IDBPDatabase<BoarderDB>>;
 
   constructor() {
