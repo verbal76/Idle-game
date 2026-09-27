@@ -1,4 +1,5 @@
 import { ProfileService } from '../profiles/ProfileService';
+import { costForNext, purchaseUpgrade } from '../game/shop';
 
 export type UpgradeId = 'speed' | 'jump' | 'turn' | 'charge' | 'spin' | 'coin';
 
@@ -34,16 +35,12 @@ export const UPGRADES: UpgradeDef[] = [
   { id: 'coin',   label: 'Coin Magnet', description: '+5% snowflakes per level',    baseCost: 10, costStep: 2, maxLevel: 20 },
 ];
 
-export function costForNext(def: UpgradeDef, currentLevel: number): number {
-  // Linear: 10, 12, 14, …, 48 across L1-L20 with baseCost=10 / step=2.
-  // User asked for a "raise it a little bit each time" pattern in
-  // place of the previous doubling, which would have hit 5.2 M ❄ at
-  // L20 — unreachable in any sane number of runs.
-  return def.baseCost + currentLevel * def.costStep;
-}
 
 export function showUpgrades(root: HTMLElement, profiles: ProfileService): Promise<void> {
   return new Promise<void>((resolve) => {
+    // One purchase in flight at a time: every Buy button is disabled until
+    // the save completes and the list re-renders with fresh values.
+    let busy = false;
     const render = () => {
       const p = profiles.activeProfile!;
       root.innerHTML = `
@@ -71,11 +68,15 @@ export function showUpgrades(root: HTMLElement, profiles: ProfileService): Promi
         `;
         const btn = row.querySelector<HTMLButtonElement>('.upgrade-buy')!;
         btn.addEventListener('click', async () => {
-          if (maxed || !canAfford) return;
-          p.currency -= cost;
-          p.upgrades[u.id] += 1;
-          await profiles.save();
-          render();
+          if (busy) return;
+          busy = true;
+          for (const b of listEl.querySelectorAll<HTMLButtonElement>('.upgrade-buy')) b.disabled = true;
+          try {
+            if (purchaseUpgrade(p, u)) await profiles.save();
+          } finally {
+            busy = false;
+            render();
+          }
         });
         listEl.appendChild(row);
       }

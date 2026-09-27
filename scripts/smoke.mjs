@@ -88,6 +88,29 @@ async function main() {
       console.log('ok');
     };
 
+    // Patch the active profile straight in IndexedDB, then reload and
+    // continue as that profile (lets steps set up balances/levels).
+    const patchProfile = async (patch) => {
+      await page.evaluate((p) => new Promise((resolve, reject) => {
+        const req = indexedDB.open('boarder');
+        req.onerror = () => reject(req.error);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction('profiles', 'readwrite');
+          const store = tx.objectStore('profiles');
+          const all = store.getAll();
+          all.onsuccess = () => {
+            for (const prof of all.result) store.put({ ...prof, ...p });
+          };
+          tx.oncomplete = () => { db.close(); resolve(null); };
+          tx.onerror = () => reject(tx.error);
+        };
+      }), patch);
+      await page.reload();
+      await page.click('#continue');
+      await page.waitForSelector('#downhill');
+    };
+
     await step('create profile', async () => {
       await page.click('#new-profile');
       await page.click('#confirm');
@@ -126,6 +149,23 @@ async function main() {
 
     await step('downhill run', () => ride('downhill'));
     await step('half-pipe run', () => ride('half-pipe'));
+    await step('upgrade double-tap buys once (#3)', async () => {
+      await patchProfile({ currency: 10 });
+      await page.click('#upgrades');
+      await page.waitForSelector('.upgrade-buy:not([disabled])');
+      await page.evaluate(() => {
+        const b = document.querySelector('.upgrade-buy');
+        b.click(); b.click(); b.click();
+      });
+      await page.waitForFunction(() => document.querySelector('.upgrade-desc')?.textContent?.includes('1/20'));
+      await page.waitForTimeout(300);
+      const text = await page.textContent('.fullscreen-panel');
+      if (!/\b0 ❄/.test(text)) fail(`expected 0 ❄ after one purchase, got: ${text}`);
+      if (/2\/20/.test(text)) fail('double tap bought two levels');
+      await page.click('#upgrades-back');
+      await page.waitForSelector('#downhill');
+    });
+
     await step('upgrades screen', async () => {
       await page.click('#upgrades');
       await page.waitForSelector('.upgrade-row');
