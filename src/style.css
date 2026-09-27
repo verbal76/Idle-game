@@ -475,3 +475,12 @@ html, body {
 .profile-line { display: flex; gap: 8px; }
 .profile-line > button:first-child { flex: 1; }
 .fullscreen-panel button.profile-stats-btn { min-width: 0; padding: 12px 14px; }
+
+/* Deep carve button: curved-arrow icon + caption (was a bare ▲). */
+.dpad-btn.up { flex-direction: column; gap: 2px; }
+.dpad-btn .carve-icon {
+  width: 40px; height: 40px;
+  fill: none; stroke: currentColor; stroke-width: 3;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.dpad-btn .dpad-caption { font-size: 11px; letter-spacing: 0.08em; font-weight: 800; }

@@ -131,6 +131,12 @@ async function main() {
       await page.waitForSelector('#hud');
       const intro = page.locator('#halfpipe-intro');
       if (await intro.isVisible().catch(() => false)) await intro.click();
+      // #15: the up button is labelled and drawn as Deep carve.
+      const up = await page.evaluate(() => {
+        const b = document.getElementById('dpad-up');
+        return { label: b.getAttribute('aria-label'), svg: !!b.querySelector('svg'), text: b.textContent.trim() };
+      });
+      if (up.label !== 'Deep carve' || !up.svg || up.text !== 'CARVE') fail(`deep carve button: ${JSON.stringify(up)}`);
       const before = await page.textContent('#score');
       await page.waitForTimeout(2500);
       // Charge + release a jump, then steer. Real mouse input so

@@ -58,14 +58,20 @@ export function buildHUD(root: HTMLElement): HUDRefs {
             <li><span class="hp-icon hp-icon-strip">▮</span> <b>Yellow strips</b> in the trough — speed boost</li>
             <li><span class="hp-icon hp-icon-ring">◯</span> <b>Magenta rings</b> — flip-through bonus + streak (miss one and the streak resets)</li>
             <li><span class="hp-icon">⤺</span> <b>Hit the lip</b> — bounces you back into the bowl</li>
-            <li><span class="hp-icon">▲</span> <b>Hold the up arrow</b> — tighter, deeper carve</li>
+            <li><span class="hp-icon">↷</span> <b>Hold Deep carve</b> (curved arrow) — tighter, deeper carve</li>
             <li><span class="hp-icon">+</span> Chain landings within 5 s — combo multiplier</li>
           </ul>
           <p class="halfpipe-intro-hint">Tap to dismiss</p>
         </div>
       </div>
       <div class="dpad-left">
-        <button class="dpad-btn up" id="dpad-up" aria-label="Straighten">▲</button>
+        <button class="dpad-btn up" id="dpad-up" aria-label="Deep carve">
+          <svg class="carve-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 19 C5 10 11 5.5 18 8" />
+            <path d="M13.5 4.5 L18.5 8 L13 11" />
+          </svg>
+          <span class="dpad-caption">CARVE</span>
+        </button>
         <div class="dpad-row">
           <button class="dpad-btn left" id="dpad-left">◀</button>
           <button class="dpad-btn right" id="dpad-right">▶</button>
