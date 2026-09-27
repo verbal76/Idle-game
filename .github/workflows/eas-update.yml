@@ -49,6 +49,12 @@ jobs:
         run: npm run web:build
         env:
           NODE_ENV: production
+      - name: Smoke test the built game (block the OTA on any failure)
+        # Same headless end-to-end check CI runs: boots dist/index.html
+        # in Chrome and rides both modes before anything is published.
+        run: npm run test:smoke
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
       - name: Verify html-bundle.ts has fresh CSS
         run: |
           BUNDLE='src/__generated__/html-bundle.ts'
