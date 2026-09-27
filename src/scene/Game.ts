@@ -88,6 +88,7 @@ export class Game {
   // See game/jumpCharge.ts: every jump needs a fresh press.
   private jumpReleaseRequired = false;
   private lastReportedCharge = 0;
+  private lastScoreLabel = '';
   private flipRotation = 0;
   private flipsLanded = 0;
   private spinRotation = 0;
@@ -139,7 +140,10 @@ export class Game {
   private followTarget!: Mesh;
   private camera!: FollowCamera;
 
-  private rng = new SeedRng(BigInt(Date.now()));
+  // Terrain, chunks and idle animation each get their own stream so the
+  // world never depends on how gameplay or spawning interleave.
+  private readonly runSeed = BigInt(Date.now());
+  private rng = new SeedRng(this.runSeed ^ 0x5DEECE66Dn);
 
   // The rider root pivots at the board base, 5 cm above the snow.
   private readonly groundY = 0.05;
@@ -199,8 +203,8 @@ export class Game {
     sun.specular = new Color3(0.30, 0.25, 0.20);
 
     this.rider = buildRider(this.scene);
-    this.terrain = new Terrain(this.scene, this.mode, this.rng, this.assets);
-    this.streamer = new ChunkStreamer(this.scene, this.mode, this.rng, this.assets, this.terrain);
+    this.terrain = new Terrain(this.scene, this.mode, new SeedRng(this.runSeed), this.assets);
+    this.streamer = new ChunkStreamer(this.scene, this.mode, this.runSeed, this.assets, this.terrain);
 
     this.mountainAnchor = buildBackgroundMountains(this.scene, this.assets.mountainMat);
     // Downhill only (the pipe is built per chunk). Build before the
@@ -717,7 +721,11 @@ export class Game {
     const spinTag = this.spinsLanded > 0 ? `  •  ${this.spinsLanded} spin${this.spinsLanded > 1 ? 's' : ''}` : '';
     const liveBank = this.bankAtStart + this.coinsCollected;
     const coinTag = `  •  ${liveBank} ❄`;
-    this.callbacks.onScore?.(`${altTag}${meters} m${coinTag}${flipTag}${spinTag}`);
+    const label = `${altTag}${meters} m${coinTag}${flipTag}${spinTag}`;
+    if (label !== this.lastScoreLabel) {
+      this.lastScoreLabel = label;
+      this.callbacks.onScore?.(label);
+    }
 
     this.scene.render();
   }
@@ -788,6 +796,8 @@ export class Game {
     }
 
     if (this.mode === 'half-pipe' && !invulnerable) {
+      // All chunks (≤10 in the pipe): a ring passed during a bail must
+      // still count as missed once the bail ends.
       for (const chunk of this.streamer.chunks.values()) {
         if (chunk.rings) {
           for (const ring of chunk.rings) {
@@ -841,7 +851,7 @@ export class Game {
       }
     }
 
-    for (const chunk of this.streamer.chunks.values()) {
+    for (const chunk of this.streamer.nearby(r.x, r.z)) {
       if (this.grounded && !invulnerable) {
         for (const k of chunk.kickers) {
           const dx = Math.abs(k.x - r.x);

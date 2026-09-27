@@ -1,5 +1,5 @@
 import { AbstractMesh, MeshBuilder, Scene, TransformNode, Vector3, type Mesh } from '@babylonjs/core';
-import type { SeedRng } from '../world/SeedRng';
+import { SeedRng } from '../world/SeedRng';
 import type { SceneAssets } from './SceneAssets';
 import type { GameMode, Terrain } from './Terrain';
 import { HP } from './halfPipeGeometry';
@@ -18,8 +18,10 @@ export interface ChunkData {
 
 /**
  * Streams 80 m world chunks (obstacles, ramps, decoration, half-pipe
- * sections) around the rider. All placement draws from the run's
- * shared RNG.
+ * sections) around the rider. Each chunk draws from its own RNG seeded
+ * by (run seed, cx, cz), so the world is identical whatever order chunks
+ * spawn in. Spawning is budgeted per frame, nearest first; the rider's
+ * own 3×3 neighbourhood is always spawned immediately.
  */
 export class ChunkStreamer {
   readonly chunks = new Map<string, ChunkData>();
@@ -29,11 +31,14 @@ export class ChunkStreamer {
   private readonly viewBehind = 1;
   // ±4 columns cover the whole ±300 m valley floor.
   private readonly viewSide = 4;
+  // Non-critical chunks spawned per frame. A new 9-chunk slice is needed
+  // every ~2.5 s at top speed, so 2/frame stays far ahead of demand.
+  static readonly SPAWN_BUDGET = 2;
 
   constructor(
     private readonly scene: Scene,
     private readonly mode: GameMode,
-    private readonly rng: SeedRng,
+    private readonly runSeed: bigint,
     private readonly assets: SceneAssets,
     private readonly terrain: Terrain,
   ) {}
@@ -50,14 +55,11 @@ export class ChunkStreamer {
     const rx = Math.floor(riderPos.x / this.chunkSize);
     const rz = Math.floor(riderPos.z / this.chunkSize);
 
+    const wanted: Array<[number, number]> = [];
     for (let dz = -this.viewBehind; dz <= this.viewAhead; dz++) {
-      const cz = rz + dz;
-      for (let dx = -this.viewSide; dx <= this.viewSide; dx++) {
-        const cx = rx + dx;
-        const key = this.chunkKey(cx, cz);
-        if (!this.chunks.has(key)) this.spawnDownhillChunk(cx, cz);
-      }
+      for (let dx = -this.viewSide; dx <= this.viewSide; dx++) wanted.push([rx + dx, rz + dz]);
     }
+    this.spawnWanted(wanted, rx, rz, (cx, cz) => this.spawnDownhillChunk(cx, cz));
     for (const [key, chunk] of this.chunks) {
       const dz = chunk.cz - rz;
       const dx = chunk.cx - rx;
@@ -71,11 +73,9 @@ export class ChunkStreamer {
 
   private updateHalfPipe(riderPos: Vector3): void {
     const rz = Math.floor(riderPos.z / this.chunkSize);
-    for (let dz = -this.viewBehind; dz <= this.viewAhead; dz++) {
-      const cz = rz + dz;
-      const key = this.chunkKey(0, cz);
-      if (!this.chunks.has(key)) this.spawnHalfPipeChunk(0, cz);
-    }
+    const wanted: Array<[number, number]> = [];
+    for (let dz = -this.viewBehind; dz <= this.viewAhead; dz++) wanted.push([0, rz + dz]);
+    this.spawnWanted(wanted, 0, rz, (cx, cz) => this.spawnHalfPipeChunk(cx, cz));
     for (const [key, chunk] of this.chunks) {
       const dz = chunk.cz - rz;
       if (dz < -this.viewBehind - 1 || dz > this.viewAhead + 1) {
@@ -83,6 +83,45 @@ export class ChunkStreamer {
         this.chunks.delete(key);
       }
     }
+  }
+
+  /** Chunks in the 3×3 block around (x, z): all that can touch the rider. */
+  *nearby(x: number, z: number): Generator<ChunkData> {
+    const rx = Math.floor(x / this.chunkSize);
+    const rz = Math.floor(z / this.chunkSize);
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const c = this.chunks.get(this.chunkKey(rx + dx, rz + dz));
+        if (c) yield c;
+      }
+    }
+  }
+
+  private spawnWanted(
+    wanted: Array<[number, number]>, rx: number, rz: number,
+    spawn: (cx: number, cz: number) => void,
+  ): void {
+    const missing = wanted.filter(([cx, cz]) => !this.chunks.has(this.chunkKey(cx, cz)));
+    if (missing.length === 0) return;
+    missing.sort((a, b) =>
+      (Math.abs(a[1] - rz) + Math.abs(a[0] - rx)) - (Math.abs(b[1] - rz) + Math.abs(b[0] - rx)));
+    let budget = ChunkStreamer.SPAWN_BUDGET;
+    for (const [cx, cz] of missing) {
+      const critical = Math.abs(cx - rx) <= 1 && Math.abs(cz - rz) <= 1;
+      if (!critical && budget <= 0) break;
+      spawn(cx, cz);
+      if (!critical) budget--;
+    }
+  }
+
+  private chunkRng(cx: number, cz: number): SeedRng {
+    const M = 0xFFFFFFFFFFFFFFFFn;
+    const h = (this.runSeed
+      ^ ((BigInt(cx) * 0x9E3779B97F4A7C15n) & M)
+      ^ ((BigInt(cz) * 0xC2B2AE3D27D4EB4Fn) & M)) & M;
+    const rng = new SeedRng(h);
+    for (let i = 0; i < 4; i++) rng.nextU32(); // decorrelate neighbouring seeds
+    return rng;
   }
 
   private disposeChunk(chunk: ChunkData): void {
@@ -93,6 +132,7 @@ export class ChunkStreamer {
   private chunkKey(cx: number, cz: number): string { return `${cx}:${cz}`; }
 
   private spawnDownhillChunk(cx: number, cz: number): void {
+    const rng = this.chunkRng(cx, cz);
     const half = this.chunkSize / 2;
     const ox = cx * this.chunkSize + half;
     const oz = cz * this.chunkSize + half;
@@ -121,51 +161,51 @@ export class ChunkStreamer {
     const chunkOnFloor = floorLxMax > floorLxMin;
 
     if (allowObstacles && chunkOnFloor) {
-      const rockCount = this.rng.rangeInt(0, 2);
+      const rockCount = rng.rangeInt(0, 2);
       for (let i = 0; i < rockCount; i++) {
-        const lx = this.rng.rangeFloat(floorLxMin, floorLxMax);
-        const lz = oz + this.rng.rangeFloat(-half + 2, half - 2);
+        const lx = rng.rangeFloat(floorLxMin, floorLxMax);
+        const lz = oz + rng.rangeFloat(-half + 2, half - 2);
         const rockBaseY = this.terrain.surfaceY(lx, lz);
-        const variant = this.assets.rockTemplates.large[this.rng.rangeInt(0, this.assets.rockTemplates.large.length)];
+        const variant = this.assets.rockTemplates.large[rng.rangeInt(0, this.assets.rockTemplates.large.length)];
         const rock = variant.mesh.createInstance(`rock-${cx}-${cz}-${i}`);
         rock.position.set(lx, rockBaseY, lz);
-        rock.rotation.y = this.rng.next01() * Math.PI * 2;
+        rock.rotation.y = rng.next01() * Math.PI * 2;
         features.push(rock);
         features.push(this.spawnContactShadow(lx, lz, rockBaseY, variant.radius * 1.1, `rock-${cx}-${cz}-${i}`));
         rocks.push({ x: lx, z: lz, radius: variant.radius });
       }
 
-      const treeCount = this.rng.rangeInt(0, 3);
+      const treeCount = rng.rangeInt(0, 3);
       for (let i = 0; i < treeCount; i++) {
-        const lx = this.rng.rangeFloat(floorLxMin, floorLxMax);
-        const lz = oz + this.rng.rangeFloat(-half + 3, half - 3);
-        const scale = 0.9 + this.rng.next01() * 0.7;
-        features.push(...this.spawnTree(lx, lz, scale, `${cx}-${cz}-pf-${i}`));
+        const lx = rng.rangeFloat(floorLxMin, floorLxMax);
+        const lz = oz + rng.rangeFloat(-half + 3, half - 3);
+        const scale = 0.9 + rng.next01() * 0.7;
+        features.push(...this.spawnTree(rng, lx, lz, scale, `${cx}-${cz}-pf-${i}`));
         rocks.push({ x: lx, z: lz });
       }
 
-      const clusters = this.rng.rangeInt(1, 3);
+      const clusters = rng.rangeInt(1, 3);
       for (let i = 0; i < clusters; i++) {
-        const side = this.rng.next01() < 0.5 ? -1 : 1;
-        const rawBaseX = ox + side * (half - this.rng.rangeFloat(0, 2));
+        const side = rng.next01() < 0.5 ? -1 : 1;
+        const rawBaseX = ox + side * (half - rng.rangeFloat(0, 2));
         const baseX = Math.max(floorLxMin, Math.min(floorLxMax, rawBaseX));
-        const baseZ = oz + this.rng.rangeFloat(-half, half);
-        const inCluster = this.rng.rangeInt(2, 5);
+        const baseZ = oz + rng.rangeFloat(-half, half);
+        const inCluster = rng.rangeInt(2, 5);
         for (let t = 0; t < inCluster; t++) {
-          const tx = Math.max(floorLxMin, Math.min(floorLxMax, baseX + this.rng.rangeFloat(-3, 3)));
-          const tz = baseZ + this.rng.rangeFloat(-3, 3);
-          const scale = 1.0 + this.rng.next01() * 0.9;
-          features.push(...this.spawnTree(tx, tz, scale, `${cx}-${cz}-edge-${i}-${t}`));
+          const tx = Math.max(floorLxMin, Math.min(floorLxMax, baseX + rng.rangeFloat(-3, 3)));
+          const tz = baseZ + rng.rangeFloat(-3, 3);
+          const scale = 1.0 + rng.next01() * 0.9;
+          features.push(...this.spawnTree(rng, tx, tz, scale, `${cx}-${cz}-edge-${i}-${t}`));
         }
       }
 
       if (inCentralKickerBand) {
-        const kickerRoll = this.rng.next01();
+        const kickerRoll = rng.next01();
         if (kickerRoll < 0.55) {
           // 55% of kicker-band chunks get a ramp; 10% of those are mega ramps.
           const isMega = kickerRoll < 0.10;
-          const lx = this.rng.rangeFloat(floorLxMin, floorLxMax);
-          const lz = oz + this.rng.rangeFloat(-half + 4, half - 4);
+          const lx = rng.rangeFloat(floorLxMin, floorLxMax);
+          const lz = oz + rng.rangeFloat(-half + 4, half - 4);
           const w = isMega ? 14 : 10;
           features.push(...this.spawnRamp(lx, this.terrain.surfaceY(lx, lz), lz, w, this.terrain.activeSlope, `kicker-${cx}-${cz}`));
           kickers.push({ x: lx, z: lz, width: w, power: isMega ? 10.0 : 5.0 });
@@ -175,22 +215,22 @@ export class ChunkStreamer {
       if (isCentralColumn) {
         // Challenge line: 3–5 obstacles in the ±14 m strip so holding straight
         // isn't enough; a kicker is the opt-in alternative to dodging.
-        const lineCount = this.rng.rangeInt(3, 6);
+        const lineCount = rng.rangeInt(3, 6);
         for (let i = 0; i < lineCount; i++) {
           const tBand = (i + 0.5) / lineCount;
-          const lz = oz - half + tBand * this.chunkSize + this.rng.rangeFloat(-3, 3);
-          const lx = ox + this.rng.rangeFloat(-14, 14);
-          const roll = this.rng.next01();
+          const lz = oz - half + tBand * this.chunkSize + rng.rangeFloat(-3, 3);
+          const lx = ox + rng.rangeFloat(-14, 14);
+          const roll = rng.next01();
           if (roll < 0.55) {
-            const scale = 1.1 + this.rng.next01() * 0.8;
-            features.push(...this.spawnTree(lx, lz, scale, `${cx}-${cz}-line-${i}`));
+            const scale = 1.1 + rng.next01() * 0.8;
+            features.push(...this.spawnTree(rng, lx, lz, scale, `${cx}-${cz}-line-${i}`));
             rocks.push({ x: lx, z: lz });
           } else if (roll < 0.85) {
             const lineRockBaseY = this.terrain.surfaceY(lx, lz);
-            const variant = this.assets.rockTemplates.large[this.rng.rangeInt(0, this.assets.rockTemplates.large.length)];
+            const variant = this.assets.rockTemplates.large[rng.rangeInt(0, this.assets.rockTemplates.large.length)];
             const rock = variant.mesh.createInstance(`rock-line-${cx}-${cz}-${i}`);
             rock.position.set(lx, lineRockBaseY, lz);
-            rock.rotation.y = this.rng.next01() * Math.PI * 2;
+            rock.rotation.y = rng.next01() * Math.PI * 2;
             features.push(rock);
             features.push(this.spawnContactShadow(lx, lz, lineRockBaseY, variant.radius * 1.1, `rock-line-${cx}-${cz}-${i}`));
             rocks.push({ x: lx, z: lz, radius: variant.radius });
@@ -203,15 +243,15 @@ export class ChunkStreamer {
       }
 
       // Logs anywhere (10%), tents only near the walls (25%).
-      const wantLog  = this.rng.next01() < 0.10;
-      const wantTent = inWallTentBand && this.rng.next01() < 0.25;
+      const wantLog  = rng.next01() < 0.10;
+      const wantTent = inWallTentBand && rng.next01() < 0.25;
       const placeProp = (template: { mesh: Mesh; radius: number }, kind: string): void => {
-        const lx = this.rng.rangeFloat(floorLxMin, floorLxMax);
-        const lz = oz + this.rng.rangeFloat(-half + 4, half - 4);
+        const lx = rng.rangeFloat(floorLxMin, floorLxMax);
+        const lz = oz + rng.rangeFloat(-half + 4, half - 4);
         const baseY = this.terrain.surfaceY(lx, lz);
         const inst = template.mesh.createInstance(`${kind}-${cx}-${cz}`);
         inst.position.set(lx, baseY, lz);
-        inst.rotation.y = this.rng.next01() * Math.PI * 2;
+        inst.rotation.y = rng.next01() * Math.PI * 2;
         features.push(inst);
         features.push(this.spawnContactShadow(lx, lz, baseY, template.radius * 1.2, `${kind}-${cx}-${cz}`));
         rocks.push({ x: lx, z: lz, radius: template.radius });
@@ -220,15 +260,15 @@ export class ChunkStreamer {
       if (wantTent) placeProp(this.assets.tentTemplate, 'tent');
 
       // Decoration only: flowers have no collision.
-      const flowerCount = this.rng.rangeInt(2, 5);
+      const flowerCount = rng.rangeInt(2, 5);
       for (let i = 0; i < flowerCount; i++) {
-        const lx = this.rng.rangeFloat(floorLxMin, floorLxMax);
-        const lz = oz + this.rng.rangeFloat(-half + 1, half - 1);
-        const variant = this.assets.flowerTemplates[this.rng.rangeInt(0, this.assets.flowerTemplates.length)];
+        const lx = rng.rangeFloat(floorLxMin, floorLxMax);
+        const lz = oz + rng.rangeFloat(-half + 1, half - 1);
+        const variant = this.assets.flowerTemplates[rng.rangeInt(0, this.assets.flowerTemplates.length)];
         const flower = variant.createInstance(`flower-${cx}-${cz}-${i}`);
         flower.position.set(lx, this.terrain.surfaceY(lx, lz), lz);
-        flower.rotation.y = this.rng.next01() * Math.PI * 2;
-        const s = 0.85 + this.rng.next01() * 0.5;
+        flower.rotation.y = rng.next01() * Math.PI * 2;
+        const s = 0.85 + rng.next01() * 0.5;
         flower.scaling.setAll(s);
         features.push(flower);
       }
@@ -240,9 +280,9 @@ export class ChunkStreamer {
         const cliffZ = cur.startZ;
         if (cliffZ < oz - half || cliffZ >= oz + half) continue;
         if (prev.endY - cur.startY < 1) continue;
-        if (this.rng.next01() > 0.10) continue;
+        if (rng.next01() > 0.10) continue;
         const rampZ = cliffZ - 2;
-        const rampX = this.rng.rangeFloat(-12, 12);
+        const rampX = rng.rangeFloat(-12, 12);
         const rampBaseY = this.terrain.surfaceY(rampX, rampZ);
         const w = 12;
         features.push(...this.spawnRamp(rampX, rampBaseY, rampZ, w, this.terrain.activeSlope, `cliff-ramp-${cx}-${cz}-${i}`));
@@ -257,6 +297,7 @@ export class ChunkStreamer {
   // posts, banners, crowd, plus a kicker+ring every odd chunk and a
   // boost strip every third.
   private spawnHalfPipeChunk(cx: number, cz: number): void {
+    const rng = this.chunkRng(cx, cz);
     const half = this.chunkSize / 2;
     const ox = 0;
     const oz = cz * this.chunkSize + half;
@@ -341,11 +382,11 @@ export class ChunkStreamer {
       for (let i = 0; i < 5; i++) {
         const aud = this.assets.hpAudienceTemplate.createInstance(`hp-aud-${cz}-${sign}-${i}`);
         aud.parent = frame;
-        const jitterX = this.rng.rangeFloat(-0.25, 0.25);
-        const jitterZ = this.rng.rangeFloat(-halfDepth * 0.8, halfDepth * 0.8);
-        const headHeight = lipY + this.rng.rangeFloat(0.0, 0.4) + 0.8;
+        const jitterX = rng.rangeFloat(-0.25, 0.25);
+        const jitterZ = rng.rangeFloat(-halfDepth * 0.8, halfDepth * 0.8);
+        const headHeight = lipY + rng.rangeFloat(0.0, 0.4) + 0.8;
         aud.position.set(px + sign * Math.abs(jitterX), headHeight, jitterZ);
-        const s = 0.85 + this.rng.next01() * 0.4;
+        const s = 0.85 + rng.next01() * 0.4;
         aud.scaling.set(1, s, 1);
         features.push(aud);
       }
@@ -359,7 +400,7 @@ export class ChunkStreamer {
 
     if (cz > 0) {
       if (cz % 2 === 1) {
-        const lz = oz + this.rng.rangeFloat(-half + 5, half - 5);
+        const lz = oz + rng.rangeFloat(-half + 5, half - 5);
         const w = 8;
         features.push(...this.spawnRamp(ox, this.terrain.surfaceY(ox, lz), lz, w, this.terrain.activeSlope, `hp-kicker-${cz}`));
         kickers.push({ x: ox, z: lz, width: 8, power: 7.5 });
@@ -377,7 +418,7 @@ export class ChunkStreamer {
       }
 
       if (cz % 3 === 0) {
-        const stripZ = oz + this.rng.rangeFloat(-half + 6, half - 6);
+        const stripZ = oz + rng.rangeFloat(-half + 6, half - 6);
         const boostBaseY = this.terrain.surfaceY(ox, stripZ);
         const boost = this.assets.hpBoostTemplate.createInstance(`hp-boost-${cz}`);
         boost.position.set(ox, boostBaseY + 0.04, stripZ);
@@ -393,9 +434,9 @@ export class ChunkStreamer {
     });
   }
 
-  private spawnTree(x: number, z: number, scale: number, name: string): AbstractMesh[] {
+  private spawnTree(rng: SeedRng, x: number, z: number, scale: number, name: string): AbstractMesh[] {
     const baseY = this.terrain.surfaceY(x, z);
-    const variant = this.assets.treeTemplates[this.rng.next01() < 0.5 ? 0 : 1];
+    const variant = this.assets.treeTemplates[rng.next01() < 0.5 ? 0 : 1];
     // Source OBJ is ~1 m tall.
     const TREE_BASE = 3.5;
     const treeScale = scale * TREE_BASE;
@@ -405,7 +446,7 @@ export class ChunkStreamer {
     const foliage = variant.foliage.createInstance(`foliage-${name}`);
     foliage.scaling.setAll(treeScale);
     foliage.position.set(x, baseY, z);
-    const yaw = this.rng.next01() * Math.PI * 2;
+    const yaw = rng.next01() * Math.PI * 2;
     trunk.rotation.y = yaw;
     foliage.rotation.y = yaw;
     const shadow = this.assets.shadowDiscTemplate.createInstance(`tree-shadow-${name}`);
