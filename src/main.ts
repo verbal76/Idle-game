@@ -18,6 +18,9 @@ import { Game } from './scene/Game';
 import { Stage } from './scene/Stage';
 import { displayFlakes } from './game/economy';
 import { bankRun, migrateDeviceRingBest } from './game/records';
+import { clearPending, collectPending, hasCollectablePending, recordPending } from './game/pendingRun';
+import { installBackBridge, pushBackHandler } from './util/backButton';
+import { showInterrupted } from './ui/Interrupted';
 
 declare global {
   interface Window {
@@ -58,6 +61,7 @@ async function bootstrap(): Promise<void> {
   // first run starts without the engine/template build.
   setTimeout(() => { getStage(canvas); }, 300);
 
+  installBackBridge();
   const profiles = new ProfileService(new IndexedDbStore());
   await profiles.init();
   // One-time: the old device-wide ring best becomes the active profile's.
@@ -113,6 +117,18 @@ async function bootstrap(): Promise<void> {
         }
       }
 
+      // A run cut short by an app kill/crash/reload: show it and bank it
+      // once on Collect (credit + clear are one save of the profile).
+      const interrupted = profiles.activeProfile;
+      if (interrupted?.pendingRun) {
+        if (hasCollectablePending(interrupted)) {
+          await showInterrupted(screen, interrupted.pendingRun);
+          collectPending(interrupted);
+        } else {
+          clearPending(interrupted);
+        }
+        await profiles.save();
+      }
       // No-op after the first time; covers installs with no profile at boot.
       if (migrateDeviceRingBest(profiles.activeProfile, storage)) await profiles.save();
       const choice: MenuChoice = await showMainMenu(screen, profiles);
@@ -205,6 +221,7 @@ async function runSession(
       // lands, so the pause menu can't open under the fell screen.
       onCrash: () => {
         crashed = true;
+        savePending();
         hud.pauseBtn.disabled = true;
         hud.settingsBtn.disabled = true;
         hud.hud.classList.add('run-over');
@@ -241,29 +258,73 @@ async function runSession(
     // End-to-end test hook (only when the page URL carries ?e2e).
     if (location.search.includes('e2e')) (window as unknown as { __wtb?: unknown }).__wtb = { game };
 
+    // Mirror the live run into the profile (unbanked) so an app kill
+    // can't erase it; see game/pendingRun.ts.
+    const runId = crypto.randomUUID();
+    const savePending = () => {
+      const active = profiles.activeProfile;
+      if (finished || !active) return;
+      recordPending(active, runId, game.getRunStats(), Date.now());
+      void profiles.save();
+    };
+    const pendingTimer = setInterval(savePending, 2000);
+
+    const openPause = () => {
+      if (crashed || finished) return;
+      savePending();
+      game.pause();
+      hud.pauseMenu.style.display = 'flex';
+    };
+    const closePause = () => {
+      hud.pauseMenu.style.display = 'none';
+      game.resume();
+    };
+    const isShown = (el: HTMLElement) => el.style.display === 'flex';
+
+    // Backgrounding the app pauses the run (and saves the mirror).
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        savePending();
+        if (!isShown(hud.pauseMenu) && !isShown(hud.settingsOverlay) && !isShown(hud.halfpipeIntro)) openPause();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', savePending);
+
+    // Android Back: open the pause menu; Back again resumes. On the fell
+    // screen it goes back to the menu. Sub-panels swallow it.
+    const popBack = pushBackHandler(() => {
+      if (finished) return false;
+      if (isShown(hud.fellOverlay)) { finish(null); return true; }
+      if (isShown(hud.settingsOverlay) || isShown(hud.halfpipeIntro)) return true;
+      if (isShown(hud.pauseMenu)) { closePause(); return true; }
+      openPause();
+      return true;
+    });
+
     let finished = false;
     const finish = (next: RunNext) => {
       if (finished) return;
       finished = true;
+      clearInterval(pendingTimer);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', savePending);
+      popBack();
 
       const stats = game.getRunStats();
       const active = profiles.activeProfile;
-      if (active) bankRun(active, stats);
+      if (active) {
+        clearPending(active);
+        bankRun(active, stats);
+      }
       game.dispose();
       dpad.detach();
       buttons.detach();
       resolve(next);
     };
 
-    hud.pauseBtn.addEventListener('click', () => {
-      if (crashed) return;
-      game.pause();
-      hud.pauseMenu.style.display = 'flex';
-    });
-    hud.resumeBtn.addEventListener('click', () => {
-      hud.pauseMenu.style.display = 'none';
-      game.resume();
-    });
+    hud.pauseBtn.addEventListener('click', openPause);
+    hud.resumeBtn.addEventListener('click', closePause);
 
     hud.settingsBtn.addEventListener('click', async () => {
       if (crashed) return;

@@ -217,6 +217,73 @@ async function main() {
       await page.waitForSelector('#downhill');
     });
 
+    await step('back button + backgrounding pause the run (#2)', async () => {
+      await page.click('#downhill');
+      await page.setViewportSize(LANDSCAPE);
+      await page.waitForSelector('#hud');
+      await page.waitForTimeout(500);
+      await page.evaluate(() => window.__wtbBack());
+      await page.waitForSelector('#pause-menu', { state: 'visible' });
+      await page.evaluate(() => window.__wtbBack());
+      await page.waitForSelector('#pause-menu', { state: 'hidden' });
+      await page.evaluate(() => {
+        Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+        document.dispatchEvent(new Event('visibilitychange'));
+        Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      });
+      await page.waitForSelector('#pause-menu', { state: 'visible' });
+      await page.click('#quit');
+      await page.setViewportSize(PORTRAIT);
+      await page.waitForSelector('#downhill');
+      // Back on the root menu asks the native shell to exit.
+      const posted = await page.evaluate(() => {
+        const sent = [];
+        window.ReactNativeWebView = { postMessage: (m) => sent.push(m) };
+        window.__wtbBack();
+        delete window.ReactNativeWebView;
+        return sent;
+      });
+      if (!posted.includes('back:exit')) fail(`menu Back should exit, posted ${JSON.stringify(posted)}`);
+    });
+
+    const lifetimeRuns = async () => {
+      await page.click('#stats');
+      await page.waitForSelector('#stats-lifetime');
+      const m = (await page.textContent('#stats-lifetime')).match(/Runs\s*(\d+)/);
+      await page.click('#stats-back');
+      await page.waitForSelector('#downhill');
+      return Number(m[1]);
+    };
+
+    await step('killed mid-run: Run interrupted, collected exactly once (#2)', async () => {
+      const runsBefore = await lifetimeRuns();
+      for (const crashFirst of [false, true]) {
+        await page.click('#downhill');
+        await page.setViewportSize(LANDSCAPE);
+        await page.waitForSelector('#hud');
+        await page.waitForTimeout(2600);                    // past one 2 s mirror save
+        if (crashFirst) {
+          await page.evaluate(() => window.__wtb.game.fall());
+          await page.waitForSelector('#fell-overlay', { state: 'visible' });
+        }
+        await page.setViewportSize(PORTRAIT);
+        await page.reload();                                // app killed
+        await page.click('#continue');
+        await page.waitForSelector('#interrupted-collect');
+        const txt = await page.textContent('#interrupted-stats');
+        const m = txt.match(/Distance\s*(\d+) m/);
+        if (!m || Number(m[1]) <= 0) fail(`interrupted run shows no distance: ${txt}`);
+        await page.click('#interrupted-collect');
+        await page.waitForSelector('#downhill');
+        await page.reload();                                // relaunch again: nothing to collect
+        await page.click('#continue');
+        await page.waitForSelector('#downhill');
+        if (await page.isVisible('#interrupted-collect')) fail('interrupted run offered twice');
+      }
+      const runsAfter = await lifetimeRuns();
+      if (runsAfter !== runsBefore + 2) fail(`expected ${runsBefore + 2} runs after two collects, got ${runsAfter}`);
+    });
+
     await step('upgrade double-tap buys once (#3)', async () => {
       // 10.7 ❄: menu must show whole flakes (#4), and one purchase leaves
       // the 0.7 fraction in the bank.

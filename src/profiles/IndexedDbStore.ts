@@ -33,6 +33,8 @@ export interface SaveData {
   // First-time half-pipe intro already shown to this profile.
   seenHalfpipeIntro?: boolean;
   stats: ProfileStats;
+  // Unbanked in-progress run (see game/pendingRun.ts).
+  pendingRun?: import('../game/pendingRun').PendingRun;
 }
 
 interface BoarderDB extends DBSchema {

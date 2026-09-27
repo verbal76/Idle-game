@@ -114,7 +114,8 @@ function createMessageHandler(webviewRef: React.RefObject<WebView | null>) {
       void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
     } else if (data === 'orientation:default') {
       void ScreenOrientation.unlockAsync();
-    } else if (data === 'quit:app') {
+    } else if (data === 'quit:app' || data === 'back:exit') {
+      // back:exit = the page didn't handle a hardware Back (root screen).
       BackHandler.exitApp();
     } else if (data === 'updates:check') {
       void runUpdateCheck(webviewRef, /* autoReload */ false);
@@ -146,6 +147,18 @@ export default function App(): React.JSX.Element {
       }
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  // Hardware Back goes to the page first (pause menu in a run); the page
+  // posts back:exit when nothing on screen wants it.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      webviewRef.current?.injectJavaScript(
+        `try{if(window.__wtbBack){window.__wtbBack();}else{window.ReactNativeWebView.postMessage('back:exit');}}catch(e){};true;`
+      );
+      return true;
+    });
+    return () => sub.remove();
   }, []);
 
   useEffect(() => {
