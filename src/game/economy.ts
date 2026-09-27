@@ -18,3 +18,13 @@ export function addFlakes(a: number, b: number): number {
 export function displayFlakes(n: number): number {
   return Math.floor(normalizeFlakes(n));
 }
+
+// Downhill pays for distance: 1 snowflake per 50 m, times Flake Bonus
+// (not the trick combo).
+export const DISTANCE_PAY_EVERY_M = 50;
+export const DISTANCE_PAY = 1;
+
+/** Whole 50 m segments reached at downhill distance z (never negative). */
+export function distanceSegments(z: number): number {
+  return Math.max(0, Math.floor(z / DISTANCE_PAY_EVERY_M));
+}

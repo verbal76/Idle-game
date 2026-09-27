@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addFlakes, displayFlakes, normalizeFlakes } from './economy';
+import { addFlakes, displayFlakes, distanceSegments, normalizeFlakes } from './economy';
 
 describe('snowflake economy (#4)', () => {
   it('keeps fractional payouts: Flake Bonus L1 on one flip pays 1.05, not 1', () => {
@@ -29,5 +29,11 @@ describe('snowflake economy (#4)', () => {
     expect(displayFlakes(12.999)).toBe(12);
     expect(displayFlakes(0.1 + 0.2 + 2.7)).toBe(3);
     expect(normalizeFlakes(0.1 + 0.2)).toBe(0.3);
+  });
+});
+
+describe('distance pay (#13)', () => {
+  it('counts whole 50 m segments', () => {
+    expect([0, 49.9, 50, 99, 100, 1000, -5].map(distanceSegments)).toEqual([0, 0, 1, 1, 2, 20, 0]);
   });
 });

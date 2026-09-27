@@ -8,7 +8,7 @@ import { soundFx } from '../audio/SoundFx';
 import { buildRider, RiderRig } from './Rider';
 import { SeedRng } from '../world/SeedRng';
 import { stepJumpCharge } from '../game/jumpCharge';
-import { addFlakes, displayFlakes } from '../game/economy';
+import { addFlakes, displayFlakes, distanceSegments, DISTANCE_PAY } from '../game/economy';
 import type { RunStats } from '../game/records';
 import { segmentHitsCircle, segmentHitsRect } from '../game/collision';
 import { judgeLanding, type LandingOutcome } from '../game/tricks';
@@ -113,6 +113,8 @@ export class Game {
   private spinRotation = 0;
   private spinsLanded = 0;
   private coinsCollected = 0;
+  // Downhill 50 m segments already paid for (see game/economy.ts).
+  private distanceSegmentsPaid = 0;
   // Bank at run start; the HUD shows bank + this run's earnings live.
   private bankAtStart = 0;
   private fellAlready = false;
@@ -714,6 +716,16 @@ export class Game {
     }
 
     this.checkInteractions();
+
+    // Downhill pays for distance: 1 ❄ per 50 m × Flake Bonus.
+    if (this.mode === 'downhill') {
+      const due = distanceSegments(this.rider.root.position.z);
+      if (due > this.distanceSegmentsPaid) {
+        const n = due - this.distanceSegmentsPaid;
+        this.distanceSegmentsPaid = due;
+        this.coinsCollected = addFlakes(this.coinsCollected, n * DISTANCE_PAY * this.coinMultiplier);
+      }
+    }
 
     if (this.mode !== 'half-pipe') {
       this.terrain.extendAhead(this.rider.root.position.z + 50);
