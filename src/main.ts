@@ -22,6 +22,8 @@ import { runSummaryHtml } from './ui/RunSummary';
 import { clearPending, collectPending, hasCollectablePending, recordPending } from './game/pendingRun';
 import { installBackBridge, pushBackHandler } from './util/backButton';
 import { showInterrupted } from './ui/Interrupted';
+import { createCallouts } from './ui/Callouts';
+import { graceCallout, trickCallout } from './game/callout';
 import { awardGoals, goalLines, type GoalAward } from './game/goals';
 
 declare global {
@@ -203,6 +205,7 @@ async function runSession(
     hud.switchBtn.textContent = mode === 'half-pipe' ? 'Switch to Downhill' : 'Switch to Half-pipe';
 
     let crashed = false;
+    const callout = createCallouts(hud.hud);
     const game = new Game(getStage(canvas), mode, {
       leftStick: () => dpad.left,
       jumpHeld: () => buttons.jumpHeld,
@@ -210,6 +213,8 @@ async function runSession(
       forwardHeld: () => dpad.upHeld,
     }, {
       onHud: (h) => hud.setReadout(h),
+      onTrick: (t) => callout(trickCallout(t)),
+      onGrace: (left) => callout(graceCallout(left)),
       onComboChange: (count, mult) => {
         if (count <= 0) { hud.comboBar.style.display = 'none'; return; }
         hud.comboBar.style.display = 'flex';

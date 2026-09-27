@@ -61,10 +61,11 @@ describe('spin landings in play (#11)', () => {
   });
 
   it('a 90° landing bails (used to be clamped and scrubbed)', () => {
-    const { game, g, frames } = setup();
+    const { game, g, frames, tricks } = setup();
     airborneWithSpin(g, Math.PI / 2);
     untilLanded(g, frames);
     expect(g.state).toBe('bailing');
+    expect(tricks).toEqual(['BAIL']);   // shown as a callout (#25)
     game.dispose(); vi.useRealTimers();
   });
 

@@ -555,6 +555,27 @@ async function main() {
       }
     });
 
+    await step('trick callouts: name + payout, stacked, fade away (#25)', async () => {
+      await page.click('#downhill');
+      await page.setViewportSize(LANDSCAPE);
+      await page.waitForSelector('#hud');
+      await page.evaluate(() => {
+        const cb = window.__wtb.game.callbacks;
+        cb.onTrick({ name: 'FLIP', payout: 1, comboMult: 1, outcome: 'clean', switch: false });
+        cb.onTrick({ name: 'CORK 360', payout: 2.25, comboMult: 1.5, outcome: 'clean', switch: false });
+      });
+      const shown = await page.$$eval('#callouts .callout', els => els.map(e => ({ cls: e.className, text: e.textContent })));
+      if (shown.length !== 2) fail(`expected 2 callouts, got ${JSON.stringify(shown)}`);
+      if (!shown[0].cls.includes('callout-big') || shown[0].text !== 'CORK 360+2.3 ❄ · ×1.5 combo') fail(`newest callout: ${JSON.stringify(shown[0])}`);
+      if (shown[1].text !== 'FLIP+1 ❄') fail(`older callout: ${JSON.stringify(shown[1])}`);
+      await page.waitForTimeout(1700);
+      if (await page.$$eval('#callouts .callout', els => els.length) !== 0) fail('callouts did not clear');
+      await page.click('#pause');
+      await quitRun();
+      await page.setViewportSize(PORTRAIT);
+      await page.waitForSelector('#downhill');
+    });
+
     console.log('smoke: PASS');
   } finally {
     await browser.close();

@@ -38,6 +38,8 @@ export interface HudReadout {
   spins: number;
 }
 
+export interface TrickEvent { name: string; payout: number; comboMult: number; outcome: LandingOutcome; switch: boolean }
+
 export interface GameCallbacks {
   onScore?: (label: string) => void;
   // The same numbers as onScore, structured for the HUD chips.
@@ -50,11 +52,11 @@ export interface GameCallbacks {
   onRingStreak?: (streak: number, best: number) => void;
   // The run-ending hit, fired immediately (onFell follows after 700 ms).
   onCrash?: () => void;
-  // Every non-bail landing that did something: a trick (with its payout
-  // after combo and Flake Bonus) or a sketchy landing.
   // A Grace save was used (saves left this run).
   onGrace?: (left: number) => void;
-  onTrick?: (t: { name: string; payout: number; comboMult: number; outcome: LandingOutcome; switch: boolean }) => void;
+  // Every landing that did something: a trick (with its payout after
+  // combo and Flake Bonus), a sketchy landing, or a bail.
+  onTrick?: (t: TrickEvent) => void;
 }
 
 export interface GameOptions {
@@ -615,6 +617,7 @@ export class Game {
         if (landing.outcome === 'bail') {
           this.impactBurstUntil = this.clock + this.BURST_MS;
           this.impactBurstY = Math.min(14, impactSpeed);
+          this.callbacks.onTrick?.({ name: 'BAIL', payout: 0, comboMult: this.comboMultiplier(), outcome: 'bail', switch: landing.switch });
           this.startBail();
           this.scene.render();
           return;
