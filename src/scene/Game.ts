@@ -11,6 +11,7 @@ import { stepJumpCharge } from '../game/jumpCharge';
 import { addFlakes, displayFlakes } from '../game/economy';
 import type { RunStats } from '../game/records';
 import { segmentHitsCircle, segmentHitsRect } from '../game/collision';
+import { judgeLanding, type LandingOutcome } from '../game/tricks';
 import { BASE_MAX_LEAN, DEEP_CARVE_RESPONSE, leanLimit, physicalLeanLimit } from '../game/carve';
 import type { SceneAssets } from './SceneAssets';
 import type { Stage } from './Stage';
@@ -38,6 +39,9 @@ export interface GameCallbacks {
   onRingStreak?: (streak: number, best: number) => void;
   // The run-ending hit, fired immediately (onFell follows after 700 ms).
   onCrash?: () => void;
+  // Every non-bail landing that did something: a trick (with its payout
+  // after combo and Flake Bonus) or a sketchy landing.
+  onTrick?: (t: { name: string; payout: number; comboMult: number; outcome: LandingOutcome; switch: boolean }) => void;
 }
 
 export interface GameOptions {
@@ -134,6 +138,15 @@ export class Game {
   private prevForwardHeld = false;
 
   private heading = 0;
+  // In the air the board spins freely while the flight path keeps its
+  // take-off direction; on the ground both are `heading`.
+  private travelHeading = 0;
+  // π while riding switch (backward), easing back to 0 when the rider
+  // turns around after SWITCH_MS.
+  private bodyYawOffset = 0;
+  private switchUntil = 0;
+  private readonly SWITCH_MS = 1500;
+  private wobbleUntil = 0;
   private edgeAngle = 0;
   private idleTime = 0;
   private readonly autoCenterAfter = 1.0;   // s of no steering before drifting back to the fall line
@@ -147,7 +160,6 @@ export class Game {
   // A bail costs 1.5 s down + 1.5 s flickering recovery.
   private readonly bailDurationMs = 1500;
   private readonly recoverDurationMs = 1500;
-  private readonly cleanLandTolerance = Math.PI / 4;
 
   private dustParticles!: ParticleSystem;
   private trail!: TrailMesh;
@@ -353,14 +365,6 @@ export class Game {
     for (const p of this.rider.parts) p.isVisible = v;
   }
 
-  // Clean = board within 45° of upright after the flip rotation.
-  private isCleanLanding(): boolean {
-    const TWO_PI = Math.PI * 2;
-    const norm = ((this.flipRotation % TWO_PI) + TWO_PI) % TWO_PI;
-    const fromUpright = Math.min(norm, TWO_PI - norm);
-    return fromUpright < this.cleanLandTolerance;
-  }
-
   private comboMultiplier(): number {
     if (this.comboCount <= 0) return 1;
     return 1 + Math.min(this.comboCount - 1, 4) * 0.5;
@@ -402,6 +406,8 @@ export class Game {
     this.rider.rightArm.rotation.z = 0;
     this.edgeAngle = 0;
     this.heading = 0;
+    this.travelHeading = 0;
+    this.bodyYawOffset = 0;
     this.rider.heading.rotation.y = 0;
     // Recovery restarts facing downhill at 40% speed, flickering and
     // invulnerable until it ends.
@@ -512,19 +518,26 @@ export class Game {
       // Grounded only; spins in the air are free.
       if (this.heading >  this.HEADING_MAX) this.heading = this.HEADING_MAX;
       if (this.heading <  this.HEADING_MIN) this.heading = this.HEADING_MIN;
+      this.travelHeading = this.heading;
+      // After a switch landing the rider turns back around.
+      if (this.bodyYawOffset > 0 && this.clock >= this.switchUntil) {
+        this.bodyYawOffset = Math.max(0, this.bodyYawOffset - Math.PI * dt / 0.35);
+      }
     }
 
+    const boardYaw = this.heading + this.bodyYawOffset;
     this.rider.root.rotation.x = this.terrain.activeSlope;
-    this.rider.heading.rotation.y = this.heading;
+    this.rider.heading.rotation.y = boardYaw;
     this.rider.lean.rotation.z = -this.edgeAngle;
 
     // The head keeps looking down the fall line through carves.
-    this.rider.head.rotation.y = Math.PI / 2 - this.heading;
+    this.rider.head.rotation.y = Math.PI / 2 - boardYaw;
 
     this.applyBodyAnimation(now);
 
-    const cosH = Math.cos(this.heading);
-    const sinH = Math.sin(this.heading);
+    const moveHeading = this.grounded ? this.heading : this.travelHeading;
+    const cosH = Math.cos(moveHeading);
+    const sinH = Math.sin(moveHeading);
     const boostActive = this.clock < this.boostUntil;
     const boostMult = boostActive ? 2.0 : 1.0;
     // Board across the fall line brakes: target speed falls to 50% at 90°.
@@ -568,6 +581,7 @@ export class Game {
         + this.terrain.surfaceY(this.rider.root.position.x, this.rider.root.position.z)
         + this.terrain.pipeOffsetY(this.rider.root.position.x);
       if (this.rider.root.position.y <= groundLevel) {
+        const impactSpeed = Math.abs(this.verticalVelocity);
         this.rider.root.position.y = groundLevel;
         this.verticalVelocity = 0;
         this.grounded = true;
@@ -575,46 +589,56 @@ export class Game {
         this.justLanded = true;
         this.jumpReleaseRequired = true;
 
-        if (this.isCleanLanding()) {
-          if (Math.abs(this.flipRotation) > Math.PI * 1.5) {
-            // Only rotations past 270° count; payout scales with the combo.
-            const flipsThisLanding = Math.round(Math.abs(this.flipRotation) / (Math.PI * 2));
-            this.flipsLanded += flipsThisLanding;
-            const trickNow = this.clock;
-            if (this.comboCount > 0 && trickNow - this.lastTrickAt < this.COMBO_TIMEOUT_MS) {
-              this.comboCount++;
-            } else {
-              this.comboCount = 1;
-            }
-            this.lastTrickAt = trickNow;
-            this.runBestCombo = Math.max(this.runBestCombo, this.comboCount);
-            const mult = this.comboMultiplier();
-            this.coinsCollected = addFlakes(this.coinsCollected, flipsThisLanding * mult * this.coinMultiplier);
-            this.callbacks.onComboChange?.(this.comboCount, mult);
-          }
-          this.flipRotation = 0;
-          this.rider.body.rotation.x = 0;
-
-          if (Math.abs(this.spinRotation) > Math.PI * 1.5) {
-            this.spinsLanded += Math.floor(Math.abs(this.spinRotation) / (Math.PI * 2));
-          }
-          this.spinRotation = 0;
-
-          // Collapse accumulated air spin to (-π, π] before the ±80° clamp.
-          this.heading = Math.atan2(Math.sin(this.heading), Math.cos(this.heading));
-
-          const impactNow = this.clock;
-          this.landingSquatUntil = impactNow + this.SQUAT_MS;
-          this.impactBurstUntil = impactNow + this.BURST_MS;
-          this.impactBurstY = Math.min(12, Math.abs(this.verticalVelocity));
-        } else {
-          const bailNow = this.clock;
-          this.impactBurstUntil = bailNow + this.BURST_MS;
-          this.impactBurstY = Math.min(14, Math.abs(this.verticalVelocity));
+        const landing = judgeLanding(this.flipRotation, this.spinRotation, this.bodyYawOffset !== 0);
+        if (landing.outcome === 'bail') {
+          this.impactBurstUntil = this.clock + this.BURST_MS;
+          this.impactBurstY = Math.min(14, impactSpeed);
           this.startBail();
           this.scene.render();
           return;
         }
+
+        if (landing.isTrick) {
+          this.flipsLanded += landing.flips;
+          if (landing.halfTurns > 0) this.spinsLanded++;
+          // Chained tricks within COMBO_TIMEOUT_MS raise the multiplier.
+          if (this.comboCount > 0 && this.clock - this.lastTrickAt < this.COMBO_TIMEOUT_MS) {
+            this.comboCount++;
+          } else {
+            this.comboCount = 1;
+          }
+          this.lastTrickAt = this.clock;
+          this.runBestCombo = Math.max(this.runBestCombo, this.comboCount);
+          const mult = this.comboMultiplier();
+          const payout = landing.pay * mult * this.coinMultiplier;
+          this.coinsCollected = addFlakes(this.coinsCollected, payout);
+          this.callbacks.onComboChange?.(this.comboCount, mult);
+          this.callbacks.onTrick?.({ name: landing.name, payout, comboMult: mult, outcome: 'clean', switch: landing.switch });
+        } else if (landing.outcome === 'sketchy') {
+          // Landed, but off-balance: no payout, the combo doesn't grow,
+          // and the wobble costs some speed.
+          this.speed *= 0.7;
+          this.wobbleUntil = this.clock + 500;
+          this.callbacks.onTrick?.({ name: 'SKETCHY', payout: 0, comboMult: this.comboMultiplier(), outcome: 'sketchy', switch: landing.switch });
+        }
+
+        // Snap the board to the flight direction (forgiving landing); a
+        // sketchy one keeps half its error. Backward landings ride switch.
+        const adj = landing.outcome === 'sketchy' ? landing.residual * 0.5 : 0;
+        this.heading = Math.atan2(Math.sin(this.travelHeading + adj), Math.cos(this.travelHeading + adj));
+        if (landing.switch) {
+          this.bodyYawOffset = Math.PI;
+          this.switchUntil = this.clock + this.SWITCH_MS;
+        } else {
+          this.bodyYawOffset = 0;
+        }
+        this.flipRotation = 0;
+        this.rider.body.rotation.x = 0;
+        this.spinRotation = 0;
+
+        this.landingSquatUntil = this.clock + this.SQUAT_MS;
+        this.impactBurstUntil = this.clock + this.BURST_MS;
+        this.impactBurstY = Math.min(12, impactSpeed);
       }
     }
 
@@ -629,14 +653,16 @@ export class Game {
       const REBOUND_HEADING = 0.30;
       if (r.x > limit) {
         r.x = limit;
-        if (this.heading > 0) {
-          this.heading = -REBOUND_HEADING;
+        if (moveHeading > 0) {
+          if (this.grounded) this.heading = -REBOUND_HEADING;
+          else this.travelHeading = -REBOUND_HEADING;
           this.edgeAngle = 0;
         }
       } else if (r.x < -limit) {
         r.x = -limit;
-        if (this.heading < 0) {
-          this.heading = REBOUND_HEADING;
+        if (moveHeading < 0) {
+          if (this.grounded) this.heading = REBOUND_HEADING;
+          else this.travelHeading = REBOUND_HEADING;
           this.edgeAngle = 0;
         }
       }
@@ -751,6 +777,11 @@ export class Game {
   // squat, and random idle gestures.
   private applyBodyAnimation(now: number): void {
     let waistZ = -this.edgeAngle * 0.4;
+    // Sketchy landing: a quick side-to-side wobble.
+    if (now < this.wobbleUntil) {
+      const env = (this.wobbleUntil - now) / 500;
+      waistZ += Math.sin(now * 0.045) * 0.35 * env;
+    }
 
     let scaleY = 1;
     if (this.grounded && this.jumpCharge > 0) {
