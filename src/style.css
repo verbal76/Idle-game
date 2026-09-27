@@ -522,8 +522,24 @@ html, body {
 .goal-row.done .stat-label { text-decoration: line-through; opacity: 0.5; }
 .goal-row.done .stat-val { color: #7ee2a8; }
 .goal-note { font-size: 12px; margin-top: 4px; }
-/* The stats page outgrew one screen with goals: scroll it (never clip). */
-.stats-panel, #fell-overlay { justify-content: safe center; overflow-y: auto; padding-top: 16px; padding-bottom: 16px; }
-.stats-panel > *, #fell-overlay > * { flex-shrink: 0; }
 #stats-daily, #stats-milestones { flex-basis: 100%; }
 .stats-panel .stats-grid { padding: 0 12px; box-sizing: border-box; width: 100%; }
+
+/* Every full-screen panel scrolls when its content is taller than the
+   screen (Upgrades, Stats, About, the run summary in landscape…).
+   'safe center' keeps short panels centred but starts tall ones at the
+   top, so nothing is ever pushed above the screen where it can't be
+   reached; children keep their size instead of being squashed. */
+.fullscreen-panel {
+  justify-content: safe center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-top: max(16px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  box-sizing: border-box;
+}
+.fullscreen-panel > * { flex-shrink: 0; }
+.stats-panel .stats-grid { padding: 0; }

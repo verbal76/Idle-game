@@ -470,6 +470,59 @@ async function main() {
       await page.click('#upgrades-back');
       await page.waitForSelector('#downhill');
     });
+    await step('every panel scrolls, nothing clipped, portrait + landscape (#23)', async () => {
+      // With the panel scrolled to the top nothing may sit above the
+      // screen; scrolled to the bottom, nothing may hang below it.
+      const probe = (label) => page.evaluate((label) => {
+        const panel = [...document.querySelectorAll('.fullscreen-panel')]
+          .filter(e => getComputedStyle(e).display !== 'none' && e.getClientRects().length).pop();
+        if (!panel) return `${label}: no panel`;
+        const kids = [...panel.children].filter(k => getComputedStyle(k).position !== 'absolute' && k.getBoundingClientRect().height > 0);
+        panel.scrollTop = 0;
+        const top = Math.min(...kids.map(k => k.getBoundingClientRect().top));
+        panel.scrollTop = 1e6;
+        const bottom = Math.max(...kids.map(k => k.getBoundingClientRect().bottom));
+        panel.scrollTop = 0;
+        return top >= 0 && bottom <= innerHeight + 1 ? null : `${label}: content spans ${Math.round(top)}..${Math.round(bottom)} of ${innerHeight}`;
+      }, label);
+      const problems = [];
+      const check = async (label, open, close) => {
+        for (const [name, vp] of [['portrait', PORTRAIT], ['landscape', LANDSCAPE]]) {
+          await page.setViewportSize(PORTRAIT);
+          for (const sel of open) { await page.click(sel); await page.waitForTimeout(200); }
+          await page.setViewportSize(vp);
+          await page.waitForTimeout(150);
+          const p = await probe(`${label} (${name})`);
+          if (p) problems.push(p);
+          await page.setViewportSize(PORTRAIT);
+          for (const sel of close) { await page.click(sel); await page.waitForTimeout(200); }
+        }
+      };
+      await check('main menu', [], []);
+      await check('upgrades', ['#upgrades'], ['#upgrades-back']);
+      await check('stats', ['#stats'], ['#stats-back']);
+      await check('settings', ['#menu-settings'], ['#settings-back']);
+      await check('about', ['#menu-settings', '#settings-about'], ['#about-back', '#settings-back']);
+      // In a run: the pause menu and the end-of-run summary.
+      await page.click('#downhill');
+      await page.waitForSelector('#hud');
+      await page.click('#pause');
+      for (const [name, vp] of [['portrait', PORTRAIT], ['landscape', LANDSCAPE]]) {
+        await page.setViewportSize(vp); await page.waitForTimeout(150);
+        const p = await probe(`pause (${name})`); if (p) problems.push(p);
+      }
+      await page.click('#quit');
+      await page.waitForSelector('#fell-overlay', { state: 'visible' });
+      for (const [name, vp] of [['portrait', PORTRAIT], ['landscape', LANDSCAPE]]) {
+        await page.setViewportSize(vp); await page.waitForTimeout(150);
+        const p = await probe(`run summary (${name})`); if (p) problems.push(p);
+      }
+      await page.setViewportSize(PORTRAIT);
+      await page.click('#fell-ok');
+      await page.waitForSelector('#downhill');
+      if (problems.length) fail(problems.join('\n'));
+    });
+
     console.log('smoke: PASS');
   } finally {
     await browser.close();
