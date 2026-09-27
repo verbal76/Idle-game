@@ -22,6 +22,7 @@ import { runSummaryHtml } from './ui/RunSummary';
 import { clearPending, collectPending, hasCollectablePending, recordPending } from './game/pendingRun';
 import { installBackBridge, pushBackHandler } from './util/backButton';
 import { showInterrupted } from './ui/Interrupted';
+import { awardGoals, goalLines, type GoalAward } from './game/goals';
 
 declare global {
   interface Window {
@@ -124,7 +125,8 @@ async function bootstrap(): Promise<void> {
       if (interrupted?.pendingRun) {
         if (hasCollectablePending(interrupted)) {
           await showInterrupted(screen, interrupted, interrupted.pendingRun);
-          collectPending(interrupted);
+          const collected = collectPending(interrupted);
+          if (collected) awardGoals(interrupted, collected.run, Date.now());
         } else {
           clearPending(interrupted);
         }
@@ -309,12 +311,14 @@ async function runSession(
     // Banks the run exactly once (credit + records + clearing the pending
     // mirror land in one profile save) the moment the run is over.
     let banked: BankResult | null = null;
+    let goalAwards: GoalAward[] = [];
     const bankNow = () => {
       const active = profiles.activeProfile;
       if (banked || !active) return;
       const stats = game.getRunStats();
       clearPending(active);
       banked = bankRun(active, stats);
+      goalAwards = awardGoals(active, stats, Date.now());
       void profiles.save();
       return stats;
     };
@@ -325,7 +329,7 @@ async function runSession(
       const active = profiles.activeProfile;
       if (!active || !banked) return;
       hud.fellTitle.textContent = title;
-      hud.fellStats.innerHTML = runSummaryHtml(buildRunSummary(stats, banked, active.stats));
+      hud.fellStats.innerHTML = runSummaryHtml(buildRunSummary(stats, banked, active.stats, goalLines(goalAwards)));
       hud.pauseMenu.style.display = 'none';
       hud.fellOverlay.style.display = 'flex';
     };

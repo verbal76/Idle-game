@@ -26,6 +26,8 @@ export function migrateSave(d: SaveData): SaveData {
   d.upgrades = u as UpgradeLevels;
   if (typeof d.seenHalfpipeIntro !== 'boolean') d.seenHalfpipeIntro = false;
   d.stats = mergeStats(d.stats, d);
+  // Milestones a player already reached pay out on their next banked run.
+  if (!Array.isArray(d.milestones)) d.milestones = [];
   return d;
 }
 

@@ -519,3 +519,11 @@ html, body {
   animation: badge-pop 600ms cubic-bezier(0.2, 1.6, 0.4, 1);
 }
 @keyframes badge-pop { from { transform: scale(0.4); } to { transform: scale(1); } }
+.goal-row.done .stat-label { text-decoration: line-through; opacity: 0.5; }
+.goal-row.done .stat-val { color: #7ee2a8; }
+.goal-note { font-size: 12px; margin-top: 4px; }
+/* The stats page outgrew one screen with goals: scroll it (never clip). */
+.stats-panel, #fell-overlay { justify-content: safe center; overflow-y: auto; padding-top: 16px; padding-bottom: 16px; }
+.stats-panel > *, #fell-overlay > * { flex-shrink: 0; }
+#stats-daily, #stats-milestones { flex-basis: 100%; }
+.stats-panel .stats-grid { padding: 0 12px; box-sizing: border-box; width: 100%; }

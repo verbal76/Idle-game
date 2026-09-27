@@ -328,6 +328,56 @@ async function main() {
       if (runsAfter !== runsBefore + 1) fail(`runs ${runsBefore} -> ${runsAfter}`);
     });
 
+    await step('milestones + dailies auto-paid at run end, shown in stats (#22)', async () => {
+      const day = await page.evaluate(() => {
+        const d = new Date(); const z = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+      });
+      // Two runs done today toward 'Finish 3 runs today'; no milestones paid yet.
+      await patchProfile({
+        currency: 0, milestones: [],
+        daily: { day, ids: ['runs', 'ride', 'flips'], progress: [2, 0, 0], done: [false, false, false], allPaid: false },
+      });
+      await page.click('#downhill');
+      await page.setViewportSize(LANDSCAPE);
+      await page.waitForSelector('#hud');
+      await page.waitForTimeout(1500);
+      await page.click('#pause');
+      await page.click('#quit');
+      await page.waitForSelector('#run-summary', { state: 'visible' });
+      const summary = (await page.textContent('#run-summary')).replace(/\s+/g, ' ');
+      if (!/Milestone: Finish your first run ?\+10 ❄/.test(summary)) fail(`summary lacks milestone: ${summary}`);
+      if (!/Daily: Finish 3 runs today ?\+15 ❄/.test(summary)) fail(`summary lacks daily: ${summary}`);
+      await page.click('#fell-ok');
+      await page.waitForSelector('#downhill');
+      // Persisted across a reload and not paid twice.
+      await page.setViewportSize(PORTRAIT);
+      const read = async () => {
+        await page.click('#stats');
+        await page.waitForSelector('#stats-milestones');
+        const r = {
+          miles: await page.textContent('#stats-milestones h2'),
+          daily: (await page.textContent('#stats-daily')).replace(/\s+/g, ' '),
+        };
+        await page.click('#stats-back');
+        await page.waitForSelector('#downhill');
+        return r;
+      };
+      const a = await read();
+      if (!/Milestones [1-9]\d*\/15/.test(a.miles)) fail(`milestones header: ${a.miles}`);
+      if (!/Finish 3 runs today ?✔/.test(a.daily)) fail(`daily not done: ${a.daily}`);
+      const menu = await page.textContent('.fullscreen-panel');
+      const bal = Number((menu.match(/— (\d+) ❄/) ?? [])[1]);
+      if (!(bal >= 25)) fail(`expected >= 25 ❄ (10 first-run milestone + 15 daily), got ${bal}`);
+      await page.reload();
+      await page.click('#continue');
+      await page.waitForSelector('#downhill');
+      const b = await read();
+      if (b.miles !== a.miles || b.daily !== a.daily) fail(`goals changed on reload: ${JSON.stringify([a, b])}`);
+      const menu2 = await page.textContent('.fullscreen-panel');
+      if (Number((menu2.match(/— (\d+) ❄/) ?? [])[1]) !== bal) fail('balance changed on reload');
+    });
+
     await step('OTA reload deferred: run:start/run:end bracket every run (#1)', async () => {
       await page.evaluate(() => {
         window.__posted = [];

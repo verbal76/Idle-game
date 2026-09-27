@@ -57,6 +57,13 @@ describe('migrateSave', () => {
     expect(migrateSave(d).upgrades.flip).toBe(9);
   });
 
+  it('adds an empty milestone list, keeping any already paid (#22)', () => {
+    expect(migrateSave(legacy({})).milestones).toEqual([]);
+    const d = migrateSave(legacy({}));
+    d.milestones = ['runs-1'];
+    expect(migrateSave(d).milestones).toEqual(['runs-1']);
+  });
+
   it('is idempotent', () => {
     const once = migrateSave(legacy({ upgrades: { speed: 3, jump: 1, turn: 2, charge: 0, spin: 5, coin: 7 } }));
     const twice = migrateSave(structuredClone(once));

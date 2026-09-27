@@ -1,6 +1,7 @@
 import type { SaveData } from '../profiles/IndexedDbStore';
 import { escapeHtml } from '../util/escapeHtml';
 import { displayFlakes } from '../game/economy';
+import { DAILY_ALL_BONUS, DAILY_REWARD, MILESTONES, dailyDef, dailyFor } from '../game/goals';
 
 const n = (v: number) => Math.floor(v).toLocaleString('en-US');
 
@@ -10,6 +11,19 @@ export function showStats(root: HTMLElement, p: SaveData): Promise<void> {
     const s = p.stats;
     const row = (label: string, value: string) =>
       `<div class="stat-row"><span class="stat-label">${label}</span><span class="stat-val">${value}</span></div>`;
+    const today = dailyFor(p, Date.now());
+    const dailyRows = today.ids.map((id, i) => {
+      const def = dailyDef(id);
+      if (!def) return '';
+      const prog = today.done[i] ? '✔' : `${n(Math.min(today.progress[i], def.target))}/${n(def.target)}`;
+      return `<div class="stat-row goal-row${today.done[i] ? ' done' : ''}"><span class="stat-label">${def.label}</span><span class="stat-val">${prog} · ${DAILY_REWARD} ❄</span></div>`;
+    }).join('');
+    const claimed = new Set(p.milestones ?? []);
+    const milestoneRows = MILESTONES.map(m => {
+      const done = claimed.has(m.id);
+      const prog = done ? '✔' : `${n(Math.min(m.value(p), m.target))}/${n(m.target)}`;
+      return `<div class="stat-row goal-row${done ? ' done' : ''}"><span class="stat-label">${m.label}</span><span class="stat-val">${prog} · ${m.reward} ❄</span></div>`;
+    }).join('');
     root.innerHTML = `
       <div class="fullscreen-panel stats-panel">
         <h1>Stats</h1>
@@ -34,6 +48,15 @@ export function showStats(root: HTMLElement, p: SaveData): Promise<void> {
             ${row('Spins', n(s.lifetime.spins))}
             ${row('Rings', n(s.lifetime.rings))}
             ${row('Snowflakes earned', `${displayFlakes(s.lifetime.flakesEarned)} ❄`)}
+          </section>
+          <section class="stats-card" id="stats-daily">
+            <h2>Today</h2>
+            ${dailyRows}
+            <p class="muted goal-note">All three: +${DAILY_ALL_BONUS} ❄ bonus${today.allPaid ? ' ✔' : ''}</p>
+          </section>
+          <section class="stats-card" id="stats-milestones">
+            <h2>Milestones ${claimed.size}/${MILESTONES.length}</h2>
+            ${milestoneRows}
           </section>
         </div>
         <div class="row"><button id="stats-back">Back</button></div>

@@ -37,6 +37,7 @@ export class ProfileService {
       settings: { musicVolume: 0.7, sfxVolume: 1 },
       seenHalfpipeIntro: false,
       stats: defaultStats(),
+      milestones: [],
     };
     await this.store.put(data);
     return data;

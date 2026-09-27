@@ -40,6 +40,9 @@ export interface SaveData {
   stats: ProfileStats;
   // Unbanked in-progress run (see game/pendingRun.ts).
   pendingRun?: import('../game/pendingRun').PendingRun;
+  // Milestone ids already paid, and today's daily challenges (game/goals.ts).
+  milestones: string[];
+  daily?: import('../game/goals').DailyState;
 }
 
 interface BoarderDB extends DBSchema {
