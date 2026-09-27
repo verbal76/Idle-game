@@ -11,7 +11,7 @@ function cruise(mode: 'downhill' | 'half-pipe', flakeBonus: number) {
   vi.useFakeTimers({ now: 1_700_000_000_000, toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout'] });
   const game = new Game(new Stage({} as HTMLCanvasElement), mode, {
     leftStick: () => ({ x: 0, y: 0 }), jumpHeld: () => false, flipHeld: () => false,
-  }, {}, { speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, coin: flakeBonus });
+  }, {}, { speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, flip: 0, coin: flakeBonus });
   game.start();
   const g = game as unknown as { tick(): void; coinsCollected: number; flipsLanded: number; fellAlready: boolean; streamer: { chunks: Map<string, { rocks: unknown[]; rings?: unknown[]; kickers: unknown[] }> }; rider: { root: { position: { z: number } } } };
   for (let f = 0; f < 60 * 12; f++) {

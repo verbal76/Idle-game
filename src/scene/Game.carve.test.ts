@@ -13,7 +13,7 @@ function maxLean(deep: boolean, edgeGrip: number): number {
   const game = new Game(new Stage({} as HTMLCanvasElement), 'half-pipe', {
     leftStick: () => ({ x: 1, y: 0 }), jumpHeld: () => false, flipHeld: () => false,
     forwardHeld: () => deep,
-  }, {}, { speed: 20, jump: 0, turn: edgeGrip, charge: 0, spin: 0, coin: 0 });
+  }, {}, { speed: 20, jump: 0, turn: edgeGrip, charge: 0, spin: 0, flip: 0, coin: 0 });
   game.start();
   const g = game as unknown as { tick(): void; edgeAngle: number };
   let max = 0;

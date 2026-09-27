@@ -200,7 +200,7 @@ export class Game {
     mode: GameMode,
     private readonly input: GameInput,
     private readonly callbacks: GameCallbacks = {},
-    upgrades: UpgradeLevels = { speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, coin: 0 },
+    upgrades: UpgradeLevels = { speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0 },
     options: GameOptions = {},
   ) {
     this.mode = mode;
@@ -284,7 +284,7 @@ export class Game {
   }
 
   // Upgrade effects (20 levels each): speed +0.5 m/s, jump +5%, edge grip
-  // +3% lean / +5% response, charge +5%, air control +4% spin & flip,
+  // +3% lean / +5% response, charge +5%, spin speed +4%, flip speed +4%,
   // flake bonus +5% payout.
   private get maxSpeed(): number { return 22 + this.upgrades.speed * 0.5; }
   private get jumpMaxScaled(): number { return this.jumpMax * (1 + this.upgrades.jump * 0.05); }
@@ -301,7 +301,7 @@ export class Game {
     return this.airSpinRate * (1 + (this.upgrades.spin ?? 0) * 0.04);
   }
   private get flipRateScaled(): number {
-    return this.flipRate * (1 + (this.upgrades.spin ?? 0) * 0.04);
+    return this.flipRate * (1 + (this.upgrades.flip ?? 0) * 0.04);
   }
   private get coinMultiplier(): number {
     return 1 + (this.upgrades.coin ?? 0) * 0.05;

@@ -340,6 +340,21 @@ async function main() {
       await page.waitForSelector('#downhill');
     });
 
+    await step('upgrade rename + Air Control split migrates in IndexedDB (#19)', async () => {
+      // A pre-split save: Air Control (spin) 7, no Flip Speed key.
+      await patchProfile({ upgrades: { speed: 0, jump: 0, turn: 0, charge: 0, spin: 7, coin: 3 } });
+      await page.click('#upgrades');
+      await page.waitForSelector('.upgrade-row');
+      const rows = await page.$$eval('.upgrade-row', els => els.map(e => e.textContent.replace(/\s+/g, ' ')));
+      const find = (label) => rows.find(r => r.includes(label)) ?? '';
+      for (const gone of ['Coin Magnet', 'Air Control']) if (rows.some(r => r.includes(gone))) fail(`${gone} still listed`);
+      if (!/7\/20/.test(find('Spin Speed'))) fail(`Spin Speed row: ${find('Spin Speed')}`);
+      if (!/7\/20/.test(find('Flip Speed'))) fail(`Flip Speed row: ${find('Flip Speed')}`);
+      if (!/3\/20/.test(find('Flake Bonus'))) fail(`Flake Bonus row: ${find('Flake Bonus')}`);
+      await page.click('#upgrades-back');
+      await page.waitForSelector('#downhill');
+    });
+
     await step('upgrades screen', async () => {
       await page.click('#upgrades');
       await page.waitForSelector('.upgrade-row');

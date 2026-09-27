@@ -4,7 +4,7 @@ import type { SaveData } from '../profiles/IndexedDbStore';
 
 const speed: PurchasableUpgrade = { id: 'speed', baseCost: 10, costStep: 2, maxLevel: 20 };
 const profile = (currency: number, level = 0) => ({
-  currency, upgrades: { speed: level, jump: 0, turn: 0, charge: 0, spin: 0, coin: 0 },
+  currency, upgrades: { speed: level, jump: 0, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0 },
 }) as unknown as SaveData;
 
 describe('purchaseUpgrade', () => {

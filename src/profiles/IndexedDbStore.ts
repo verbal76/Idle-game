@@ -10,6 +10,8 @@ export interface UpgradeLevels {
   turn: number;
   charge: number;
   spin: number;
+  // Split out of the old combined 'Air Control' (spin) upgrade.
+  flip: number;
   coin: number;
 }
 
