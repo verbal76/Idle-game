@@ -8,6 +8,7 @@
 
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Game } from './Game';
+import { Stage } from './Stage';
 import { defaultScript, installBrowserGlobals, readAssetAsBuffer, traceRow, type TraceRow } from '../test/gameHarness';
 
 vi.mock('@babylonjs/core', async () => {
@@ -41,10 +42,10 @@ vi.mock('./loadStl', async () => {
 
 const FRAMES = 1800; // 30 s of riding per mode
 
-function ride(mode: 'downhill' | 'half-pipe'): TraceRow[] {
+function ride(mode: 'downhill' | 'half-pipe', stage = new Stage({} as HTMLCanvasElement)): TraceRow[] {
   let frame = 0;
   const input = () => defaultScript(frame);
-  const game = new Game({} as HTMLCanvasElement, mode, {
+  const game = new Game(stage, mode, {
     leftStick: () => ({ x: input().steer, y: 0 }),
     jumpHeld: () => input().jump,
     flipHeld: () => input().flip,
@@ -76,4 +77,18 @@ describe('Game golden trace', () => {
         .toMatchFileSnapshot(`./__snapshots__/trace.${mode}.json`);
     }, 120_000);
   }
+
+  it('a reused stage gives identical runs and returns to its baseline (no leaks)', () => {
+    const stage = new Stage({} as HTMLCanvasElement);
+    const baseline = stage.counts();
+    const runs: TraceRow[][] = [];
+    for (const mode of ['downhill', 'half-pipe', 'downhill'] as const) {
+      vi.useFakeTimers({ now: 1_700_000_000_000, toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout'] });
+      runs.push(ride(mode, stage));
+      vi.useRealTimers();
+      expect(stage.counts()).toEqual(baseline);
+    }
+    // Third run (downhill on a used stage) equals the first (fresh stage).
+    expect(runs[2]).toEqual(runs[0]);
+  }, 180_000);
 });

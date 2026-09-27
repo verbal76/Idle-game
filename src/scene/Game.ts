@@ -1,6 +1,6 @@
 import {
   Engine, Scene, FollowCamera, HemisphericLight, DirectionalLight,
-  Vector3, Color3, Color4, MeshBuilder, Mesh, ParticleSystem, TrailMesh, TransformNode,
+  Vector3, Color3, MeshBuilder, Mesh, ParticleSystem, TrailMesh, TransformNode,
 } from '@babylonjs/core';
 import type { StickValue } from '../input/ArrowPadInput';
 import type { UpgradeLevels } from '../profiles/IndexedDbStore';
@@ -8,7 +8,8 @@ import { soundFx } from '../audio/SoundFx';
 import { buildRider, RiderRig } from './Rider';
 import { SeedRng } from '../world/SeedRng';
 import { stepJumpCharge } from '../game/jumpCharge';
-import { SceneAssets } from './SceneAssets';
+import type { SceneAssets } from './SceneAssets';
+import type { Stage } from './Stage';
 import { Terrain, type GameMode } from './Terrain';
 import { ChunkStreamer } from './ChunkStreamer';
 import { HP } from './halfPipeGeometry';
@@ -37,8 +38,8 @@ export interface GameCallbacks {
 type RiderState = 'normal' | 'bailing' | 'recovering';
 
 /**
- * One run: owns the Babylon engine/scene, the rider physics loop, tricks,
- * scoring and interactions. World building is delegated to Terrain,
+ * One run on the shared Stage: the rider physics loop, tricks, scoring
+ * and interactions. World building is delegated to Terrain,
  * ChunkStreamer, SceneAssets and the environment helpers.
  */
 export class Game {
@@ -47,7 +48,8 @@ export class Game {
   private rider!: RiderRig;
   private mode: GameMode;
   private upgrades: UpgradeLevels;
-  private assets!: SceneAssets;
+  private assets: SceneAssets;
+  private readonly beforeRender = () => this.clampCameraAboveGround();
   private terrain!: Terrain;
   private streamer!: ChunkStreamer;
 
@@ -157,7 +159,7 @@ export class Game {
   private running = false;
 
   constructor(
-    canvas: HTMLCanvasElement,
+    private readonly stage: Stage,
     mode: GameMode,
     private readonly input: GameInput,
     private readonly callbacks: GameCallbacks = {},
@@ -180,13 +182,9 @@ export class Game {
     }
     setTimeout(() => this.callbacks.onRingStreak?.(0, this.bestRingStreak), 0);
 
-    this.engine = new Engine(canvas, true, { stencil: true });
-    this.scene = new Scene(this.engine);
-    this.scene.clearColor = new Color4(0.36, 0.26, 0.42, 1);
-    this.scene.fogEnabled = true;
-    this.scene.fogMode = Scene.FOGMODE_EXP2;
-    this.scene.fogDensity = 0.0022;
-    this.scene.fogColor = new Color3(0.78, 0.55, 0.55);
+    this.engine = stage.engine;
+    this.scene = stage.scene;
+    this.assets = stage.assets;
 
     // Warm dusk lighting, balanced with the snow material so the
     // brightest pixel stays below white. The pipe walls block the sun,
@@ -200,9 +198,7 @@ export class Game {
     sun.diffuse  = new Color3(1.00, 0.78, 0.58);
     sun.specular = new Color3(0.30, 0.25, 0.20);
 
-    this.assets = new SceneAssets(this.scene);
     this.rider = buildRider(this.scene);
-    this.assets.buildTemplates();
     this.terrain = new Terrain(this.scene, this.mode, this.rng, this.assets);
     this.streamer = new ChunkStreamer(this.scene, this.mode, this.rng, this.assets, this.terrain);
 
@@ -220,8 +216,6 @@ export class Game {
     this.streamer.update(this.rider.root.position);
 
     this.engine.runRenderLoop(() => this.tick());
-    this.onResize = this.onResize.bind(this);
-    window.addEventListener('resize', this.onResize);
   }
 
   start(): void {
@@ -247,18 +241,15 @@ export class Game {
     };
   }
 
+  /** Ends the run and returns the shared stage to its template baseline. */
   dispose(): void {
-    window.removeEventListener('resize', this.onResize);
     if (this.fallTimeout !== null) {
       clearTimeout(this.fallTimeout);
       this.fallTimeout = null;
     }
-    this.engine.stopRenderLoop();
-    this.scene.dispose();
-    this.engine.dispose();
+    this.scene.unregisterBeforeRender(this.beforeRender);
+    this.stage.clearRun();
   }
-
-  private onResize(): void { this.engine.resize(); }
 
   // Upgrade effects (20 levels each): speed +0.5 m/s, jump +5%, edge grip
   // +3% lean / +5% response, charge +5%, air control +4% spin & flip,
@@ -306,7 +297,7 @@ export class Game {
     this.scene.activeCamera = cam;
     setTimeout(() => { cam.cameraAcceleration = 0.20; }, 120);
 
-    this.scene.registerBeforeRender(() => this.clampCameraAboveGround());
+    this.scene.registerBeforeRender(this.beforeRender);
   }
 
   // Keeps the trailing camera above the terrain under both itself and the

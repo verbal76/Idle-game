@@ -10,7 +10,8 @@
     "eas-build-post-install": "npm run web:build",
     "test": "vitest run",
     "test:smoke": "node scripts/smoke.mjs",
-    "check": "tsc && vitest run"
+    "check": "tsc && vitest run",
+    "perf:runstart": "node scripts/perf-runstart.mjs"
   },
   "dependencies": {
     "expo": "~51.0.39",

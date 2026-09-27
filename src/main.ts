@@ -14,6 +14,7 @@ import { soundFx } from './audio/SoundFx';
 import { ActionButtons } from './input/ActionButtons';
 import { MusicPlayer } from './audio/MusicPlayer';
 import { Game } from './scene/Game';
+import { Stage } from './scene/Stage';
 
 declare global {
   interface Window {
@@ -35,6 +36,14 @@ function showError(prefix: string, err: unknown): void {
 window.addEventListener('error', (e) => showError('window.error', e.error ?? e.message));
 window.addEventListener('unhandledrejection', (e) => showError('unhandledrejection', e.reason));
 
+// One WebGL engine + template set for the whole session; each run only
+// builds its own world on top (see scene/Stage.ts).
+let stage: Stage | null = null;
+function getStage(canvas: HTMLCanvasElement): Stage {
+  stage ??= new Stage(canvas);
+  return stage;
+}
+
 function setOrientation(mode: 'landscape' | 'default'): void {
   window.ReactNativeWebView?.postMessage(`orientation:${mode}`);
 }
@@ -42,6 +51,9 @@ function setOrientation(mode: 'landscape' | 'default'): void {
 async function bootstrap(): Promise<void> {
   const screen = document.getElementById('screen') as HTMLElement;
   const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement;
+  // Pre-warm the stage while the player is on the menus so even the
+  // first run starts without the engine/template build.
+  setTimeout(() => { getStage(canvas); }, 300);
 
   const profiles = new ProfileService(new IndexedDbStore());
   await profiles.init();
@@ -153,7 +165,7 @@ async function runSession(
 
     hud.switchBtn.textContent = mode === 'half-pipe' ? 'Switch to Downhill' : 'Switch to Half-pipe';
 
-    const game = new Game(canvas, mode, {
+    const game = new Game(getStage(canvas), mode, {
       leftStick: () => dpad.left,
       jumpHeld: () => buttons.jumpHeld,
       flipHeld: () => buttons.flipHeld,
