@@ -35,7 +35,6 @@ describe('spin landings (#11)', () => {
     expect(judgeLanding(deg(360), 0)).toMatchObject({ outcome: 'clean', flips: 1, pay: 1, name: 'FLIP' });
     expect(judgeLanding(deg(720), 0).name).toBe('DOUBLE FLIP');
     expect(judgeLanding(deg(250), 0).outcome).toBe('bail');         // under-rotated
-    expect(judgeLanding(deg(360), deg(360)).pay).toBeCloseTo(2);    // flip + 360 (cork bonus comes in #12)
   });
 
   it('a 180 out of switch lands regular: no switch bonus', () => {
@@ -48,5 +47,29 @@ describe('spin landings (#11)', () => {
   it('names spins', () => {
     expect(judgeLanding(0, deg(180)).name).toBe('SWITCH 180');
     expect(judgeLanding(0, deg(360)).name).toBe('360');
+  });
+});
+
+describe('back flips and corks (#12)', () => {
+  it('a back flip (negative rotation) pays +25%', () => {
+    expect(judgeLanding(deg(-360), 0)).toMatchObject({ outcome: 'clean', flips: 1, backFlip: true, name: 'BACK FLIP' });
+    expect(judgeLanding(deg(-360), 0).pay).toBeCloseTo(1.25);
+    expect(judgeLanding(deg(-720), 0).name).toBe('DOUBLE BACK FLIP');
+    expect(judgeLanding(deg(-720), 0).pay).toBeCloseTo(2.5);
+  });
+
+  it('flip + spin is a cork: (flip + spin) × 1.5 before combo', () => {
+    const c = judgeLanding(deg(360), deg(360));
+    expect(c).toMatchObject({ cork: true, name: 'CORK 360' });
+    expect(c.pay).toBeCloseTo((1 + 1) * 1.5);
+    const sc = judgeLanding(deg(-360), deg(540));
+    expect(sc).toMatchObject({ cork: true, switch: true, backFlip: true, name: 'SWITCH BACK CORK 540' });
+    expect(sc.pay).toBeCloseTo((1.25 + 1.5 * 1.5) * 1.5);
+    expect(judgeLanding(deg(720), deg(360)).name).toBe('DOUBLE CORK 360');
+  });
+
+  it('a flip alone or a spin alone is not a cork', () => {
+    expect(judgeLanding(deg(360), deg(20)).cork).toBe(false);
+    expect(judgeLanding(0, deg(360)).cork).toBe(false);
   });
 });

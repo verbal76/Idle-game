@@ -92,3 +92,32 @@ describe('spin landings in play (#11)', () => {
     game.dispose(); vi.useRealTimers();
   });
 });
+
+describe('back flips in play (#12)', () => {
+  beforeAll(() => installBrowserGlobals());
+
+  it('FLIP + Deep carve rotates backward and a clean back flip pays 1.25', () => {
+    vi.useFakeTimers({ now: 1_700_000_000_000, toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout'] });
+    let flip = false, carve = false;
+    const tricks: string[] = [];
+    const game = new Game(new Stage({} as HTMLCanvasElement), 'half-pipe', {
+      leftStick: () => ({ x: 0, y: 0 }), jumpHeld: () => false, flipHeld: () => flip, forwardHeld: () => carve,
+    }, { onTrick: (t) => tricks.push(t.name) });
+    game.start();
+    const g = game as unknown as G & { flipRotation: number; flipsLanded: number };
+    const frames = (n: number) => { for (let i = 0; i < n; i++) { vi.advanceTimersByTime(1000 / 60); g.tick(); } };
+    frames(30);
+    g.grounded = false; g.verticalVelocity = 9;
+    flip = true; carve = true;
+    for (let i = 0; i < 300 && g.flipRotation > -Math.PI * 2; i++) frames(1);
+    expect(g.flipRotation).toBeLessThan(-Math.PI * 1.9);          // rotating backward
+    flip = false; carve = false;
+    g.flipRotation = -Math.PI * 2;                                  // exactly one back flip
+    for (let i = 0; i < 600 && !g.grounded; i++) frames(1);
+    expect(g.state).toBe('normal');
+    expect(g.flipsLanded).toBe(1);
+    expect(g.coinsCollected).toBeCloseTo(1.25);
+    expect(tricks).toEqual(['BACK FLIP']);
+    game.dispose(); vi.useRealTimers();
+  }, 60_000);
+});

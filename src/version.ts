@@ -20,4 +20,4 @@
 // in a bug report identifies the exact build the user is on.
 
 export const BUILD_VERSION = "build #4 - re-encoded icon (Sharp/libvips compat fix)";
-export const OTA_VERSION   = 'OTA #51 - spin landings: switch, sketchy, spin payouts';
+export const OTA_VERSION   = 'OTA #52 - back flips (+25%) and corks (x1.5)';

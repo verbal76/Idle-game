@@ -573,7 +573,9 @@ export class Game {
       this.rider.root.position.y += this.verticalVelocity * dt;
 
       if (this.input.flipHeld()) {
-        this.flipRotation += this.flipRateScaled * dt;
+        // FLIP alone = front flip; FLIP + Deep carve = back flip.
+        const dir = forwardBoost ? -1 : 1;
+        this.flipRotation += dir * this.flipRateScaled * dt;
         this.rider.body.rotation.x = this.flipRotation;
       }
 

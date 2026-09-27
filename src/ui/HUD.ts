@@ -59,6 +59,9 @@ export function buildHUD(root: HTMLElement): HUDRefs {
             <li><span class="hp-icon hp-icon-ring">◯</span> <b>Magenta rings</b> — flip-through bonus + streak (miss one and the streak resets)</li>
             <li><span class="hp-icon">⤺</span> <b>Hit the lip</b> — bounces you back into the bowl</li>
             <li><span class="hp-icon">↷</span> <b>Hold Deep carve</b> (curved arrow) — tighter, deeper carve</li>
+            <li><span class="hp-icon">↻</span> <b>FLIP</b> = front flip, <b>FLIP + Deep carve</b> = back flip (+25%)</li>
+            <li><span class="hp-icon">⟲</span> Steer in the air to spin; land within 30° — backward rides switch (+50% spin)</li>
+            <li><span class="hp-icon">✦</span> Flip + spin in one jump = <b>cork</b> (×1.5)</li>
             <li><span class="hp-icon">+</span> Chain landings within 5 s — combo multiplier</li>
           </ul>
           <p class="halfpipe-intro-hint">Tap to dismiss</p>

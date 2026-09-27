@@ -13,6 +13,8 @@ export const CLEAN_FLIP_TOL = 45 * DEG;
 
 // Payouts (before combo and Flake Bonus).
 export const FLIP_PAY = 1;              // per full flip
+export const BACK_FLIP_BONUS = 1.25;    // back flips (FLIP + Deep carve) pay +25%
+export const CORK_BONUS = 1.5;          // flip + ≥180° spin in one jump
 export const SPIN_PAY_PER_180 = 0.5;
 export const SWITCH_SPIN_BONUS = 1.5;   // spin payout ×1.5 when landed switch
 
@@ -22,6 +24,8 @@ export interface Landing {
   outcome: LandingOutcome;
   switch: boolean;          // board ends up backward
   flips: number;            // full flips completed (0 if none)
+  backFlip: boolean;        // net flip rotation was backward
+  cork: boolean;            // flip and spin combined
   halfTurns: number;        // spin rounded to 180s (0 if none)
   residual: number;         // radians off the nearest 180° multiple (signed)
   pay: number;              // snowflakes before combo / Flake Bonus
@@ -58,16 +62,24 @@ export function judgeLanding(flipRotation: number, spinRotation: number, startSw
   else outcome = 'clean';
 
   const isTrick = outcome === 'clean' && (flips > 0 || halfTurns > 0);
+  const backFlip = flips > 0 && flipRotation < 0;
+  const cork = isTrick && flips > 0 && halfTurns > 0;
   let pay = 0;
   let name = '';
   if (isTrick) {
     const spinPay = halfTurns * SPIN_PAY_PER_180 * (sw ? SWITCH_SPIN_BONUS : 1);
-    pay = flips * FLIP_PAY + spinPay;
+    const flipPay = flips * FLIP_PAY * (backFlip ? BACK_FLIP_BONUS : 1);
+    pay = (flipPay + spinPay) * (cork ? CORK_BONUS : 1);
     const parts: string[] = [];
     if (sw) parts.push('SWITCH');
-    if (halfTurns > 0) parts.push(String(halfTurns * 180));
-    if (flips > 0) parts.push(`${flips <= 4 ? FLIP_WORDS[flips] : `${flips}× `}FLIP`);
+    if (cork) {
+      if (backFlip) parts.push('BACK');
+      parts.push(`${flips > 1 ? FLIP_WORDS[Math.min(flips, 4)] || `${flips}× ` : ''}CORK`, String(halfTurns * 180));
+    } else {
+      if (halfTurns > 0) parts.push(String(halfTurns * 180));
+      if (flips > 0) parts.push(`${flips <= 4 ? FLIP_WORDS[flips] : `${flips}× `}${backFlip ? 'BACK ' : ''}FLIP`);
+    }
     name = parts.join(' ');
   }
-  return { outcome, switch: sw && outcome !== 'bail', flips, halfTurns, residual, pay, isTrick, name };
+  return { outcome, switch: sw && outcome !== 'bail', flips, backFlip, cork, halfTurns, residual, pay, isTrick, name };
 }
