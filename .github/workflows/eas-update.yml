@@ -6,6 +6,10 @@ on:
     branches:
       - main
       - Github-APK-Transition-snow
+      # Gameplay-review series (authorized by the repo owner): every
+      # step ships as its own OTA checkpoint. Same mechanism as the
+      # snow branch above; unit tests still gate the publish.
+      - claude/repo-gameplay-review-loq9rq
     paths-ignore:
       - 'package.json'
       - 'package-lock.json'
