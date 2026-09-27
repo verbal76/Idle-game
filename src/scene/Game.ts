@@ -161,6 +161,9 @@ export class Game {
   private readonly speedCatch = 4.0;
 
   private running = false;
+  // Gameplay time in ms. Advances by the physics step only while the run
+  // is running, so pausing freezes bails, combos, boosts and animations.
+  private clock = 0;
 
   constructor(
     private readonly stage: Stage,
@@ -324,7 +327,7 @@ export class Game {
     const fovBreathe = baseFov + 0.12 * speedFrac;
     const baseHeight = 6.5;
     let dipHeight = baseHeight;
-    const now = performance.now();
+    const now = this.clock;
     if (now < this.impactBurstUntil) {
       const remaining = this.impactBurstUntil - now;
       const t = remaining / this.BURST_MS;
@@ -355,7 +358,7 @@ export class Game {
   // Bail: rider lies on their side and slides to a stop, combo resets.
   private startBail(): void {
     this.state = 'bailing';
-    this.stateEndsAt = performance.now() + this.bailDurationMs;
+    this.stateEndsAt = this.clock + this.bailDurationMs;
     if (this.comboCount > 0) {
       this.comboCount = 0;
       this.callbacks.onComboChange?.(0, 1);
@@ -378,7 +381,7 @@ export class Game {
 
   private startRecovery(): void {
     this.state = 'recovering';
-    this.stateEndsAt = performance.now() + this.recoverDurationMs;
+    this.stateEndsAt = this.clock + this.recoverDurationMs;
     this.rider.body.rotation.x = 0;
     this.rider.body.rotation.z = 0;
     this.rider.lean.rotation.z = 0;
@@ -402,7 +405,8 @@ export class Game {
   private tick(): void {
     if (!this.running) { this.scene.render(); return; }
     const dt = Math.min(0.05, this.engine.getDeltaTime() / 1000);
-    const now = performance.now();
+    this.clock += dt * 1000;
+    const now = this.clock;
 
     if (this.state === 'bailing' && now >= this.stateEndsAt) this.startRecovery();
     else if (this.state === 'recovering' && now >= this.stateEndsAt) this.exitRecovery();
@@ -509,7 +513,7 @@ export class Game {
 
     const cosH = Math.cos(this.heading);
     const sinH = Math.sin(this.heading);
-    const boostActive = performance.now() < this.boostUntil;
+    const boostActive = this.clock < this.boostUntil;
     const boostMult = boostActive ? 2.0 : 1.0;
     // Board across the fall line brakes: target speed falls to 50% at 90°.
     // Half-pipe boost strips double it.
@@ -564,7 +568,7 @@ export class Game {
             // Only rotations past 270° count; payout scales with the combo.
             const flipsThisLanding = Math.round(Math.abs(this.flipRotation) / (Math.PI * 2));
             this.flipsLanded += flipsThisLanding;
-            const trickNow = performance.now();
+            const trickNow = this.clock;
             if (this.comboCount > 0 && trickNow - this.lastTrickAt < this.COMBO_TIMEOUT_MS) {
               this.comboCount++;
             } else {
@@ -586,12 +590,12 @@ export class Game {
           // Collapse accumulated air spin to (-π, π] before the ±80° clamp.
           this.heading = Math.atan2(Math.sin(this.heading), Math.cos(this.heading));
 
-          const impactNow = performance.now();
+          const impactNow = this.clock;
           this.landingSquatUntil = impactNow + this.SQUAT_MS;
           this.impactBurstUntil = impactNow + this.BURST_MS;
           this.impactBurstY = Math.min(12, Math.abs(this.verticalVelocity));
         } else {
-          const bailNow = performance.now();
+          const bailNow = this.clock;
           this.impactBurstUntil = bailNow + this.BURST_MS;
           this.impactBurstY = Math.min(14, Math.abs(this.verticalVelocity));
           this.startBail();
@@ -790,7 +794,7 @@ export class Game {
     const r = this.rider.root.position;
     const invulnerable = this.state !== 'normal';
 
-    if (this.comboCount > 0 && performance.now() - this.lastTrickAt > this.COMBO_TIMEOUT_MS) {
+    if (this.comboCount > 0 && this.clock - this.lastTrickAt > this.COMBO_TIMEOUT_MS) {
       this.comboCount = 0;
       this.callbacks.onComboChange?.(0, 1);
     }
@@ -839,7 +843,7 @@ export class Game {
             if (this.grounded
               && Math.abs(r.x - b.x) < b.halfX
               && Math.abs(r.z - b.z) < b.halfZ) {
-              const now = performance.now();
+              const now = this.clock;
               if (now > this.boostSoundPlayingUntil) {
                 soundFx.playBoostWhoosh();
                 this.boostSoundPlayingUntil = now + 450;
