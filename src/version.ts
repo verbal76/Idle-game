@@ -20,4 +20,4 @@
 // in a bug report identifies the exact build the user is on.
 
 export const BUILD_VERSION = "build #4 - re-encoded icon (Sharp/libvips compat fix)";
-export const OTA_VERSION   = 'OTA #41 - exact snowflakes (every Flake Bonus level counts)';
+export const OTA_VERSION   = 'OTA #42 - deep carve stays stronger at every Edge Grip level';

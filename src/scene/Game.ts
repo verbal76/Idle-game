@@ -9,6 +9,7 @@ import { buildRider, RiderRig } from './Rider';
 import { SeedRng } from '../world/SeedRng';
 import { stepJumpCharge } from '../game/jumpCharge';
 import { addFlakes, displayFlakes } from '../game/economy';
+import { BASE_MAX_LEAN, DEEP_CARVE_RESPONSE, leanLimit, physicalLeanLimit } from '../game/carve';
 import type { SceneAssets } from './SceneAssets';
 import type { Stage } from './Stage';
 import { Terrain, type GameMode } from './Terrain';
@@ -157,7 +158,7 @@ export class Game {
   private readonly flipRate = 6.5;
   private readonly airSpinRate = 5.0;
 
-  private readonly maxLean = 0.698;
+  private readonly maxLean = BASE_MAX_LEAN;
   private readonly leanResponse = 6.5;  // ~150 ms to mostly leaned
   private readonly speedCatch = 4.0;
 
@@ -463,18 +464,16 @@ export class Game {
     // pivot out of a side-slip.
     const carveV = Math.max(8.0, this.speed);
 
-    // Physical lean limit: what the current speed's centripetal force supports.
-    const sinThetaMax = Math.min(0.99, (carveV * carveV) / (this.SIDECUT * this.G));
-    const physThetaMax = Math.asin(sinThetaMax);
-    // UP = deep carve: higher lean cap, much faster lean response, and an
-    // instant kick on the rising edge.
+    const physThetaMax = physicalLeanLimit(carveV, this.SIDECUT, this.G);
+    // UP = deep carve: lean cap ~42% above the current normal cap (see
+    // game/carve.ts), much faster lean response, and an instant kick on
+    // the rising edge.
     const forwardBoost = this.input.forwardHeld?.() ?? false;
     const forwardBoostJustPressed = forwardBoost && !this.prevForwardHeld;
     this.prevForwardHeld = forwardBoost;
-    const effectiveMaxLean = forwardBoost ? 0.99 : this.maxLeanScaled;
-    const thetaMax = Math.min(effectiveMaxLean, physThetaMax);
+    const thetaMax = leanLimit(this.maxLeanScaled, physThetaMax, forwardBoost);
     const targetEdge = stickX * thetaMax;
-    const baseLeanRate = forwardBoost ? this.leanResponseScaled * 4.5 : this.leanResponseScaled;
+    const baseLeanRate = forwardBoost ? this.leanResponseScaled * DEEP_CARVE_RESPONSE : this.leanResponseScaled;
     const leanRate = stickActive ? baseLeanRate : baseLeanRate * 0.35;
     if (forwardBoostJustPressed && stickActive) {
       this.edgeAngle += (targetEdge - this.edgeAngle) * 0.6;
