@@ -117,6 +117,12 @@ async function main() {
       await page.waitForSelector('#downhill');
     });
 
+    // Quit from the pause menu: it now shows the run summary first (#21).
+    const quitRun = async () => {
+      await page.click('#quit');
+      await page.waitForSelector('#fell-overlay', { state: 'visible' });
+      await page.click('#fell-ok');
+    };
     const hold = async (sel, ms) => {
       const box = await page.locator(sel).boundingBox();
       if (!box) fail(`${sel} not on screen`);
@@ -148,7 +154,7 @@ async function main() {
       if (before === after) fail(`${mode}: HUD score never changed (${before})`);
       await page.click('#pause');
       await page.waitForSelector('#pause-menu', { state: 'visible' });
-      await page.click('#quit');
+      await quitRun();
       await page.setViewportSize(PORTRAIT);
       await page.waitForSelector('#downhill');
     };
@@ -169,7 +175,7 @@ async function main() {
       await page.waitForSelector('#halfpipe-intro', { state: 'visible' });
       await page.click('#halfpipe-intro');
       await page.waitForSelector('#pause-menu', { state: 'visible' });
-      await page.click('#quit');
+      await quitRun();
       await page.setViewportSize(PORTRAIT);
       await page.waitForSelector('#half-pipe');
       // Second ride: no intro.
@@ -179,7 +185,7 @@ async function main() {
       await page.waitForTimeout(600);
       if (await page.isVisible('#halfpipe-intro')) fail('intro shown again on the second ride');
       await page.click('#pause');
-      await page.click('#quit');
+      await quitRun();
       await page.setViewportSize(PORTRAIT);
       await page.waitForSelector('#downhill');
     });
@@ -238,7 +244,7 @@ async function main() {
         Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
       });
       await page.waitForSelector('#pause-menu', { state: 'visible' });
-      await page.click('#quit');
+      await quitRun();
       await page.setViewportSize(PORTRAIT);
       await page.waitForSelector('#downhill');
       // Back on the root menu asks the native shell to exit.
@@ -261,7 +267,7 @@ async function main() {
       return Number(m[1]);
     };
 
-    await step('killed mid-run: Run interrupted, collected exactly once (#2)', async () => {
+    await step('killed mid-run: Run interrupted, collected exactly once (#2); crash banked at once (#21)', async () => {
       const runsBefore = await lifetimeRuns();
       for (const crashFirst of [false, true]) {
         await page.click('#downhill');
@@ -275,6 +281,12 @@ async function main() {
         await page.setViewportSize(PORTRAIT);
         await page.reload();                                // app killed
         await page.click('#continue');
+        if (crashFirst) {
+          // #21: the fell screen already banked the run; nothing to recover.
+          await page.waitForSelector('#downhill');
+          if (await page.isVisible('#interrupted-collect')) fail('banked crash offered as interrupted');
+          continue;
+        }
         await page.waitForSelector('#interrupted-collect');
         const txt = await page.textContent('#interrupted-stats');
         const m = txt.match(/Distance\s*(\d+) m/);
@@ -287,7 +299,33 @@ async function main() {
         if (await page.isVisible('#interrupted-collect')) fail('interrupted run offered twice');
       }
       const runsAfter = await lifetimeRuns();
-      if (runsAfter !== runsBefore + 2) fail(`expected ${runsBefore + 2} runs after two collects, got ${runsAfter}`);
+      if (runsAfter !== runsBefore + 2) fail(`expected ${runsBefore + 2} runs (one collect + one banked crash), got ${runsAfter}`);
+    });
+
+    await step('run summary: breakdown + records; banked once (#21)', async () => {
+      const runsBefore = await lifetimeRuns();
+      await page.click('#downhill');
+      await page.setViewportSize(LANDSCAPE);
+      await page.waitForSelector('#hud');
+      await page.waitForTimeout(2500);
+      await page.click('#pause');
+      await page.click('#quit');
+      await page.waitForSelector('#run-summary', { state: 'visible' });
+      const title = await page.textContent('#fell-title');
+      if (title !== 'Run over') fail(`summary title: ${title}`);
+      const total = await page.textContent('#summary-total');
+      if (!/^\+\d+ ❄$/.test(total)) fail(`summary total: ${total}`);
+      const rows = await page.$$eval('.summary-record', els => els.map(e => e.textContent.replace(/\s+/g, ' ').trim()));
+      if (rows.length !== 2 || !rows[0].startsWith('Distance')) fail(`downhill records: ${JSON.stringify(rows)}`);
+      // The pending mirror must not come back after banking.
+      await page.waitForTimeout(2600);
+      await page.setViewportSize(PORTRAIT);
+      await page.reload();
+      await page.click('#continue');
+      await page.waitForSelector('#downhill');
+      if (await page.isVisible('#interrupted-collect')) fail('a banked run was offered again');
+      const runsAfter = await lifetimeRuns();
+      if (runsAfter !== runsBefore + 1) fail(`runs ${runsBefore} -> ${runsAfter}`);
     });
 
     await step('OTA reload deferred: run:start/run:end bracket every run (#1)', async () => {
@@ -311,7 +349,7 @@ async function main() {
       const intro = page.locator('#halfpipe-intro');
       if (await intro.isVisible().catch(() => false)) await intro.click();
       await page.click('#pause');
-      await page.click('#quit');
+      await quitRun();
       await page.setViewportSize(PORTRAIT);
       await page.waitForSelector('#downhill');
       await page.waitForFunction(() => window.__posted.includes('run:end'));

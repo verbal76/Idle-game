@@ -16,8 +16,9 @@ import { ActionButtons } from './input/ActionButtons';
 import { MusicPlayer } from './audio/MusicPlayer';
 import { Game } from './scene/Game';
 import { Stage } from './scene/Stage';
-import { displayFlakes } from './game/economy';
-import { bankRun, migrateDeviceRingBest } from './game/records';
+import { bankRun, migrateDeviceRingBest, type BankResult } from './game/records';
+import { buildRunSummary } from './game/summary';
+import { runSummaryHtml } from './ui/RunSummary';
 import { clearPending, collectPending, hasCollectablePending, recordPending } from './game/pendingRun';
 import { installBackBridge, pushBackHandler } from './util/backButton';
 import { showInterrupted } from './ui/Interrupted';
@@ -122,7 +123,7 @@ async function bootstrap(): Promise<void> {
       const interrupted = profiles.activeProfile;
       if (interrupted?.pendingRun) {
         if (hasCollectablePending(interrupted)) {
-          await showInterrupted(screen, interrupted.pendingRun);
+          await showInterrupted(screen, interrupted, interrupted.pendingRun);
           collectPending(interrupted);
         } else {
           clearPending(interrupted);
@@ -231,11 +232,7 @@ async function runSession(
         hud.settingsBtn.disabled = true;
         hud.hud.classList.add('run-over');
       },
-      onFell: (stats) => {
-        hud.fellStats.textContent =
-          `Distance: ${stats.distanceMeters} m  •  +${displayFlakes(stats.coins)} ❄  •  Flips: ${stats.flips}`;
-        hud.fellOverlay.style.display = 'flex';
-      },
+      onFell: () => showRunSummary('You fell'),
       onChargeChange: (charge) => {
         const v = String(charge);
         hud.jumpBtn.style.setProperty('--charge', v);
@@ -268,7 +265,9 @@ async function runSession(
     const runId = crypto.randomUUID();
     const savePending = () => {
       const active = profiles.activeProfile;
-      if (finished || !active) return;
+      // Once banked (summary on screen) the mirror must never come back,
+      // or the next launch would offer the run a second time.
+      if (finished || banked || !active) return;
       recordPending(active, runId, game.getRunStats(), Date.now());
       void profiles.save();
     };
@@ -307,6 +306,30 @@ async function runSession(
       return true;
     });
 
+    // Banks the run exactly once (credit + records + clearing the pending
+    // mirror land in one profile save) the moment the run is over.
+    let banked: BankResult | null = null;
+    const bankNow = () => {
+      const active = profiles.activeProfile;
+      if (banked || !active) return;
+      const stats = game.getRunStats();
+      clearPending(active);
+      banked = bankRun(active, stats);
+      void profiles.save();
+      return stats;
+    };
+    // The end-of-run screen: earnings breakdown + records (NEW BEST).
+    const showRunSummary = (title: string) => {
+      const stats = game.getRunStats();
+      bankNow();
+      const active = profiles.activeProfile;
+      if (!active || !banked) return;
+      hud.fellTitle.textContent = title;
+      hud.fellStats.innerHTML = runSummaryHtml(buildRunSummary(stats, banked, active.stats));
+      hud.pauseMenu.style.display = 'none';
+      hud.fellOverlay.style.display = 'flex';
+    };
+
     let finished = false;
     const finish = (next: RunNext) => {
       if (finished) return;
@@ -316,12 +339,7 @@ async function runSession(
       window.removeEventListener('pagehide', savePending);
       popBack();
 
-      const stats = game.getRunStats();
-      const active = profiles.activeProfile;
-      if (active) {
-        clearPending(active);
-        bankRun(active, stats);
-      }
+      bankNow();                       // Switch Style skips the summary
       game.dispose();
       dpad.detach();
       buttons.detach();
@@ -343,7 +361,12 @@ async function runSession(
     hud.switchBtn.addEventListener('click', () => {
       finish(mode === 'half-pipe' ? 'downhill' : 'half-pipe');
     });
-    hud.quitBtn.addEventListener('click', () => finish(null));
+    // Quitting shows the same summary as a fall (the run stays paused).
+    hud.quitBtn.addEventListener('click', () => {
+      crashed = true;
+      hud.hud.classList.add('run-over');
+      showRunSummary('Run over');
+    });
     hud.fellOkBtn.addEventListener('click', () => finish(null));
     hud.fellSwitchBtn.addEventListener('click', () => {
       finish(mode === 'half-pipe' ? 'downhill' : 'half-pipe');

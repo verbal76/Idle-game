@@ -117,6 +117,9 @@ export class Game {
   private coinsCollected = 0;
   // Downhill 50 m segments already paid for (see game/economy.ts).
   private distanceSegmentsPaid = 0;
+  private earnedDistance = 0;
+  private earnedTricks = 0;
+  private earnedRings = 0;
   // Grace saves left this run.
   private gracesLeft = 0;
   // Bank at run start; the HUD shows bank + this run's earnings live.
@@ -274,6 +277,7 @@ export class Game {
       rings: this.ringsCollected,
       bestCombo: this.runBestCombo,
       bestRingStreak: this.runBestRingStreak,
+      earned: { distance: this.earnedDistance, tricks: this.earnedTricks, rings: this.earnedRings },
     };
   }
 
@@ -620,6 +624,7 @@ export class Game {
           const mult = this.comboMultiplier();
           const payout = landing.pay * mult * this.coinMultiplier;
           this.coinsCollected = addFlakes(this.coinsCollected, payout);
+          this.earnedTricks = addFlakes(this.earnedTricks, payout);
           this.callbacks.onComboChange?.(this.comboCount, mult);
           this.callbacks.onTrick?.({ name: landing.name, payout, comboMult: mult, outcome: 'clean', switch: landing.switch });
         } else if (landing.outcome === 'sketchy') {
@@ -727,7 +732,9 @@ export class Game {
       if (due > this.distanceSegmentsPaid) {
         const n = due - this.distanceSegmentsPaid;
         this.distanceSegmentsPaid = due;
-        this.coinsCollected = addFlakes(this.coinsCollected, n * DISTANCE_PAY * this.coinMultiplier);
+        const pay = n * DISTANCE_PAY * this.coinMultiplier;
+        this.coinsCollected = addFlakes(this.coinsCollected, pay);
+        this.earnedDistance = addFlakes(this.earnedDistance, pay);
       }
     }
 
@@ -877,7 +884,9 @@ export class Game {
               ring.collected = true;
               ring.mesh.isVisible = false;
               spawnRingFlicker(this.scene, ring.x, ring.y, ring.z);
-              this.coinsCollected = addFlakes(this.coinsCollected, 3 * this.comboMultiplier() * this.coinMultiplier);
+              const ringPay = 3 * this.comboMultiplier() * this.coinMultiplier;
+              this.coinsCollected = addFlakes(this.coinsCollected, ringPay);
+              this.earnedRings = addFlakes(this.earnedRings, ringPay);
               this.ringStreak++;
               this.ringsCollected++;
               this.runBestRingStreak = Math.max(this.runBestRingStreak, this.ringStreak);

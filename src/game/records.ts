@@ -13,6 +13,9 @@ export interface RunStats {
   rings: number;
   bestCombo: number;        // longest trick chain this run
   bestRingStreak: number;   // longest ring streak this run
+  // Where the snowflakes came from (sums to coins). Optional so runs
+  // saved by older builds still load.
+  earned?: { distance: number; tricks: number; rings: number };
 }
 
 export type RecordKey =

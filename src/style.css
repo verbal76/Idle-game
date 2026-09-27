@@ -501,3 +501,21 @@ html, body {
   background: rgba(160, 200, 240, 0.22);
 }
 .upgrade-pips .pip.on { background: #ffd166; }
+
+/* End-of-run summary (fell / quit / interrupted) */
+.run-summary { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 420px; width: 100%; }
+.summary-total {
+  font-size: 32px; font-weight: 900; color: #ffd166;
+  text-shadow: 0 2px 0 rgba(239, 71, 111, 0.8), 0 4px 10px rgba(0, 0, 0, 0.5);
+  font-variant-numeric: tabular-nums;
+}
+.run-summary .stats-card { width: 100%; flex: 0 0 auto; }
+.summary-record { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: baseline; font-size: 13px; padding: 2px 0; }
+.summary-best { opacity: 0.7; font-size: 12px; min-width: 76px; text-align: right; }
+.summary-record.new-best .summary-best { opacity: 1; }
+.badge-new {
+  display: inline-block; padding: 1px 6px; border-radius: 6px;
+  background: #ffd166; color: #3a1a00; font-size: 11px; letter-spacing: 0.06em;
+  animation: badge-pop 600ms cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+@keyframes badge-pop { from { transform: scale(0.4); } to { transform: scale(1); } }

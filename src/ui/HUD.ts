@@ -25,6 +25,7 @@ export interface HUDRefs {
   switchBtn: HTMLButtonElement;
   quitBtn: HTMLButtonElement;
   fellOverlay: HTMLElement;
+  fellTitle: HTMLElement;
   fellStats: HTMLElement;
   fellOkBtn: HTMLButtonElement;
   fellUpgradesBtn: HTMLButtonElement;
@@ -97,8 +98,8 @@ export function buildHUD(root: HTMLElement): HUDRefs {
       </div>
       <div id="settings-overlay" class="fullscreen-panel" style="display:none"></div>
       <div id="fell-overlay" class="fullscreen-panel" style="display:none">
-        <h1>You fell</h1>
-        <p class="muted" id="fell-stats"></p>
+        <h1 id="fell-title">You fell</h1>
+        <div id="fell-stats"></div>
         <div class="list">
           <button id="fell-ok">Back to menu</button>
           <button id="fell-upgrades">Upgrades 🛍</button>
@@ -134,6 +135,7 @@ export function buildHUD(root: HTMLElement): HUDRefs {
     switchBtn:       root.querySelector<HTMLButtonElement>('#switch-style')!,
     quitBtn:         root.querySelector<HTMLButtonElement>('#quit')!,
     fellOverlay:     root.querySelector<HTMLElement>('#fell-overlay')!,
+    fellTitle:       root.querySelector<HTMLElement>('#fell-title')!,
     fellStats:       root.querySelector<HTMLElement>('#fell-stats')!,
     fellOkBtn:       root.querySelector<HTMLButtonElement>('#fell-ok')!,
     fellUpgradesBtn: root.querySelector<HTMLButtonElement>('#fell-upgrades')!,
