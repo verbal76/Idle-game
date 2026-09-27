@@ -28,3 +28,14 @@ export const DISTANCE_PAY = 1;
 export function distanceSegments(z: number): number {
   return Math.max(0, Math.floor(z / DISTANCE_PAY_EVERY_M));
 }
+
+/**
+ * The value shown `t` (0..1) of the way through a count from `from` to
+ * `to`, eased out so it slows as it lands. Ends exactly on `to`.
+ */
+export function countAt(from: number, to: number, t: number): number {
+  if (t >= 1) return to;
+  if (t <= 0) return from;
+  const e = 1 - Math.pow(1 - t, 3);
+  return from + (to - from) * e;
+}

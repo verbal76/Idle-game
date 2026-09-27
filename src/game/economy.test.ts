@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addFlakes, displayFlakes, distanceSegments, normalizeFlakes } from './economy';
+import { addFlakes, displayFlakes, distanceSegments, normalizeFlakes, countAt } from './economy';
 
 describe('snowflake economy (#4)', () => {
   it('keeps fractional payouts: Flake Bonus L1 on one flip pays 1.05, not 1', () => {
@@ -35,5 +35,22 @@ describe('snowflake economy (#4)', () => {
 describe('distance pay (#13)', () => {
   it('counts whole 50 m segments', () => {
     expect([0, 49.9, 50, 99, 100, 1000, -5].map(distanceSegments)).toEqual([0, 0, 1, 1, 2, 20, 0]);
+  });
+});
+
+describe('balance tick-down (#28)', () => {
+  it('starts at the old balance, lands exactly on the new one, never overshoots', () => {
+    expect(countAt(40, 10, 0)).toBe(40);
+    expect(countAt(40, 10, 1)).toBe(10);
+    let prev = 40;
+    for (let i = 1; i <= 20; i++) {
+      const v = countAt(40, 10, i / 20);
+      expect(v).toBeLessThanOrEqual(prev);
+      expect(v).toBeGreaterThanOrEqual(10);
+      prev = v;
+    }
+  });
+  it('eases out: most of the drop happens early', () => {
+    expect(countAt(100, 0, 0.5)).toBeLessThan(25);
   });
 });

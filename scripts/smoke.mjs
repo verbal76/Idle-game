@@ -420,7 +420,7 @@ async function main() {
         b.click(); b.click(); b.click();
       });
       await page.waitForFunction(() => document.querySelector('.upgrade-level')?.textContent?.includes('1/20'));
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(700);                       // past the balance tick-down (#28)
       const text = await page.textContent('.fullscreen-panel');
       if (!/\b0 ❄/.test(text)) fail(`expected 0 ❄ after one purchase, got: ${text}`);
       if (/2\/20/.test(text)) fail('double tap bought two levels');
@@ -483,6 +483,9 @@ async function main() {
         panel.scrollTop = 1e6;
         const bottom = Math.max(...kids.map(k => k.getBoundingClientRect().bottom));
         panel.scrollTop = 0;
+        const left = Math.min(...kids.map(k => k.getBoundingClientRect().left));
+        const right = Math.max(...kids.map(k => k.getBoundingClientRect().right));
+        if (left < 0 || right > innerWidth + 1) return `${label}: content is ${Math.round(left)}..${Math.round(right)} wide of ${innerWidth}`;
         return top >= 0 && bottom <= innerHeight + 1 ? null : `${label}: content spans ${Math.round(top)}..${Math.round(bottom)} of ${innerHeight}`;
       }, label);
       const problems = [];
@@ -691,6 +694,49 @@ async function main() {
       if ((await page.textContent('#haptics-toggle')) !== 'Off') fail('vibration setting not persisted');
       await page.click('#haptics-toggle');                // leave it on
       await page.click('#settings-back');
+      await page.waitForSelector('#downhill');
+    });
+
+    await step('polish: pause icon, headings, purchase pulse + balance tick-down (#28)', async () => {
+      await page.click('#downhill');
+      await page.waitForSelector('#hud');
+      const pause = await page.evaluate(() => {
+        const b = document.getElementById('pause');
+        return { svg: !!b.querySelector('svg.pause-icon'), label: b.getAttribute('aria-label'), text: b.textContent.trim() };
+      });
+      if (!pause.svg || pause.label !== 'Pause' || pause.text !== '') fail(`pause button: ${JSON.stringify(pause)}`);
+      await page.click('#pause');
+      await quitRun();
+      await page.waitForSelector('#downhill');
+      await page.click('#stats');
+      const h1 = await page.$eval('.stats-panel h1', el => getComputedStyle(el).textTransform);
+      if (h1 !== 'uppercase') fail(`heading style: ${h1}`);
+      await page.click('#stats-back');
+      await page.waitForSelector('#downhill');
+
+      await patchProfile({ currency: 50 });
+      await page.click('#upgrades');
+      await page.waitForSelector('.upgrade-buy:not([disabled])');
+      const seen = await page.evaluate(() => new Promise((resolve) => {
+        const vals = [];
+        const t0 = performance.now();
+        const sample = () => {
+          const b = document.getElementById('shop-balance');
+          const v = b && Number(b.firstChild.data.trim());
+          if (b && vals[vals.length - 1] !== v) vals.push(v);
+          if (performance.now() - t0 < 900) requestAnimationFrame(sample); else resolve(vals);
+        };
+        document.querySelector('.upgrade-buy').click();
+        requestAnimationFrame(sample);
+      }));
+      const bought = await page.evaluate(() => ({
+        row: !!document.querySelector('.upgrade-row.just-bought .pip.new'),
+        spent: document.getElementById('shop-balance').classList.contains('spent'),
+      }));
+      const last = seen[seen.length - 1];
+      if (seen.length < 3 || last >= seen[0] || last !== 40) fail(`balance should tick down to 40: ${JSON.stringify(seen)}`);
+      if (!bought.row || !bought.spent) fail(`purchase feedback missing: ${JSON.stringify(bought)}`);
+      await page.click('#upgrades-back');
       await page.waitForSelector('#downhill');
     });
 

@@ -54,7 +54,17 @@ html, body {
   justify-content: flex-end;
   padding-bottom: clamp(20px, 8vh, 80px);
 }
-.fullscreen-panel h1 { font-size: 30px; letter-spacing: 0.08em; font-weight: 700; }
+/* Panel headings: one consistent treatment everywhere (#28). */
+.fullscreen-panel h1 {
+  margin: 0;
+  font-size: 30px; letter-spacing: 0.1em; font-weight: 900; text-transform: uppercase;
+  color: #f4f8ff;
+  text-shadow: 0 2px 0 rgba(42, 79, 127, 0.9), 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+.fullscreen-panel h1::after {
+  content: ''; display: block; width: 48px; height: 3px; margin: 8px auto 0;
+  border-radius: 2px; background: linear-gradient(90deg, #7fd3ff, #ffd166);
+}
 
 .title-bouncy {
   position: absolute;
@@ -109,7 +119,7 @@ html, body {
 .row { display: flex; gap: 8px; align-items: center; }
 .muted { opacity: 0.65; font-size: 13px; }
 
-.upgrades-list { display: flex; flex-direction: column; gap: 10px; min-width: 320px; max-width: 480px; }
+.upgrades-list { display: flex; flex-direction: column; gap: 10px; width: min(480px, 100%); }
 .upgrade-row {
   display: flex; justify-content: space-between; align-items: center;
   padding: 10px 14px; background: rgba(255, 255, 255, 0.06);
@@ -512,7 +522,7 @@ html, body {
 .upgrade-desc { font-size: 13px; color: #cfe2ff; font-variant-numeric: tabular-nums; }
 .upgrade-pips { display: flex; gap: 2px; margin-top: 5px; }
 .upgrade-pips .pip {
-  width: 9px; height: 6px; border-radius: 2px;
+  flex: 1 1 0; max-width: 9px; min-width: 3px; height: 6px; border-radius: 2px;
   background: rgba(160, 200, 240, 0.22);
 }
 .upgrade-pips .pip.on { background: #ffd166; }
@@ -602,3 +612,41 @@ html, body {
 /* On/Off switch in Settings (Vibration). */
 .fullscreen-panel .setting-row .toggle { min-width: 72px; padding: 6px 14px; font-weight: 700; }
 .fullscreen-panel .setting-row .toggle[aria-pressed="false"] { background: rgba(255, 255, 255, 0.08); color: rgba(255, 255, 255, 0.7); }
+
+/* Pause button: a drawn icon instead of the letters 'II' (#28). */
+#hud .pause-btn { display: inline-flex; align-items: center; justify-content: center; padding: 10px 14px; }
+.pause-icon { width: 22px; height: 22px; fill: currentColor; }
+
+/* Purchase feedback (#28): the bought row pulses and sparkles; the
+   balance flashes as it ticks down to the new amount. */
+.upgrade-row { position: relative; }
+.upgrade-row.just-bought { animation: bought-pulse 520ms cubic-bezier(0.2, 1.4, 0.4, 1); }
+.upgrade-row.just-bought .pip.new { animation: pip-pop 520ms ease-out; }
+.upgrade-row.just-bought::after {
+  content: '✦  ✧  ✦'; position: absolute; right: 18px; top: -6px;
+  color: #ffd166; font-size: 16px; letter-spacing: 4px; pointer-events: none;
+  text-shadow: 0 0 8px rgba(255, 209, 102, 0.9);
+  animation: sparkle 700ms ease-out forwards;
+}
+@keyframes bought-pulse {
+  0%   { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 209, 102, 0.7); }
+  35%  { transform: scale(1.035); box-shadow: 0 0 0 6px rgba(255, 209, 102, 0.35); }
+  100% { transform: scale(1); box-shadow: 0 0 0 12px rgba(255, 209, 102, 0); }
+}
+@keyframes pip-pop { 0% { transform: scale(1.8); background: #fff; } 100% { transform: scale(1); } }
+@keyframes sparkle {
+  0%   { opacity: 0; transform: translateY(6px) scale(0.6); }
+  30%  { opacity: 1; transform: translateY(-4px) scale(1.1); }
+  100% { opacity: 0; transform: translateY(-16px) scale(1); }
+}
+.shop-balance.spent { animation: balance-flash 450ms ease-out; }
+@keyframes balance-flash { 0% { color: #ff9b6b; transform: scale(1.08); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .upgrade-row.just-bought, .upgrade-row.just-bought::after, .shop-balance.spent { animation-duration: 1ms; }
+}
+
+/* Rows shrink to the screen: the info column (and its 20 pips) gives way
+   before the Buy button does. */
+.upgrade-row { gap: 10px; }
+.upgrade-info { flex: 1 1 auto; min-width: 0; }
+.upgrade-buy { flex: 0 0 auto; }

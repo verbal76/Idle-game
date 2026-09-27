@@ -52,7 +52,9 @@ export function buildHUD(root: HTMLElement): HUDRefs {
         </div>
         <div class="top-actions">
           <button class="gear-btn" id="hud-settings" aria-label="Settings">⚙</button>
-          <button class="pause-btn" id="pause">II</button>
+          <button class="pause-btn" id="pause" aria-label="Pause">
+            <svg class="pause-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4.2" height="14" rx="1.4" /><rect x="13.8" y="5" width="4.2" height="14" rx="1.4" /></svg>
+          </button>
         </div>
       </div>
       <div class="combo-bar" id="combo-bar" style="display:none">
