@@ -10,6 +10,7 @@ import { SeedRng } from '../world/SeedRng';
 import { stepJumpCharge } from '../game/jumpCharge';
 import { addFlakes, displayFlakes } from '../game/economy';
 import type { RunStats } from '../game/records';
+import { segmentHitsCircle, segmentHitsRect } from '../game/collision';
 import { BASE_MAX_LEAN, DEEP_CARVE_RESPONSE, leanLimit, physicalLeanLimit } from '../game/carve';
 import type { SceneAssets } from './SceneAssets';
 import type { Stage } from './Stage';
@@ -101,6 +102,8 @@ export class Game {
   private jumpReleaseRequired = false;
   private lastReportedCharge = 0;
   private lastScoreLabel = '';
+  private stepFromX = 0;
+  private stepFromZ = 0;
   private flipRotation = 0;
   private flipsLanded = 0;
   private spinRotation = 0;
@@ -414,6 +417,9 @@ export class Game {
     const dt = Math.min(0.05, this.engine.getDeltaTime() / 1000);
     this.clock += dt * 1000;
     const now = this.clock;
+    // Where this frame's movement starts, for swept collision checks.
+    this.stepFromX = this.rider.root.position.x;
+    this.stepFromZ = this.rider.root.position.z;
 
     if (this.state === 'bailing' && now >= this.stateEndsAt) this.startRecovery();
     else if (this.state === 'recovering' && now >= this.stateEndsAt) this.exitRecovery();
@@ -858,9 +864,7 @@ export class Game {
     for (const chunk of this.streamer.nearby(r.x, r.z)) {
       if (this.grounded && !invulnerable) {
         for (const k of chunk.kickers) {
-          const dx = Math.abs(k.x - r.x);
-          const dz = Math.abs(k.z - r.z);
-          if (dx < k.width / 2 && dz < 1.6) {
+          if (segmentHitsRect(this.stepFromX, this.stepFromZ, r.x, r.z, k.x, k.z, k.width / 2, 1.6)) {
             this.verticalVelocity = k.power;
             this.grounded = false;
           }
@@ -869,10 +873,10 @@ export class Game {
       if (!invulnerable) {
         const surfaceAtRider = this.terrain.surfaceY(r.x, r.z);
         for (const o of chunk.rocks) {
-          const dx = Math.abs(o.x - r.x);
-          const dz = Math.abs(o.z - r.z);
+          // Round hit-box, tested along this frame's whole movement.
           const hr = o.radius ?? 1.5;
-          if (dx < hr && dz < hr && r.y - (this.terrain.surfaceY(o.x, o.z)) < 1.55 && r.y - surfaceAtRider < 1.55) {
+          if (segmentHitsCircle(this.stepFromX, this.stepFromZ, r.x, r.z, o.x, o.z, hr)
+            && r.y - (this.terrain.surfaceY(o.x, o.z)) < 1.55 && r.y - surfaceAtRider < 1.55) {
             this.fall();
             return;
           }
