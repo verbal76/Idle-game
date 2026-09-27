@@ -1,20 +1,5 @@
 import { IndexedDbStore, SaveData } from './IndexedDbStore';
-
-function ensureDefaults(d: SaveData): SaveData {
-  if (!d.upgrades) {
-    d.upgrades = { speed: 0, jump: 0, magnet: 0, turn: 0, charge: 0, spin: 0, coin: 0 };
-  } else {
-    // Backfill any keys that older saves don't have. Each new upgrade
-    // we add gets a `?? 0` lookup here so old profiles continue to
-    // load without rewriting them on disk until the next save() pass.
-    const u = d.upgrades as Partial<typeof d.upgrades>;
-    if (u.turn   === undefined) d.upgrades.turn   = 0;
-    if (u.charge === undefined) d.upgrades.charge = 0;
-    if (u.spin   === undefined) d.upgrades.spin   = 0;
-    if (u.coin   === undefined) d.upgrades.coin   = 0;
-  }
-  return d;
-}
+import { defaultUpgrades, migrateSave } from './migrate';
 
 export class ProfileService {
   private active: SaveData | null = null;
@@ -25,7 +10,7 @@ export class ProfileService {
     const id = await this.store.getActiveId();
     if (id) {
       const data = await this.store.get(id);
-      this.active = data ? ensureDefaults(data) : null;
+      this.active = data ? migrateSave(data) : null;
     }
   }
 
@@ -33,7 +18,7 @@ export class ProfileService {
 
   async list(): Promise<SaveData[]> {
     const all = await this.store.list();
-    return all.map(ensureDefaults);
+    return all.map(migrateSave);
   }
 
   async create(name: string): Promise<SaveData> {
@@ -47,7 +32,7 @@ export class ProfileService {
       unlocks: [],
       bestHalfPipeScore: 0,
       longestDownhillMeters: 0,
-      upgrades: { speed: 0, jump: 0, magnet: 0, turn: 0, charge: 0, spin: 0, coin: 0 },
+      upgrades: defaultUpgrades(),
       settings: { musicVolume: 0.7, sfxVolume: 1 }
     };
     await this.store.put(data);
@@ -57,7 +42,7 @@ export class ProfileService {
   async setActive(id: string): Promise<void> {
     const data = await this.store.get(id);
     if (!data) throw new Error(`profile ${id} missing`);
-    this.active = ensureDefaults(data);
+    this.active = migrateSave(data);
     await this.store.setActiveId(id);
   }
 

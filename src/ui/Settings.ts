@@ -2,6 +2,7 @@ import { MusicPlayer } from '../audio/MusicPlayer';
 import { ProfileService } from '../profiles/ProfileService';
 import { showAbout } from './About';
 import { openBugReport, openFeatureRequest } from '../util/bugReport';
+import { escapeHtml } from '../util/escapeHtml';
 
 // State machine for the OTA update flow. Native side posts these via
 // CustomEvent('update-status'); the Settings panel listens and updates
@@ -148,10 +149,4 @@ export function showSettings(
     };
     render();
   });
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, ch => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>
-  )[ch]!);
 }

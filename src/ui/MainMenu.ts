@@ -1,5 +1,6 @@
 import { ProfileService } from '../profiles/ProfileService';
 import { bouncyTextHtml } from '../util/bouncyText';
+import { escapeHtml } from '../util/escapeHtml';
 
 export type MenuChoice = 'half-pipe' | 'downhill' | 'switch-profile' | 'upgrades' | 'settings' | 'quit';
 
@@ -27,10 +28,4 @@ export function showMainMenu(root: HTMLElement, profiles: ProfileService): Promi
     root.querySelector<HTMLButtonElement>('#quit')!.addEventListener('click', () => resolve('quit'));
     root.querySelector<HTMLButtonElement>('#menu-settings')!.addEventListener('click', () => resolve('settings'));
   });
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, ch => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>
-  )[ch]!);
 }

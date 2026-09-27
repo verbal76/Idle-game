@@ -4,7 +4,7 @@ import {
   AbstractMesh, ParticleSystem, DynamicTexture, TrailMesh, TransformNode,
   VertexBuffer, VertexData
 } from '@babylonjs/core';
-import type { StickValue } from '../input/TwinStickInput';
+import type { StickValue } from '../input/ArrowPadInput';
 import type { UpgradeLevels } from '../profiles/IndexedDbStore';
 import { soundFx } from '../audio/SoundFx';
 import { buildRider, RiderRig } from './Rider';
@@ -91,7 +91,7 @@ interface SlopeSegment {
 }
 
 interface ChunkData {
-  ground: Mesh;
+  ground?: Mesh;
   features: AbstractMesh[];
   // Optional radius lets half-pipe weave bumps use a tighter hit-box than
   // the 1.5 m default downhill rocks; collision loop reads the override.
@@ -185,7 +185,6 @@ export class Game {
   // visible variation between mellow pitches and steep sections.
   private readonly slopeRad = 0.35;          // ~20° — solid blue / black-diamond baseline
   private readonly halfPipeSlopeRad = 0.40;  // ~23° — pipe descends visibly
-  private cliffs = new Map<number, number>();
 
   // Halfpipe geometry. Bumped wider + deeper per user request:
   // pipe 18 m → 24 m wide, transition curve 4 m → 6 m radius (so the
@@ -391,7 +390,7 @@ export class Game {
     mode: GameMode,
     private readonly input: GameInput,
     private readonly callbacks: GameCallbacks = {},
-    upgrades: UpgradeLevels = { speed: 0, jump: 0, magnet: 0, turn: 0, charge: 0, spin: 0, coin: 0 }
+    upgrades: UpgradeLevels = { speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, coin: 0 }
   ) {
     this.mode = mode;
     this.upgrades = upgrades;
@@ -449,7 +448,6 @@ export class Game {
     sun.intensity = 0.75;
     sun.diffuse  = new Color3(1.00, 0.78, 0.58);
     sun.specular = new Color3(0.30, 0.25, 0.20);
-    void hemi; void sun;
 
     this.buildSharedMaterials();
     this.rider = buildRider(this.scene);
@@ -547,24 +545,6 @@ export class Game {
   }
   private get activeSlope(): number { return this.mode === 'half-pipe' ? this.halfPipeSlopeRad : this.slopeRad; }
 
-  private cliffOffsetAt(cz: number): number {
-    let drop = 0;
-    for (const [k, v] of this.cliffs) if (k <= cz) drop += v;
-    return drop;
-  }
-
-  // ---- Procedural mountain heightmap -------------------------------------
-  // surfaceY(x, z) = constant slope (z-direction) + couloir walls (x-direction)
-  // + layered FBM noise (terrain ripple) − cliff drops. The world is a single
-  // ~5 km mountain; chunks just stream pieces of this analytic heightmap.
-  // PR #4 rip-out: the noise/fbm/vNoise helpers that fed terrainNoise were
-  // removed along with the chunked ground. surfaceY is now a pure linear
-  // slope; feature placement uses that same simple analytic.
-
-  // (couloirOffset / terrainNoise / fbm helpers removed in PR #8 — the
-  // slope is now a procedural chain of SlopeSegments at varied angles
-  // with cliff drops between them; piecewise heightmap, no analytic.)
-
   // Cheap multi-octave value noise for the snow surface so the floor
   // reads as real terrain (rolls / dips / ripples) instead of a flat
   // ramp. Three sin/cos octaves combined; peak amplitude ≈0.30 m which
@@ -590,8 +570,7 @@ export class Game {
 
   private surfaceY(x: number, z: number): number {
     if (this.mode === 'half-pipe') {
-      const cz = Math.floor(z / this.chunkSize);
-      return -z * Math.tan(this.activeSlope) - this.cliffOffsetAt(cz);
+      return -z * Math.tan(this.activeSlope);
     }
     // Downhill: piecewise from the procedural segment chain.
     const seg = this.segmentAtZ(z);
@@ -1465,15 +1444,6 @@ export class Game {
 
   private chunkKey(cx: number, cz: number): string { return `${cx}:${cz}`; }
 
-  // Disabled (PR #4 rip-out). Cliffs created Y discontinuities in the chunk
-  // grounds that — combined with the chunked-mesh rendering issue — left
-  // the slope visually invisible. With the flat slope-floor mesh, cliffs
-  // would no longer line up between visible ground and feature heights.
-  // The cliffRolledFor de-dup set is gone with the cliff system itself.
-  private maybeRollCliff(_cz: number): void {
-    return;
-  }
-
   private updateChunkStreaming(): void {
     if (this.mode === 'half-pipe') return this.updateHalfPipeStreaming();
 
@@ -1487,7 +1457,6 @@ export class Game {
 
     for (let dz = -this.viewBehind; dz <= this.viewAhead; dz++) {
       const cz = rz + dz;
-      this.maybeRollCliff(cz);
       for (let dx = -this.viewSide; dx <= this.viewSide; dx++) {
         const cx = rx + dx;
         const key = this.chunkKey(cx, cz);
@@ -1522,7 +1491,7 @@ export class Game {
   }
 
   private disposeChunk(chunk: ChunkData): void {
-    chunk.ground.dispose();
+    chunk.ground?.dispose();
     for (const f of chunk.features) f.dispose();
   }
 
@@ -1531,41 +1500,9 @@ export class Game {
     const ox = cx * this.chunkSize + half;
     const oz = cz * this.chunkSize + half;
 
-    // PR #4 rip-out: the chunked ground mesh was invisible across every
-    // diagnostic toggle. Replaced by a single big flat slope mesh built
-    // once in buildSlopeFloor(). Each chunk now only carries its features
-    // (rocks, trees, kickers, coins). The `ground` field still exists to
-    // satisfy ChunkData; it's a tiny invisible sentinel that disposes
-    // alongside the chunk.
-    const ground = MeshBuilder.CreateBox(`chunk-stub-${cx}-${cz}`, { size: 0.001 }, this.scene);
-    ground.isVisible = false;
-    ground.setEnabled(false);
-
     const features: AbstractMesh[] = [];
     const rocks: ChunkData['rocks'] = [];
     const kickers: ChunkData['kickers'] = [];
-
-    // Visible cliff edge: a thin "snow-cornice" stripe sitting at the top
-    // of the drop. Blue-tinted snow color so it reads as ice/lip against
-    // the warm dusk and the white-snow surface — the rider sees the edge
-    // line approaching, not a wall.
-    // Cornice stripe: only spawn one per cliff (on the centre column),
-    // spanning the full valley width. With viewSide=4 this used to
-    // generate 9 separate 80 m stripes per cliff cz — they tiled, but
-    // each was its own mesh and the upperY sample at side-chunk ox
-    // values would catch the wall climb when the rider was off-centre.
-    if (cx === 0 && this.cliffs.has(cz)) {
-      const drop = this.cliffs.get(cz)!;
-      const boundaryZ = cz * this.chunkSize;
-      const upperY = this.surfaceY(0, boundaryZ - 0.5);
-      const stripe = MeshBuilder.CreateBox(`cliff-edge-${cz}`, {
-        width: 600, height: 0.4, depth: 0.5
-      }, this.scene);
-      stripe.material = this.cliffMat;
-      stripe.position.set(0, upperY + 0.2, boundaryZ - 0.1);
-      features.push(stripe);
-      void drop;
-    }
 
     // Larger grace zone so the rider doesn't spawn inside a cluster of
     // trees: no obstacles for any chunk inside |cz| <= 1 (≈ first/last
@@ -1758,7 +1695,7 @@ export class Game {
       }
     }
 
-    this.chunks.set(this.chunkKey(cx, cz), { ground, features, rocks, kickers, cx, cz });
+    this.chunks.set(this.chunkKey(cx, cz), { features, rocks, kickers, cx, cz });
   }
 
   private spawnHalfPipeChunk(cx: number, cz: number): void {
@@ -1911,7 +1848,6 @@ export class Game {
     if (cz > 0) {
       // Yellow orb coin pickups removed (PR #16). Snowflakes are now
       // earned per completed flip instead.
-      let kickerLz: number | null = null;
       if (cz % 2 === 1) {
         const lz = oz + this.rng.rangeFloat(-half + 5, half - 5);
         // Half-pipe ramp: 8 m wide so it spans most of the flat trough
@@ -1920,7 +1856,6 @@ export class Game {
         const w = 8;
         features.push(...this.spawnRamp(ox, this.surfaceY(ox, lz), lz, w, this.activeSlope, `hp-kicker-${cz}`));
         kickers.push({ x: ox, z: lz, width: 8, power: 7.5 });
-        kickerLz = lz;
 
         // Ring target at the kicker's expected jump apex. For a
         // power=7.5 launch, peak height ≈ vy²/(2g) ≈ 2.87 m above
@@ -1974,7 +1909,6 @@ export class Game {
       // no log/tent obstacles (those live on the downhill course).
       // Per-user request: keep the pipe minimal so the rider has a
       // clean run between ramps.
-      void kickerLz;
     }
 
     this.chunks.set(this.chunkKey(cx, cz), {

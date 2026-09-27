@@ -49,7 +49,7 @@ function ride(mode: 'downhill' | 'half-pipe'): TraceRow[] {
     jumpHeld: () => input().jump,
     flipHeld: () => input().flip,
     forwardHeld: () => input().forward,
-  }, {}, { speed: 0, jump: 0, magnet: 0, turn: 0, charge: 0, spin: 0, coin: 0 });
+  }, {}, { speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, coin: 0 });
   game.start();
   const rows: TraceRow[] = [];
   const tick = (game as unknown as { tick: () => void }).tick.bind(game);

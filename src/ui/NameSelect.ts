@@ -1,4 +1,5 @@
 import { generateWhimsicalName } from '../util/whimsicalNames';
+import { escapeHtml } from '../util/escapeHtml';
 
 // Custom name picker for new profiles. Replaces the bare prompt('Profile
 // name?') with a panel that:
@@ -8,11 +9,6 @@ import { generateWhimsicalName } from '../util/whimsicalNames';
 //   - Has a Custom toggle for typing a name from scratch
 // Resolves with the chosen name (trimmed, non-empty) or null on cancel.
 
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, ch => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>
-  )[ch]!);
-}
 
 export function showNameSelect(root: HTMLElement): Promise<string | null> {
   return new Promise<string | null>((resolve) => {

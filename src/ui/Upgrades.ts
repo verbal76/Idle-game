@@ -1,6 +1,6 @@
 import { ProfileService } from '../profiles/ProfileService';
 
-export type UpgradeId = 'speed' | 'jump' | 'magnet' | 'turn' | 'charge' | 'spin' | 'coin';
+export type UpgradeId = 'speed' | 'jump' | 'turn' | 'charge' | 'spin' | 'coin';
 
 export interface UpgradeDef {
   id: UpgradeId;
@@ -25,10 +25,6 @@ export interface UpgradeDef {
 //   charge  +5% per level       →  +100% at L20 (charge fills 2× fast)
 //   spin    +4% per level       →  +80% air-spin / flip rate at L20
 //   coin    +5% per level       →  +100% at L20 (every snowflake ×2)
-//
-// Magnet was a coin pickup mechanic (gone since PR #16); the field
-// stays in the save type for back-compat but the upgrade isn't shown
-// in the shop.
 export const UPGRADES: UpgradeDef[] = [
   { id: 'speed',  label: 'Top Speed',   description: '+0.5 m/s per level',          baseCost: 10, costStep: 2, maxLevel: 20 },
   { id: 'jump',   label: 'Jump Power',  description: '+5% jump per level',          baseCost: 10, costStep: 2, maxLevel: 20 },

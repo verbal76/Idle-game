@@ -1,5 +1,6 @@
 import { BUILD_INFO } from '../__generated__/build-info';
 import { BUILD_VERSION, OTA_VERSION } from '../version';
+import { escapeHtml } from '../util/escapeHtml';
 
 interface OtaInfo {
   updateId: string | null;
@@ -125,10 +126,4 @@ export function showAbout(root: HTMLElement): Promise<void> {
     window.addEventListener('ota-info', onOtaInfo);
     render();
   });
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, ch => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>
-  )[ch]!);
 }

@@ -1,5 +1,6 @@
 import { ProfileService } from '../profiles/ProfileService';
 import { bouncyTextHtml } from '../util/bouncyText';
+import { escapeHtml } from '../util/escapeHtml';
 
 // Confirmation prompt shown at app load when there's a saved active
 // profile. Two paths: continue as the saved profile, or kick straight
@@ -29,10 +30,4 @@ export function showContinuePrompt(root: HTMLElement, profiles: ProfileService):
     root.querySelector<HTMLButtonElement>('#continue')!.addEventListener('click', () => resolve('continue'));
     root.querySelector<HTMLButtonElement>('#new-profile')!.addEventListener('click', () => resolve('new'));
   });
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, ch => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>
-  )[ch]!);
 }

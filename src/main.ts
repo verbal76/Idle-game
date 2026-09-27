@@ -149,7 +149,7 @@ async function runSession(
     };
     hud.hud.addEventListener('pointerdown', wake);
     const upgrades = profiles.activeProfile!.upgrades
-      ?? { speed: 0, jump: 0, magnet: 0, turn: 0, charge: 0, spin: 0, coin: 0 };
+      ?? { speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, coin: 0 };
 
     hud.switchBtn.textContent = mode === 'half-pipe' ? 'Switch to Downhill' : 'Switch to Half-pipe';
 
