@@ -1,4 +1,5 @@
-import type { SaveData, UpgradeLevels } from './IndexedDbStore';
+import type { ProfileStats, SaveData, UpgradeLevels } from './IndexedDbStore';
+import { defaultStats } from '../game/records';
 
 export function defaultUpgrades(): UpgradeLevels {
   return { speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, coin: 0 };
@@ -20,5 +21,22 @@ export function migrateSave(d: SaveData): SaveData {
   delete u.magnet;
   d.upgrades = u as UpgradeLevels;
   if (typeof d.seenHalfpipeIntro !== 'boolean') d.seenHalfpipeIntro = false;
+  d.stats = mergeStats(d.stats, d);
   return d;
+}
+
+// Fills any missing stats keys; seeds records from the legacy fields the
+// first time (longestDownhillMeters, bestHalfPipeScore).
+function mergeStats(existing: Partial<ProfileStats> | undefined, d: SaveData): ProfileStats {
+  const base = defaultStats();
+  const out: ProfileStats = {
+    downhill: { ...base.downhill, ...(existing?.downhill ?? {}) },
+    halfPipe: { ...base.halfPipe, ...(existing?.halfPipe ?? {}) },
+    lifetime: { ...base.lifetime, ...(existing?.lifetime ?? {}) },
+  };
+  if (!existing) {
+    out.downhill.bestDistance = Math.max(0, d.longestDownhillMeters ?? 0);
+    out.halfPipe.bestRunFlakes = Math.max(0, d.bestHalfPipeScore ?? 0);
+  }
+  return out;
 }

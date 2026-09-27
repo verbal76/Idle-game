@@ -13,6 +13,12 @@ export interface UpgradeLevels {
   coin: number;
 }
 
+export interface ProfileStats {
+  downhill: { bestDistance: number; mostFlips: number };
+  halfPipe: { bestRunFlakes: number; bestRingStreak: number; bestCombo: number };
+  lifetime: { runs: number; distance: number; flips: number; spins: number; rings: number; flakesEarned: number };
+}
+
 export interface SaveData {
   id: string;
   name: string;
@@ -26,6 +32,7 @@ export interface SaveData {
   settings: { musicVolume: number; sfxVolume: number };
   // First-time half-pipe intro already shown to this profile.
   seenHalfpipeIntro?: boolean;
+  stats: ProfileStats;
 }
 
 interface BoarderDB extends DBSchema {

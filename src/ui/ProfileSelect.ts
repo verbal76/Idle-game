@@ -3,6 +3,7 @@ import { ProfileService } from '../profiles/ProfileService';
 import { showSettings } from './Settings';
 import { showNameSelect } from './NameSelect';
 import { bouncyTextHtml } from '../util/bouncyText';
+import { showStats } from './Stats';
 
 export async function showProfileSelect(
   root: HTMLElement,
@@ -38,15 +39,27 @@ export async function showProfileSelect(
         listEl.appendChild(empty);
       } else {
         for (const p of list) {
+          const line = document.createElement('div');
+          line.className = 'profile-line';
           const btn = document.createElement('button');
           btn.textContent = p.name;
+          const statsBtn = document.createElement('button');
+          statsBtn.className = 'profile-stats-btn';
+          statsBtn.textContent = '📊';
+          statsBtn.setAttribute('aria-label', `Stats for ${p.name}`);
+          statsBtn.addEventListener('click', async () => {
+            if (picked) return;
+            await showStats(root, p);
+            render();
+          });
+          line.append(btn, statsBtn);
           btn.addEventListener('click', async () => {
             if (picked) return;
             picked = true;
             await profiles.setActive(p.id);
             resolve();
           });
-          listEl.appendChild(btn);
+          listEl.appendChild(line);
         }
       }
 

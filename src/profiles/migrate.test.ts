@@ -31,6 +31,20 @@ describe('migrateSave', () => {
     expect(migrateSave(legacy({ seenHalfpipeIntro: true })).seenHalfpipeIntro).toBe(true);
   });
 
+  it('adds stats seeded from legacy records, without losing them (#7)', () => {
+    const d = migrateSave(legacy({ longestDownhillMeters: 812, bestHalfPipeScore: 4 }));
+    expect(d.stats.downhill).toEqual({ bestDistance: 812, mostFlips: 0 });
+    expect(d.stats.halfPipe).toEqual({ bestRunFlakes: 4, bestRingStreak: 0, bestCombo: 0 });
+    expect(d.stats.lifetime.runs).toBe(0);
+  });
+
+  it('backfills new stats keys without touching existing ones', () => {
+    const d = migrateSave(legacy({ stats: { downhill: { bestDistance: 50 }, halfPipe: { bestRingStreak: 9 } } }));
+    expect(d.stats.downhill).toEqual({ bestDistance: 50, mostFlips: 0 });
+    expect(d.stats.halfPipe.bestRingStreak).toBe(9);
+    expect(d.stats.lifetime).toEqual({ runs: 0, distance: 0, flips: 0, spins: 0, rings: 0, flakesEarned: 0 });
+  });
+
   it('is idempotent', () => {
     const once = migrateSave(legacy({ upgrades: { speed: 3, jump: 1, turn: 2, charge: 0, spin: 5, coin: 7 } }));
     const twice = migrateSave(structuredClone(once));

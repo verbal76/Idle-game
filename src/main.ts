@@ -6,6 +6,7 @@ import { showProfileSelect } from './ui/ProfileSelect';
 import { showNameSelect } from './ui/NameSelect';
 import { showMainMenu, MenuChoice } from './ui/MainMenu';
 import { showUpgrades } from './ui/Upgrades';
+import { showStats } from './ui/Stats';
 import { showSettings } from './ui/Settings';
 import { showContinuePrompt } from './ui/ContinuePrompt';
 import { buildHUD, showHalfpipeIntro } from './ui/HUD';
@@ -15,7 +16,8 @@ import { ActionButtons } from './input/ActionButtons';
 import { MusicPlayer } from './audio/MusicPlayer';
 import { Game } from './scene/Game';
 import { Stage } from './scene/Stage';
-import { addFlakes, displayFlakes } from './game/economy';
+import { displayFlakes } from './game/economy';
+import { bankRun, migrateDeviceRingBest } from './game/records';
 
 declare global {
   interface Window {
@@ -23,7 +25,7 @@ declare global {
   }
 }
 
-type RunMode = Exclude<MenuChoice, 'switch-profile' | 'upgrades' | 'settings' | 'quit'>;
+type RunMode = Exclude<MenuChoice, 'switch-profile' | 'upgrades' | 'stats' | 'settings' | 'quit'>;
 type RunNext = RunMode | 'upgrades' | null;
 
 function showError(prefix: string, err: unknown): void {
@@ -58,6 +60,10 @@ async function bootstrap(): Promise<void> {
 
   const profiles = new ProfileService(new IndexedDbStore());
   await profiles.init();
+  // One-time: the old device-wide ring best becomes the active profile's.
+  let storage: Storage | undefined;
+  try { storage = window.localStorage; } catch { storage = undefined; }
+  if (migrateDeviceRingBest(profiles.activeProfile, storage)) await profiles.save();
 
   window.addEventListener('pagehide', () => { void profiles.save(); });
 
@@ -107,6 +113,8 @@ async function bootstrap(): Promise<void> {
         }
       }
 
+      // No-op after the first time; covers installs with no profile at boot.
+      if (migrateDeviceRingBest(profiles.activeProfile, storage)) await profiles.save();
       const choice: MenuChoice = await showMainMenu(screen, profiles);
       if (choice === 'switch-profile') {
         await showProfileSelect(screen, profiles, music);
@@ -115,6 +123,10 @@ async function bootstrap(): Promise<void> {
       if (choice === 'upgrades') {
         await showUpgrades(screen, profiles);
         await profiles.save();
+        continue;
+      }
+      if (choice === 'stats') {
+        await showStats(screen, profiles.activeProfile!);
         continue;
       }
       if (choice === 'settings') {
@@ -208,7 +220,7 @@ async function runSession(
         hud.jumpChargeBar.style.setProperty('--charge', v);
         hud.jumpChargeBar.classList.toggle('full', charge >= 0.99);
       },
-    }, upgrades);
+    }, upgrades, { bestRingStreak: profiles.activeProfile?.stats.halfPipe.bestRingStreak ?? 0 });
     game.setBankSnapshot(profiles.activeProfile?.currency ?? 0);
     game.start();
     // First half-pipe ride for this profile: show the how-to card with
@@ -236,12 +248,7 @@ async function runSession(
 
       const stats = game.getRunStats();
       const active = profiles.activeProfile;
-      if (active) {
-        active.currency = addFlakes(active.currency, stats.coins);
-        if (stats.distanceMeters > active.longestDownhillMeters) {
-          active.longestDownhillMeters = stats.distanceMeters;
-        }
-      }
+      if (active) bankRun(active, stats);
       game.dispose();
       dpad.detach();
       buttons.detach();

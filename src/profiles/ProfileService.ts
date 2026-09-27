@@ -1,5 +1,6 @@
 import type { ProfileStore, SaveData } from './IndexedDbStore';
 import { defaultUpgrades, migrateSave } from './migrate';
+import { defaultStats } from '../game/records';
 
 export class ProfileService {
   private active: SaveData | null = null;
@@ -35,6 +36,7 @@ export class ProfileService {
       upgrades: defaultUpgrades(),
       settings: { musicVolume: 0.7, sfxVolume: 1 },
       seenHalfpipeIntro: false,
+      stats: defaultStats(),
     };
     await this.store.put(data);
     return data;

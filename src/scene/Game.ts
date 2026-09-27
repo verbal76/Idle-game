@@ -9,6 +9,7 @@ import { buildRider, RiderRig } from './Rider';
 import { SeedRng } from '../world/SeedRng';
 import { stepJumpCharge } from '../game/jumpCharge';
 import { addFlakes, displayFlakes } from '../game/economy';
+import type { RunStats } from '../game/records';
 import { BASE_MAX_LEAN, DEEP_CARVE_RESPONSE, leanLimit, physicalLeanLimit } from '../game/carve';
 import type { SceneAssets } from './SceneAssets';
 import type { Stage } from './Stage';
@@ -38,6 +39,11 @@ export interface GameCallbacks {
   onCrash?: () => void;
 }
 
+export interface GameOptions {
+  // The profile's best half-pipe ring streak, shown as "best N" on the HUD.
+  bestRingStreak?: number;
+}
+
 type RiderState = 'normal' | 'bailing' | 'recovering';
 
 /**
@@ -65,7 +71,10 @@ export class Game {
   // Ring streak resets when a ring is passed without being collected.
   private ringStreak = 0;
   private bestRingStreak = 0;
-  private static readonly RING_BEST_KEY = 'idle-boarder.bestRingStreak';
+  // Per-run tallies for records (see game/records.ts).
+  private ringsCollected = 0;
+  private runBestRingStreak = 0;
+  private runBestCombo = 0;
   // Throttles the boost whoosh to the rising edge of each activation.
   private boostSoundPlayingUntil = 0;
   // Grounded heading is clamped to ±80°: cos²(80°) ≈ 3% target speed, a
@@ -173,18 +182,12 @@ export class Game {
     mode: GameMode,
     private readonly input: GameInput,
     private readonly callbacks: GameCallbacks = {},
-    upgrades: UpgradeLevels = { speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, coin: 0 }
+    upgrades: UpgradeLevels = { speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, coin: 0 },
+    options: GameOptions = {},
   ) {
     this.mode = mode;
     this.upgrades = upgrades;
-
-    try {
-      const raw = window.localStorage?.getItem(Game.RING_BEST_KEY);
-      const n = raw ? Number.parseInt(raw, 10) : 0;
-      if (Number.isFinite(n) && n > 0) this.bestRingStreak = n;
-    } catch {
-      // storage unavailable: no best yet
-    }
+    this.bestRingStreak = options.bestRingStreak ?? 0;
 
     // Deferred so the HUD is mounted before it fires.
     setTimeout(() => this.callbacks.onRingStreak?.(0, this.bestRingStreak), 0);
@@ -239,12 +242,16 @@ export class Game {
   setBankSnapshot(bank: number): void { this.bankAtStart = bank; }
 
   /** Live stats, so any exit (fall, quit, switch) credits the run. */
-  getRunStats(): { distanceMeters: number; flips: number; spins: number; coins: number } {
+  getRunStats(): RunStats {
     return {
+      mode: this.mode,
       distanceMeters: Math.max(0, Math.floor(this.rider.root.position.z)),
       flips: this.flipsLanded,
       spins: this.spinsLanded,
       coins: this.coinsCollected,
+      rings: this.ringsCollected,
+      bestCombo: this.runBestCombo,
+      bestRingStreak: this.runBestRingStreak,
     };
   }
 
@@ -573,6 +580,7 @@ export class Game {
               this.comboCount = 1;
             }
             this.lastTrickAt = trickNow;
+            this.runBestCombo = Math.max(this.runBestCombo, this.comboCount);
             const mult = this.comboMultiplier();
             this.coinsCollected = addFlakes(this.coinsCollected, flipsThisLanding * mult * this.coinMultiplier);
             this.callbacks.onComboChange?.(this.comboCount, mult);
@@ -814,15 +822,9 @@ export class Game {
               spawnRingFlicker(this.scene, ring.x, ring.y, ring.z);
               this.coinsCollected = addFlakes(this.coinsCollected, 3 * this.comboMultiplier() * this.coinMultiplier);
               this.ringStreak++;
-              if (this.ringStreak > this.bestRingStreak) {
-                this.bestRingStreak = this.ringStreak;
-                try {
-                  window.localStorage?.setItem(
-                    Game.RING_BEST_KEY,
-                    String(this.bestRingStreak),
-                  );
-                } catch { /* storage blocked, runtime value still good */ }
-              }
+              this.ringsCollected++;
+              this.runBestRingStreak = Math.max(this.runBestRingStreak, this.ringStreak);
+              this.bestRingStreak = Math.max(this.bestRingStreak, this.ringStreak);
               soundFx.playRingChime();
               this.callbacks.onRingStreak?.(this.ringStreak, this.bestRingStreak);
             // Passed the ring without collecting it: streak resets.

@@ -198,6 +198,25 @@ async function main() {
       await page.waitForSelector('#downhill');
     });
 
+    await step('stats: records + lifetime, from menu and profile picker (#7)', async () => {
+      await page.click('#stats');
+      await page.waitForSelector('#stats-lifetime');
+      const life = await page.textContent('#stats-lifetime');
+      // downhill run, 2 intro rides, half-pipe run, crash run = 5 runs.
+      if (!/Runs\s*5\b/.test(life)) fail(`expected 5 lifetime runs, got: ${life}`);
+      const down = await page.textContent('#stats-downhill');
+      const m = down.match(/Longest run\s*([\d,]+) m/);
+      if (!m || Number(m[1].replace(/,/g, '')) <= 0) fail(`downhill longest not recorded: ${down}`);
+      await page.click('#stats-back');
+      await page.click('#switch');
+      await page.click('.profile-stats-btn');
+      await page.waitForSelector('#stats-lifetime');
+      if (!/Runs\s*5\b/.test(await page.textContent('#stats-lifetime'))) fail('picker stats differ');
+      await page.click('#stats-back');
+      await page.click('#profile-list .profile-line button');
+      await page.waitForSelector('#downhill');
+    });
+
     await step('upgrade double-tap buys once (#3)', async () => {
       // 10.7 ❄: menu must show whole flakes (#4), and one purchase leaves
       // the 0.7 fraction in the bank.

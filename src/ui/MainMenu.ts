@@ -3,7 +3,7 @@ import { bouncyTextHtml } from '../util/bouncyText';
 import { escapeHtml } from '../util/escapeHtml';
 import { displayFlakes } from '../game/economy';
 
-export type MenuChoice = 'half-pipe' | 'downhill' | 'switch-profile' | 'upgrades' | 'settings' | 'quit';
+export type MenuChoice = 'half-pipe' | 'downhill' | 'switch-profile' | 'upgrades' | 'stats' | 'settings' | 'quit';
 
 export function showMainMenu(root: HTMLElement, profiles: ProfileService): Promise<MenuChoice> {
   return new Promise<MenuChoice>((resolve) => {
@@ -17,6 +17,7 @@ export function showMainMenu(root: HTMLElement, profiles: ProfileService): Promi
           <button id="downhill">Downhill (idle)</button>
           <button id="half-pipe">Half-pipe</button>
           <button id="upgrades">Upgrades</button>
+          <button id="stats">Stats</button>
           <button id="switch">Switch profile</button>
           <button id="quit" class="danger">Quit game</button>
         </div>
@@ -25,6 +26,7 @@ export function showMainMenu(root: HTMLElement, profiles: ProfileService): Promi
     root.querySelector<HTMLButtonElement>('#downhill')!.addEventListener('click', () => resolve('downhill'));
     root.querySelector<HTMLButtonElement>('#half-pipe')!.addEventListener('click', () => resolve('half-pipe'));
     root.querySelector<HTMLButtonElement>('#upgrades')!.addEventListener('click', () => resolve('upgrades'));
+    root.querySelector<HTMLButtonElement>('#stats')!.addEventListener('click', () => resolve('stats'));
     root.querySelector<HTMLButtonElement>('#switch')!.addEventListener('click', () => resolve('switch-profile'));
     root.querySelector<HTMLButtonElement>('#quit')!.addEventListener('click', () => resolve('quit'));
     root.querySelector<HTMLButtonElement>('#menu-settings')!.addEventListener('click', () => resolve('settings'));

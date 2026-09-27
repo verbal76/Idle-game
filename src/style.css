@@ -459,3 +459,19 @@ html, body {
 /* After the run-ending crash the pause/settings controls are gone; the
    fell screen is the only thing that can appear. */
 #hud.run-over .top-actions { visibility: hidden; }
+
+/* Stats screen */
+.stats-grid { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: 720px; }
+.stats-card {
+  min-width: 200px; flex: 1 1 200px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(160, 200, 240, 0.15);
+  border-radius: 10px; padding: 10px 14px;
+}
+.stats-card h2 { font-size: 15px; letter-spacing: 0.06em; margin-bottom: 6px; }
+.stat-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding: 2px 0; }
+.stat-label { opacity: 0.75; }
+.stat-val { font-variant-numeric: tabular-nums; font-weight: 700; }
+.profile-line { display: flex; gap: 8px; }
+.profile-line > button:first-child { flex: 1; }
+.fullscreen-panel button.profile-stats-btn { min-width: 0; padding: 12px 14px; }

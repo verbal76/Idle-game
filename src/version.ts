@@ -20,4 +20,4 @@
 // in a bug report identifies the exact build the user is on.
 
 export const BUILD_VERSION = "build #4 - re-encoded icon (Sharp/libvips compat fix)";
-export const OTA_VERSION   = 'OTA #44 - half-pipe intro once, paused; How to play in pause menu';
+export const OTA_VERSION   = 'OTA #45 - per-mode records + Stats screen';
