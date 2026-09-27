@@ -284,6 +284,35 @@ async function main() {
       if (runsAfter !== runsBefore + 2) fail(`expected ${runsBefore + 2} runs after two collects, got ${runsAfter}`);
     });
 
+    await step('OTA reload deferred: run:start/run:end bracket every run (#1)', async () => {
+      await page.evaluate(() => {
+        window.__posted = [];
+        window.ReactNativeWebView = { postMessage: (m) => window.__posted.push(m) };
+      });
+      await page.click('#downhill');
+      await page.setViewportSize(LANDSCAPE);
+      await page.waitForSelector('#hud');
+      await page.waitForTimeout(400);
+      let posted = await page.evaluate(() => window.__posted.slice());
+      if (!posted.includes('run:start') || posted.includes('run:end')) fail(`in run: ${JSON.stringify(posted)}`);
+      // Switch Style: straight into the next run, still "in run".
+      await page.click('#pause');
+      await page.click('#switch-style');
+      await page.waitForSelector('#hud');
+      await page.waitForTimeout(400);
+      posted = await page.evaluate(() => window.__posted.slice());
+      if (posted.includes('run:end')) fail(`run:end sent between switched runs: ${JSON.stringify(posted)}`);
+      const intro = page.locator('#halfpipe-intro');
+      if (await intro.isVisible().catch(() => false)) await intro.click();
+      await page.click('#pause');
+      await page.click('#quit');
+      await page.setViewportSize(PORTRAIT);
+      await page.waitForSelector('#downhill');
+      await page.waitForFunction(() => window.__posted.includes('run:end'));
+      posted = await page.evaluate(() => { const p = window.__posted.slice(); delete window.ReactNativeWebView; return p; });
+      if (posted.lastIndexOf('run:end') < posted.lastIndexOf('run:start')) fail(`bad order: ${JSON.stringify(posted)}`);
+    });
+
     await step('upgrade double-tap buys once (#3)', async () => {
       // 10.7 ❄: menu must show whole flakes (#4), and one purchase leaves
       // the 0.7 fraction in the bank.

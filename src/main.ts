@@ -158,6 +158,9 @@ async function bootstrap(): Promise<void> {
     }
 
     setOrientation('landscape');
+    // The native shell holds any downloaded OTA until run:end, which is
+    // only sent once the finished run has been saved.
+    window.ReactNativeWebView?.postMessage('run:start');
     try {
       const next = await runSession(screen, canvas, mode, profiles, music);
       if (next === 'upgrades') {
@@ -168,6 +171,8 @@ async function bootstrap(): Promise<void> {
       }
     } finally {
       await profiles.save();
+      // Switch Style goes straight into the next run: stay "in run".
+      if (!pendingMode) window.ReactNativeWebView?.postMessage('run:end');
     }
   }
 }

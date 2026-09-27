@@ -6,6 +6,10 @@ import { Asset } from 'expo-asset';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as Updates from 'expo-updates';
 import { HTML_BUNDLE } from './src/__generated__/html-bundle';
+import { UpdateGate } from './src/shell/updateGate';
+
+// A downloaded OTA never reloads mid-run; it waits for the page's run:end.
+const updateGate = new UpdateGate();
 
 interface OtaInfo {
   updateId: string | null;
@@ -81,27 +85,39 @@ async function runUpdateCheck(ref: React.RefObject<WebView | null>, autoReload: 
     }
     injectUpdateStatus(ref, 'downloading');
     await Updates.fetchUpdateAsync();
+    if (autoReload && updateGate.onUpdateReady() === 'defer') {
+      injectUpdateStatus(ref, 'ready');
+      return;
+    }
     if (autoReload) {
-      injectUpdateStatus(ref, 'reloading');
-      // Stop audio in the old WebView context BEFORE the bundle swap.
-      // MusicPlayer's hardStop listener calls audio.pause() AND
-      // audio.src='' to detach from the underlying Android MediaPlayer
-      // immediately, otherwise its small playback buffer keeps emitting
-      // sound for ~50–200 ms while the new bundle's MusicPlayer is
-      // already starting — user hears the soundtrack twice.
-      ref.current?.injectJavaScript(
-        `try{window.dispatchEvent(new Event('music-pause-before-reload'));}catch(e){};true;`
-      );
-      // 200 ms delay (was 80) so the pause + src='' detachment in
-      // hardStop has time to actually silence Android's MediaPlayer
-      // before we tear down the JS context. Combined with the 250 ms
-      // delay on the new bundle's music.start(), there's a 450 ms
-      // total gap between old-audio-stop and new-audio-start.
-      await new Promise(r => setTimeout(r, 200));
-      await Updates.reloadAsync();
+      await reloadNow(ref);
     } else {
       injectUpdateStatus(ref, 'ready');
     }
+  } catch {
+    injectUpdateStatus(ref, 'unavailable');
+  }
+}
+
+async function reloadNow(ref: React.RefObject<WebView | null>): Promise<void> {
+  try {
+    injectUpdateStatus(ref, 'reloading');
+    // Stop audio in the old WebView context BEFORE the bundle swap.
+    // MusicPlayer's hardStop listener calls audio.pause() AND
+    // audio.src='' to detach from the underlying Android MediaPlayer
+    // immediately, otherwise its small playback buffer keeps emitting
+    // sound for ~50–200 ms while the new bundle's MusicPlayer is
+    // already starting — user hears the soundtrack twice.
+    ref.current?.injectJavaScript(
+      `try{window.dispatchEvent(new Event('music-pause-before-reload'));}catch(e){};true;`
+    );
+    // 200 ms delay (was 80) so the pause + src='' detachment in
+    // hardStop has time to actually silence Android's MediaPlayer
+    // before we tear down the JS context. Combined with the 250 ms
+    // delay on the new bundle's music.start(), there's a 450 ms
+    // total gap between old-audio-stop and new-audio-start.
+    await new Promise(r => setTimeout(r, 200));
+    await Updates.reloadAsync();
   } catch {
     injectUpdateStatus(ref, 'unavailable');
   }
@@ -119,6 +135,11 @@ function createMessageHandler(webviewRef: React.RefObject<WebView | null>) {
       BackHandler.exitApp();
     } else if (data === 'updates:check') {
       void runUpdateCheck(webviewRef, /* autoReload */ false);
+    } else if (data === 'run:start') {
+      updateGate.setInRun(true);
+    } else if (data === 'run:end') {
+      // Back on the menus with the run saved: apply a deferred update now.
+      if (updateGate.setInRun(false)) void reloadNow(webviewRef);
     } else if (data === 'updates:apply') {
       void Updates.reloadAsync();
     }
