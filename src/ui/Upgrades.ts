@@ -1,7 +1,7 @@
 import { ProfileService } from '../profiles/ProfileService';
 import { costForNext, purchaseUpgrade } from '../game/shop';
 import { displayFlakes } from '../game/economy';
-import { UPGRADES } from '../game/upgrades';
+import { UPGRADES, effectPreview } from '../game/upgrades';
 
 export function showUpgrades(root: HTMLElement, profiles: ProfileService): Promise<void> {
   return new Promise<void>((resolve) => {
@@ -13,7 +13,7 @@ export function showUpgrades(root: HTMLElement, profiles: ProfileService): Promi
       root.innerHTML = `
         <div class="fullscreen-panel menu-bg">
           <h1>UPGRADES</h1>
-          <p class="muted">${displayFlakes(p.currency)} ❄</p>
+          <div class="shop-balance" id="shop-balance">${displayFlakes(p.currency)} <span>❄</span></div>
           <div class="upgrades-list" id="upgrades-list"></div>
           <div class="row"><button id="upgrades-back">Back</button></div>
         </div>
@@ -26,10 +26,13 @@ export function showUpgrades(root: HTMLElement, profiles: ProfileService): Promi
         const canAfford = !maxed && p.currency >= cost;
         const row = document.createElement('div');
         row.className = 'upgrade-row';
+        const pips = Array.from({ length: u.maxLevel }, (_, i) =>
+          `<span class="pip${i < lvl ? ' on' : ''}"></span>`).join('');
         row.innerHTML = `
           <div class="upgrade-info">
-            <div class="upgrade-name">${u.label}</div>
-            <div class="upgrade-desc muted">${u.description} • ${lvl}/${u.maxLevel}</div>
+            <div class="upgrade-name">${u.label} <span class="upgrade-level">${lvl}/${u.maxLevel}</span></div>
+            <div class="upgrade-desc">${effectPreview(u, lvl)}</div>
+            <div class="upgrade-pips" aria-hidden="true">${pips}</div>
           </div>
           <button class="upgrade-buy" ${canAfford ? '' : 'disabled'}>${maxed ? 'MAX' : `${cost} ❄`}</button>
         `;

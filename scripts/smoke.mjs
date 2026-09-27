@@ -331,7 +331,7 @@ async function main() {
         const b = document.querySelector('.upgrade-buy');
         b.click(); b.click(); b.click();
       });
-      await page.waitForFunction(() => document.querySelector('.upgrade-desc')?.textContent?.includes('1/20'));
+      await page.waitForFunction(() => document.querySelector('.upgrade-level')?.textContent?.includes('1/20'));
       await page.waitForTimeout(300);
       const text = await page.textContent('.fullscreen-panel');
       if (!/\b0 ❄/.test(text)) fail(`expected 0 ❄ after one purchase, got: ${text}`);
@@ -355,9 +355,20 @@ async function main() {
       await page.waitForSelector('#downhill');
     });
 
-    await step('upgrades screen', async () => {
+    await step('upgrades screen: current → next and level pips (#18)', async () => {
       await page.click('#upgrades');
       await page.waitForSelector('.upgrade-row');
+      const speed = await page.$eval('.upgrade-row', r => ({
+        desc: r.querySelector('.upgrade-desc').textContent,
+        pips: r.querySelectorAll('.pip').length,
+        on: r.querySelectorAll('.pip.on').length,
+        level: r.querySelector('.upgrade-level').textContent,
+      }));
+      const lvl = Number(speed.level.split('/')[0]);
+      const cur = (22 + 0.5 * lvl).toFixed(1), next = (22 + 0.5 * (lvl + 1)).toFixed(1);
+      if (speed.desc !== `${cur} m/s → ${next} m/s`) fail(`Top Speed read-out: ${speed.desc}`);
+      if (speed.pips !== 20 || speed.on !== lvl) fail(`pips ${speed.on}/${speed.pips} for level ${lvl}`);
+      if (!(await page.isVisible('#shop-balance'))) fail('balance header missing');
       await page.click('#upgrades-back');
       await page.waitForSelector('#downhill');
     });

@@ -12,7 +12,8 @@ import { addFlakes, displayFlakes, distanceSegments, DISTANCE_PAY } from '../gam
 import type { RunStats } from '../game/records';
 import { segmentHitsCircle, segmentHitsRect } from '../game/collision';
 import { judgeLanding, type LandingOutcome } from '../game/tricks';
-import { BASE_MAX_LEAN, DEEP_CARVE_RESPONSE, leanLimit, physicalLeanLimit } from '../game/carve';
+import { effects } from '../game/upgrades';
+import { DEEP_CARVE_RESPONSE, leanLimit, physicalLeanLimit } from '../game/carve';
 import type { SceneAssets } from './SceneAssets';
 import type { Stage } from './Stage';
 import { Terrain, type GameMode } from './Terrain';
@@ -186,7 +187,6 @@ export class Game {
   private readonly flipRate = 6.5;
   private readonly airSpinRate = 5.0;
 
-  private readonly maxLean = BASE_MAX_LEAN;
   private readonly leanResponse = 6.5;  // ~150 ms to mostly leaned
   private readonly speedCatch = 4.0;
 
@@ -286,25 +286,23 @@ export class Game {
   // Upgrade effects (20 levels each): speed +0.5 m/s, jump +5%, edge grip
   // +3% lean / +5% response, charge +5%, spin speed +4%, flip speed +4%,
   // flake bonus +5% payout.
-  private get maxSpeed(): number { return 22 + this.upgrades.speed * 0.5; }
-  private get jumpMaxScaled(): number { return this.jumpMax * (1 + this.upgrades.jump * 0.05); }
-  private get maxLeanScaled(): number {
-    return this.maxLean * (1 + (this.upgrades.turn ?? 0) * 0.03);
-  }
+  private get maxSpeed(): number { return effects.maxSpeed(this.upgrades.speed); }
+  private get jumpMaxScaled(): number { return this.jumpMax * effects.jumpMult(this.upgrades.jump); }
+  private get maxLeanScaled(): number { return effects.maxLean(this.upgrades.turn ?? 0); }
   private get leanResponseScaled(): number {
-    return this.leanResponse * (1 + (this.upgrades.turn ?? 0) * 0.05);
+    return this.leanResponse * effects.leanResponseMult(this.upgrades.turn ?? 0);
   }
   private get chargeRateScaled(): number {
-    return this.chargeRate * (1 + (this.upgrades.charge ?? 0) * 0.05);
+    return this.chargeRate * effects.chargeMult(this.upgrades.charge ?? 0);
   }
   private get airSpinRateScaled(): number {
-    return this.airSpinRate * (1 + (this.upgrades.spin ?? 0) * 0.04);
+    return this.airSpinRate * effects.spinMult(this.upgrades.spin ?? 0);
   }
   private get flipRateScaled(): number {
-    return this.flipRate * (1 + (this.upgrades.flip ?? 0) * 0.04);
+    return this.flipRate * effects.flipMult(this.upgrades.flip ?? 0);
   }
   private get coinMultiplier(): number {
-    return 1 + (this.upgrades.coin ?? 0) * 0.05;
+    return effects.flakeMult(this.upgrades.coin ?? 0);
   }
 
   private buildCamera(): void {

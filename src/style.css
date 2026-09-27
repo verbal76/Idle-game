@@ -484,3 +484,20 @@ html, body {
   stroke-linecap: round; stroke-linejoin: round;
 }
 .dpad-btn .dpad-caption { font-size: 11px; letter-spacing: 0.08em; font-weight: 800; }
+
+/* Shop: big balance, current → next read-out, level pips. */
+.shop-balance {
+  font-size: 34px; font-weight: 900; letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  color: #ffd166;
+  text-shadow: 0 2px 0 rgba(239, 71, 111, 0.8), 0 4px 10px rgba(0, 0, 0, 0.5);
+}
+.shop-balance span { font-size: 24px; }
+.upgrade-level { font-size: 12px; font-weight: 700; opacity: 0.7; margin-left: 6px; }
+.upgrade-desc { font-size: 13px; color: #cfe2ff; font-variant-numeric: tabular-nums; }
+.upgrade-pips { display: flex; gap: 2px; margin-top: 5px; }
+.upgrade-pips .pip {
+  width: 9px; height: 6px; border-radius: 2px;
+  background: rgba(160, 200, 240, 0.22);
+}
+.upgrade-pips .pip.on { background: #ffd166; }

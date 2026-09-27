@@ -34,3 +34,15 @@ describe('purchaseUpgrade', () => {
     expect(p.upgrades.speed).toBe(20);
   });
 });
+
+import { UPGRADES, effectPreview } from './upgrades';
+describe('shop read-outs (#18)', () => {
+  const def = (id: string) => UPGRADES.find(u => u.id === id)!;
+  it('shows current → next with units, and just the value at max', () => {
+    expect(effectPreview(def('speed'), 3)).toBe('23.5 m/s → 24.0 m/s');
+    expect(effectPreview(def('jump'), 0)).toBe('+0% jump → +5% jump');
+    expect(effectPreview(def('turn'), 0)).toBe('40° lean → 41° lean');
+    expect(effectPreview(def('coin'), 1)).toBe('×1.05 ❄ → ×1.10 ❄');
+    expect(effectPreview(def('flip'), 20)).toBe('+80% flip');
+  });
+});
