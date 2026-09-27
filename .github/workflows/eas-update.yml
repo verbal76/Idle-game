@@ -39,6 +39,8 @@ jobs:
         with:
           node-version: '20'
       - run: npm install --no-audit --no-fund
+      - name: Unit tests (block the OTA on any failure)
+        run: npm test
       - name: Apply temporary bounce-fix patch to Game.ts
         run: node scripts/apply-bounce-fix-patch.mjs
       - name: Regenerate html-bundle.ts (CRITICAL for OTA correctness)
