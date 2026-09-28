@@ -303,6 +303,10 @@ export class Game {
       this.fallTimeout = null;
     }
     this.scene.unregisterBeforeRender(this.beforeRender);
+    // TrailMesh has no dispose() override: a running trail keeps its
+    // per-frame observer after the mesh is disposed, so every past run's
+    // trail would go on updating (and stay in memory). Stop it first.
+    this.trail?.stop();
     this.stage.clearRun();
   }
 

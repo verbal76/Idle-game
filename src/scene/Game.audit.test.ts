@@ -120,6 +120,20 @@ describe('release-audit gameplay regressions', () => {
     done();
   }, 60_000);
 
+  it('ending a run leaves no per-frame observers behind (the snow trail used to leak one per run)', () => {
+    const live = (g: unknown) => ((g as { stage: { scene: { onBeforeRenderObservable: { _observers: Array<{ _willBeUnregistered?: boolean }> } } } })
+      .stage.scene.onBeforeRenderObservable._observers.filter(o => !o._willBeUnregistered).length);
+    let baseline = -1;
+    for (let i = 0; i < 3; i++) {
+      const { game, frames, done } = setup(i % 2 ? 'half-pipe' : 'downhill');
+      if (baseline < 0) baseline = live(game) - 2;          // this run's own camera clamp + trail
+      frames(30);                                           // trail running on the snow
+      game.dispose();
+      expect(live(game)).toBe(baseline);
+      done();
+    }
+  }, 60_000);
+
   it('Ring Magnet L20 catches at 5 m and not beyond', () => {
     for (const [dx, caught] of [[4.9, true], [5.3, false]] as const) {
       const { g, frames, done } = setup('half-pipe', { ringMagnet: 20 });
