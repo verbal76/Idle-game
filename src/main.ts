@@ -45,7 +45,11 @@ function showError(prefix: string, err: unknown): void {
 }
 
 window.addEventListener('error', (e) => showError('window.error', e.error ?? e.message));
-window.addEventListener('unhandledrejection', (e) => showError('unhandledrejection', e.reason));
+// A rejected background promise (e.g. a save that IndexedDB refused) is
+// logged, not fatal: the game keeps running and the next save retries.
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('[unhandledrejection]', e.reason);
+});
 
 // One WebGL engine + template set for the whole session; each run only
 // builds its own world on top (see scene/Stage.ts).
@@ -280,8 +284,8 @@ async function runSession(
         game.pause();
         void showHalfpipeIntro(hud).then(async () => {
           p.seenHalfpipeIntro = true;
-          await profiles.save();
-          if (!finished) game.resume();
+          // Resume even if the save fails (it's retried by later saves).
+          try { await profiles.save(); } finally { if (!finished) game.resume(); }
         });
       }
     }

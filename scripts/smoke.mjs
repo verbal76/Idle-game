@@ -817,6 +817,20 @@ async function main() {
       await page.waitForSelector('#downhill');
     });
 
+    await step('a rejected background promise is logged, not fatal (release audit)', async () => {
+      await page.evaluate(() => { Promise.reject(new Error('audit-probe: simulated failed save')); });
+      await page.waitForTimeout(200);
+      // The probe's own console.error is expected; anything else still fails the run.
+      const logged = errors.some(e => e.includes('audit-probe'));
+      for (let i = errors.length - 1; i >= 0; i--) if (errors[i].includes('audit-probe')) errors.splice(i, 1);
+      if (!logged) fail('the rejection was not logged');
+      await checkNoCrash('after an unhandled rejection');
+      // Still playable: open Stats and come back.
+      await page.click('#stats');
+      await page.click('#stats-back');
+      await page.waitForSelector('#downhill');
+    });
+
     console.log('smoke: PASS');
   } finally {
     await browser.close();

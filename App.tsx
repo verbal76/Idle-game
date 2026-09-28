@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { BackHandler, StyleSheet, View } from 'react-native';
+import { BackHandler, Linking, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { Asset } from 'expo-asset';
@@ -8,6 +8,7 @@ import * as Updates from 'expo-updates';
 import { requireOptionalNativeModule } from 'expo';
 import { HTML_BUNDLE } from './src/__generated__/html-bundle';
 import { UpdateGate } from './src/shell/updateGate';
+import { shouldLoadInWebView } from './src/shell/navigation';
 
 // A downloaded OTA never reloads mid-run; it waits for the page's run:end.
 const updateGate = new UpdateGate();
@@ -180,7 +181,8 @@ function createMessageHandler(webviewRef: React.RefObject<WebView | null>) {
       // Back on the menus with the run saved: apply a deferred update now.
       if (updateGate.setInRun(false)) void reloadNow(webviewRef);
     } else if (data === 'updates:apply') {
-      void Updates.reloadAsync();
+      // Same path as the automatic reload: stop the music first, catch errors.
+      void reloadNow(webviewRef);
     }
   };
 }
@@ -250,6 +252,7 @@ export default function App(): React.JSX.Element {
           webviewRef.current?.injectJavaScript(INJECTED_JS_AFTER);
         }}
         onMessage={createMessageHandler(webviewRef)}
+        onShouldStartLoadWithRequest={(req) => shouldLoadInWebView(req.url, (u) => Linking.openURL(u))}
         style={styles.webview}
       />
     </View>
