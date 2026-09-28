@@ -19,7 +19,7 @@ const browser = await chromium.launch({
 });
 const page = await browser.newPage({ viewport: { width: 412, height: 915 } });
 page.setDefaultTimeout(120_000);
-await page.goto(`http://127.0.0.1:${server.address().port}/`);
+await page.goto(`http://127.0.0.1:${server.address().port}/?e2e`);
 await page.click('#new-profile');
 await page.click('#confirm');
 await page.waitForSelector('#downhill');
@@ -28,12 +28,19 @@ const results = [];
 for (const mode of ['downhill', 'half-pipe', 'downhill', 'half-pipe', 'downhill', 'half-pipe']) {
   await page.setViewportSize({ width: 640, height: 300 });
   const ms = await page.evaluate(async (m) => {
+    // Click -> the new run's first simulated frame (when the HUD first
+    // updates). __wtb.game is replaced by each new run (?e2e hook).
+    const prev = window.__wtb?.game;
     const t0 = performance.now();
     document.getElementById(m).click();
     await new Promise((resolve) => {
       const poll = () => {
-        const s = document.getElementById('score');
-        if (s && s.textContent && s.textContent !== '0 m') resolve(null);
+        const g = window.__wtb?.game;
+        // The first half-pipe run waits behind its intro card (#8):
+        // the run is ready once that card is up.
+        const intro = document.getElementById('halfpipe-intro');
+        const introUp = intro && getComputedStyle(intro).display !== 'none';
+        if (g && g !== prev && (g.clock > 0 || introUp)) resolve(null);
         else requestAnimationFrame(poll);
       };
       poll();
@@ -45,6 +52,7 @@ for (const mode of ['downhill', 'half-pipe', 'downhill', 'half-pipe', 'downhill'
   if (await intro.isVisible().catch(() => false)) await intro.click();
   await page.click('#pause');
   await page.click('#quit');
+  await page.click('#fell-ok');                         // dismiss the run summary
   await page.setViewportSize({ width: 412, height: 915 });
   await page.waitForSelector('#downhill');
 }
