@@ -9,11 +9,12 @@ import { awardGoals, goalLines } from '../game/goals';
  * "Run interrupted": the same summary as a normal run end, previewed on
  * a copy of the profile (nothing is credited until Collect).
  */
-export function showInterrupted(root: HTMLElement, profile: SaveData, run: PendingRun): Promise<void> {
+export function showInterrupted(root: HTMLElement, profile: SaveData, run: PendingRun, nowMs: number): Promise<void> {
   return new Promise<void>((resolve) => {
     const preview = structuredClone(profile);
     const result = bankRun(preview, run);
-    const extra = goalLines(awardGoals(preview, run, Date.now()));
+    // Same clock reading as the Collect that follows, so the preview is exactly what gets paid.
+    const extra = goalLines(awardGoals(preview, run, nowMs));
     const mode = run.mode === 'half-pipe' ? 'Half-pipe' : 'Downhill';
     root.innerHTML = `
       <div class="fullscreen-panel interrupted-panel">

@@ -95,3 +95,31 @@ describe('summary lines', () => {
     expect(many[1]).toMatchObject({ label: '3 milestones', amount: 60 });
   });
 });
+
+describe('goal payouts can\'t be farmed (release audit)', () => {
+  it('moving the clock back to an earlier day does not re-open and re-pay it', () => {
+    const p = profile();
+    p.milestones = MILESTONES.map(m => m.id);
+    const dayA = NOON, dayB = NOON + 864e5;
+    p.daily = { day: dayKey(dayA), ids: ['runs', 'ride', 'flips'], progress: [2, 0, 0], done: [false, false, false], allPaid: false };
+    expect(bank(p, run(), dayA).map(a => a.id)).toEqual(['runs']);           // day A's run daily paid
+    bank(p, run(), dayB);                                                    // play on day B
+    const back = bank(p, run({ distanceMeters: 5000, flips: 50 }), dayA);  // clock set back to A
+    expect(back).toEqual([]);                                                // nothing from A pays again
+    expect(p.daily!.day).toBe(dayKey(dayB));
+  });
+
+  it('a non-number stat never counts as reaching a milestone', () => {
+    const p = profile();
+    (p.stats.lifetime as { distance: number }).distance = NaN;
+    const a = awardGoals(p, run(), NOON);
+    expect(a.some(x => x.id.startsWith('dist-'))).toBe(false);
+  });
+
+  it('keeps milestone ids this build does not know (paid by a newer build)', () => {
+    const p = profile();
+    p.milestones = ['runs-1', 'future-milestone'];
+    bank(p, run());
+    expect(p.milestones).toContain('future-milestone');
+  });
+});

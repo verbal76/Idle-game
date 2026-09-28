@@ -80,11 +80,16 @@ export function dailyIdsFor(day: string): string[] {
   return out;
 }
 
-/** The profile's daily state for today (a fresh one if the stored day is over). Doesn't mutate. */
+/**
+ * The profile's daily state for today (a fresh one once the stored day is
+ * over). Doesn't mutate. The stored day never goes backwards: if the
+ * clock or time zone moves to an earlier date, the later day's state is
+ * kept, so an already-paid day can't be re-opened and paid again.
+ */
 export function dailyFor(p: SaveData, nowMs: number): DailyState {
   const day = dayKey(nowMs);
   const d = p.daily;
-  if (d && d.day === day && d.ids.length === 3) return d;
+  if (d && Array.isArray(d.ids) && d.ids.length === 3 && d.day >= day) return d;
   return { day, ids: dailyIdsFor(day), progress: [0, 0, 0], done: [false, false, false], allPaid: false };
 }
 
@@ -127,7 +132,8 @@ export function awardGoals(p: SaveData, run: RunStats, nowMs: number): GoalAward
   for (let changed = true; changed;) {
     changed = false;
     for (const m of MILESTONES) {
-      if (claimed.has(m.id) || m.value(p) < m.target) continue;
+      // !(>=) so a non-number can never count as reached.
+      if (claimed.has(m.id) || !(m.value(p) >= m.target)) continue;
       claimed.add(m.id);
       const a: GoalAward = { kind: 'milestone', id: m.id, label: m.label, reward: m.reward };
       awards.push(a);
@@ -135,7 +141,10 @@ export function awardGoals(p: SaveData, run: RunStats, nowMs: number): GoalAward
       changed = true;
     }
   }
-  p.milestones = MILESTONES.filter(m => claimed.has(m.id)).map(m => m.id);
+  // Keep ids this build doesn't know (a newer build paid them): dropping
+  // them would pay them again after an update.
+  const known = new Set(MILESTONES.map(m => m.id));
+  p.milestones = [...MILESTONES.filter(m => claimed.has(m.id)).map(m => m.id), ...[...claimed].filter(id => !known.has(id))];
   return awards;
 }
 

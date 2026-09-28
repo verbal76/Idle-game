@@ -75,6 +75,43 @@ describe('migrateSave', () => {
     expect(migrateSave(legacy({ settings: { musicVolume: 1, sfxVolume: 1, haptics: false } })).settings.haptics).toBe(false);
   });
 
+  it('repairs a damaged record without touching valid progress (release audit)', () => {
+    const d = migrateSave(legacy({
+      name: '', currency: undefined,
+      upgrades: { speed: 3, jump: -2, turn: 2.7, charge: 'x', spin: 30, coin: NaN, grace: 9 },
+      settings: { musicVolume: 3, sfxVolume: -1, haptics: 'yes' },
+      stats: { downhill: { bestDistance: '120', mostFlips: 4 }, halfPipe: null, lifetime: { runs: 5, distance: null, flips: Infinity } },
+      milestones: ['runs-1', 7, null],
+      daily: { day: '2026-09-27', ids: ['ride'], progress: [0], done: [false], allPaid: false },
+      pendingRun: { mode: 'downhill', distanceMeters: 80, flips: 'two', spins: 1, coins: NaN, rings: 0, bestCombo: 0, bestRingStreak: 0, runId: 'r', savedAtMs: 5 },
+    }));
+    expect(d.name).toBe('Boarder');
+    expect(d.currency).toBe(0);
+    expect(d.upgrades).toMatchObject({ speed: 3, jump: 0, turn: 2, charge: 0, spin: 20, coin: 0, grace: 4 });
+    expect(d.settings).toEqual({ musicVolume: 1, sfxVolume: 0, haptics: true });
+    expect(d.stats.downhill).toEqual({ bestDistance: 0, mostFlips: 4 });
+    expect(d.stats.halfPipe).toEqual({ bestRunFlakes: 0, bestRingStreak: 0, bestCombo: 0 });
+    expect(d.stats.lifetime).toMatchObject({ runs: 5, distance: 0, flips: 0 });
+    expect(d.milestones).toEqual(['runs-1']);
+    expect(d.daily).toBeUndefined();                                   // malformed daily dropped
+    expect(d.pendingRun).toMatchObject({ mode: 'downhill', distanceMeters: 80, flips: 0, coins: 0, spins: 1 });
+    const numbers = JSON.stringify(d);
+    expect(numbers).not.toMatch(/null|NaN/);
+  });
+
+  it('drops a pending run that is not a run at all', () => {
+    expect(migrateSave(legacy({ pendingRun: { mode: 'moon' } })).pendingRun).toBeUndefined();
+    expect(migrateSave(legacy({ pendingRun: null })).pendingRun).toBeUndefined();
+  });
+
+  it('a healthy current save passes through unchanged', () => {
+    const good = migrateSave(legacy({ currency: 12.5, upgrades: { speed: 3, jump: 1, turn: 2, charge: 0, spin: 5, flip: 4, coin: 7, ringMagnet: 1, comboWindow: 2, grace: 1 } }));
+    good.daily = { day: '2026-09-27', ids: ['ride', 'runs', 'flips'], progress: [100, 1, 2], done: [false, false, false], allPaid: false };
+    good.milestones = ['runs-1'];
+    const again = migrateSave(structuredClone(good));
+    expect(again).toEqual(good);
+  });
+
   it('is idempotent', () => {
     const once = migrateSave(legacy({ upgrades: { speed: 3, jump: 1, turn: 2, charge: 0, spin: 5, coin: 7 } }));
     const twice = migrateSave(structuredClone(once));

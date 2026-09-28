@@ -796,6 +796,27 @@ async function main() {
       await page.setViewportSize(PORTRAIT);
     });
 
+    await step('damaged save loads, plays and banks without the error screen (release audit)', async () => {
+      const day = await page.evaluate(() => { const d = new Date(), z = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`; });
+      await patchProfile({ currency: null, stats: { downhill: null, halfPipe: 'x', lifetime: { runs: 'many' } }, daily: { day, ids: [] }, milestones: null });
+      const menu = await page.textContent('.fullscreen-panel');
+      if (/NaN|undefined|null/.test(menu)) fail(`menu shows junk: ${menu}`);
+      await page.click('#downhill');
+      await page.setViewportSize(LANDSCAPE);
+      await page.waitForSelector('#hud');
+      await page.waitForTimeout(800);
+      await page.click('#pause');
+      await quitRun();
+      await page.setViewportSize(PORTRAIT);
+      await page.waitForSelector('#downhill');
+      if (await page.$('pre')) fail(`error screen: ${await page.textContent('pre')}`);
+      await page.click('#stats');
+      const stats = await page.textContent('.stats-panel');
+      if (/NaN|undefined|null/.test(stats)) fail(`stats show junk: ${stats}`);
+      await page.click('#stats-back');
+      await page.waitForSelector('#downhill');
+    });
+
     console.log('smoke: PASS');
   } finally {
     await browser.close();

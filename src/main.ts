@@ -136,9 +136,10 @@ async function bootstrap(): Promise<void> {
       const interrupted = profiles.activeProfile;
       if (interrupted?.pendingRun) {
         if (hasCollectablePending(interrupted)) {
-          await showInterrupted(screen, interrupted, interrupted.pendingRun);
+          const collectAt = Date.now();
+          await showInterrupted(screen, interrupted, interrupted.pendingRun, collectAt);
           const collected = collectPending(interrupted);
-          if (collected) awardGoals(interrupted, collected.run, Date.now());
+          if (collected) awardGoals(interrupted, collected.run, collectAt);
         } else {
           clearPending(interrupted);
         }
