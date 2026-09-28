@@ -110,14 +110,23 @@ the Back button bridge or update deferral does not need an APK.
   message, run number and branch in its manifest (`app.config.js` adds
   them as `extra.ota` from the workflow's env), which is what Build /
   Update Info displays.
-- **APK** (rare): changes to `package.json` / lockfile, `app.json`,
-  `eas.json`, Babel/Metro config, native folders or the icon art. On
-  `main` / `Github-APK-Transition-snow` these run **APK Build**; the APK is
-  attached to a GitHub Release. A new native module (e.g. `expo-haptics`)
-  needs one.
-- Never ship both at once. Bump `OTA_VERSION` in `src/version.ts` for each
-  OTA and `BUILD_VERSION` for each APK so the About screen confirms what
-  the phone is running.
+- **APK** (rare): changes to `app.json`, `app.config.js`, `eas.json`,
+  Babel/Metro config, native folders, the icon art, or runtime
+  `dependencies` in `package.json` (not devDependencies or scripts). On
+  `main` / `Github-APK-Transition-snow` these run **APK Build** (unit
+  tests → prebuild → Gradle); the APK is attached to a GitHub Release. A
+  new native module (e.g. `expo-haptics`) needs one.
+- **Never both at once, enforced.** Both workflows first run
+  `.github/scripts/release-route.sh` on the pushed commit range: a push
+  that changes the native build goes APK-only (the OTA job is skipped); a
+  JS-only push goes OTA-only. After a native push, publish the matching
+  OTA by hand (Actions → EAS Update → Run workflow) once the APK build has
+  finished. `src/test/releaseRoute.test.ts` pins this behaviour.
+- The runtime version follows `expo.version`: bump it with every native
+  change, or an OTA built for the new native code could reach older APKs.
+- Bump `OTA_VERSION` in `src/version.ts` for each OTA and `BUILD_VERSION`
+  for each APK (shown in About); Build / Update Info reads the real
+  values at runtime.
 
 ## Developing
 
@@ -146,8 +155,9 @@ The smoke test needs `npm run web:build` first and a Chromium; set
   traces** (`__snapshots__/`) that pin whole rides frame by frame.
 - **Smoke** (`scripts/smoke.mjs`): profile creation, both modes, pause and
   Back, app kill + Run interrupted, run summary, goals, OTA deferral,
-  upgrades, layout (nothing clipped in portrait or landscape), HUD, trick
-  callouts, sound and vibration settings, Build / Update Info. Fails on
+  upgrades, layout (nothing clipped in portrait or landscape, 320 px
+  phones), HUD, trick callouts, sound and vibration settings, Build /
+  Update Info, a damaged save, and a non-fatal background error. Fails on
   any page error.
 
 ## Project layout
