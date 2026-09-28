@@ -73,3 +73,28 @@ describe('back flips and corks (#12)', () => {
     expect(judgeLanding(0, deg(360)).cork).toBe(false);
   });
 });
+
+describe('landing band edges (release audit)', () => {
+  const deg = (d: number) => (d * Math.PI) / 180;
+  it('band edges (0.01° either side): 30° clean|sketchy, 60° sketchy|bail, 90° bails, 120° bail|sketchy switch', () => {
+    const e = 0.01;
+    expect(judgeLanding(0, deg(30 - e)).outcome).toBe('clean');
+    expect(judgeLanding(0, deg(-(30 - e))).outcome).toBe('clean');
+    expect(judgeLanding(0, deg(30 + e)).outcome).toBe('sketchy');
+    expect(judgeLanding(0, deg(60 - e)).outcome).toBe('sketchy');
+    expect(judgeLanding(0, deg(60 + e)).outcome).toBe('bail');
+    expect(judgeLanding(0, deg(90)).outcome).toBe('bail');
+    expect(judgeLanding(0, deg(-90)).outcome).toBe('bail');
+    expect(judgeLanding(0, deg(120 - e)).outcome).toBe('bail');
+    const back = judgeLanding(0, deg(120 + e));
+    expect(back.outcome).toBe('sketchy');
+    expect(back.switch).toBe(true);
+    expect(judgeLanding(0, deg(150 + e)).outcome).toBe('clean');
+  });
+  it('spins past a full turn wrap correctly (390° is a clean 360, -540° a clean switch 540)', () => {
+    expect(judgeLanding(0, deg(390)).outcome).toBe('clean');
+    const r = judgeLanding(0, deg(-540));
+    expect(r.outcome).toBe('clean');
+    expect(r.switch).toBe(true);
+  });
+});

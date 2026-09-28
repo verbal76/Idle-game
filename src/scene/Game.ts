@@ -134,7 +134,10 @@ export class Game {
   private earnedTricks = 0;
   private earnedRings = 0;
   // Grace saves left this run.
-  private gracesLeft = 0;
+  // Saves used this run; saves left follow the current Grace level, so a
+  // level bought from the pause menu applies straight away.
+  private gracesUsed = 0;
+  private get gracesLeft(): number { return Math.max(0, effects.graceSaves(this.upgrades.grace ?? 0) - this.gracesUsed); }
   // Bank at run start; the HUD shows bank + this run's earnings live.
   private bankAtStart = 0;
   private fellAlready = false;
@@ -224,7 +227,6 @@ export class Game {
   ) {
     this.mode = mode;
     this.upgrades = upgrades;
-    this.gracesLeft = effects.graceSaves(upgrades.grace ?? 0);
     this.bestRingStreak = options.bestRingStreak ?? 0;
 
     // Deferred so the HUD is mounted before it fires.
@@ -419,6 +421,11 @@ export class Game {
 
   private startRecovery(): void {
     this.state = 'recovering';
+    // The bail slid the rider along the ground (even one that began in
+    // the air, e.g. a Grace save off a low jump): recovery starts grounded,
+    // so the next tick doesn't "land" a phantom jump.
+    this.grounded = true;
+    this.verticalVelocity = 0;
     this.stateEndsAt = this.clock + this.recoverDurationMs;
     this.rider.body.rotation.x = 0;
     this.rider.body.rotation.z = 0;
@@ -490,6 +497,8 @@ export class Game {
         this.verticalVelocity = 0;
       }
       this.prevGroundLevel = newGround;
+      // Like a normal landing, the landing frame's suppression lasts one frame.
+      this.justLanded = false;
 
       this.dustParticles.emitRate = 100;
       this.streamer.update(this.rider.root.position);
@@ -582,6 +591,16 @@ export class Game {
       if (launch !== null) {
         this.verticalVelocity = this.jumpMin + launch * (this.jumpMaxScaled - this.jumpMin);
         this.grounded = false;
+        // Taking off during the turn back from switch: count the board's
+        // remaining angle as air rotation from the nearer stance, so the
+        // landing is judged on the board's real angle (the board doesn't move).
+        if (this.bodyYawOffset > 0 && this.bodyYawOffset < Math.PI) {
+          const stance = this.bodyYawOffset >= Math.PI / 2 ? Math.PI : 0;
+          const residual = this.bodyYawOffset - stance;
+          this.bodyYawOffset = stance;
+          this.heading += residual;
+          this.spinRotation += residual;
+        }
         soundFx.play('jump');
       }
     }
@@ -957,7 +976,7 @@ export class Game {
             && r.y - (this.terrain.surfaceY(o.x, o.z)) < 1.55 && r.y - surfaceAtRider < 1.55) {
             // Grace turns a run-ending hit into a bail while saves remain.
             if (this.gracesLeft > 0) {
-              this.gracesLeft--;
+              this.gracesUsed++;
               this.callbacks.onGrace?.(this.gracesLeft);
               this.startBail();
               return;
