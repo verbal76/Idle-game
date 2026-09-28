@@ -51,6 +51,10 @@ describe('release routing: APK or OTA, never both', () => {
       expect(route(git('rev-parse', `${s}^`), s)).toBe('true');
     }
   });
+  it('editing the workflows (APK or OTA) is not a native change', () => {
+    const w = commit({ '.github/workflows/eas-build.yml': 'x', '.github/workflows/eas-update.yml': 'y', 'src/a.ts': 'w' }, 'workflow edit');
+    expect(route(git('rev-parse', `${w}^`), w)).toBe('false');
+  });
   it('a merge-sized push with JS + devDependencies + native goes APK only', () => {
     expect(route(base, native)).toBe('true');
   });

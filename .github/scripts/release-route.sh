@@ -40,8 +40,9 @@ fi
 FILES="$(git diff --name-only "$BASE" "$HEAD_SHA")"
 
 # Keep in sync with the `paths:` list in eas-build.yml (minus package.json,
-# which is checked by content below).
-NATIVE_RE='^(app\.json|app\.config\.js|eas\.json|babel\.config\.js|metro\.config\.js|package-lock\.json|src/assets/menu-bg\.png|\.github/workflows/eas-build\.yml)$|^(android|ios)/'
+# which is checked by content below, and the workflow file itself: editing
+# a workflow doesn't change the app; run it by hand to try a change).
+NATIVE_RE='^(app\.json|app\.config\.js|eas\.json|babel\.config\.js|metro\.config\.js|package-lock\.json|src/assets/menu-bg\.png)$|^(android|ios)/'
 if printf '%s\n' "$FILES" | grep -qE "$NATIVE_RE"; then
   emit true "native file changed: $(printf '%s\n' "$FILES" | grep -E "$NATIVE_RE" | head -3 | tr '\n' ' ')"
   exit 0
