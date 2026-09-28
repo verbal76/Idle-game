@@ -772,6 +772,30 @@ async function main() {
       await page.evaluate(() => { delete window.__OTA__; });
     });
 
+    await step('smallest phone (320x568): title, rows and touch targets (release audit)', async () => {
+      await page.setViewportSize({ width: 320, height: 568 });
+      await page.waitForTimeout(200);
+      const menu = await page.evaluate(() => {
+        const t = document.querySelector('.title-bouncy'), g = document.querySelector('.gear-btn');
+        const tr = t.getBoundingClientRect(), gr = g.getBoundingClientRect();
+        const overlap = !(tr.right <= gr.left || tr.left >= gr.right || tr.bottom <= gr.top || tr.top >= gr.bottom);
+        const wide = [...document.querySelectorAll('.fullscreen-panel button')].filter(b => { const r = b.getBoundingClientRect(); return r.width && (r.left < 0 || r.right > innerWidth); }).map(b => b.id || b.textContent.trim());
+        return { left: tr.left, right: tr.right, overlap, color: getComputedStyle(t).color, transform: getComputedStyle(t).textTransform, wide };
+      });
+      if (menu.left < 0 || menu.right > 320) fail(`title outside the screen: ${menu.left}..${menu.right}`);
+      if (menu.overlap) fail('title overlaps the settings gear');
+      if (menu.color !== 'rgb(255, 209, 102)' || menu.transform === 'uppercase') fail(`title lost its own style: ${menu.color} ${menu.transform}`);
+      if (menu.wide.length) fail(`buttons wider than the screen: ${menu.wide}`);
+      await page.click('#menu-settings');
+      await page.waitForSelector('#sfx-vol');
+      const small = await page.evaluate(() => [...document.querySelectorAll('#music-vol, #sfx-vol, #haptics-toggle, #bi-full, #bi-copy')]
+        .map(e => ({ id: e.id, h: e.getBoundingClientRect().height })).filter(x => x.h < 32));
+      if (small.length) fail(`touch targets under 32 px: ${JSON.stringify(small)}`);
+      await page.click('#settings-back');
+      await page.waitForSelector('#downhill');
+      await page.setViewportSize(PORTRAIT);
+    });
+
     console.log('smoke: PASS');
   } finally {
     await browser.close();

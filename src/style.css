@@ -55,18 +55,18 @@ html, body {
   padding-bottom: clamp(20px, 8vh, 80px);
 }
 /* Panel headings: one consistent treatment everywhere (#28). */
-.fullscreen-panel h1 {
+.fullscreen-panel h1:not(.title-bouncy) {
   margin: 0;
   font-size: 30px; letter-spacing: 0.1em; font-weight: 900; text-transform: uppercase;
   color: #f4f8ff;
   text-shadow: 0 2px 0 rgba(42, 79, 127, 0.9), 0 6px 18px rgba(0, 0, 0, 0.45);
 }
-.fullscreen-panel h1::after {
+.fullscreen-panel h1:not(.title-bouncy)::after {
   content: ''; display: block; width: 48px; height: 3px; margin: 8px auto 0;
   border-radius: 2px; background: linear-gradient(90deg, #7fd3ff, #ffd166);
 }
 
-.title-bouncy {
+.fullscreen-panel h1.title-bouncy, .title-bouncy {
   position: absolute;
   top: clamp(20px, 6.5vh, 80px);
   left: 50%;
@@ -97,8 +97,13 @@ html, body {
   60%  { transform: translateY(-8%)  rotate(3deg);  }
   100% { transform: translateY(0)    rotate(0);   }
 }
+/* Narrow portrait phones: the corner gear sits where the title's end
+   would be, so start the title below it. */
+@media (max-width: 360px) and (min-height: 501px) {
+  .fullscreen-panel h1.title-bouncy, .title-bouncy { top: 68px; }
+}
 @media (max-height: 500px) {
-  .title-bouncy {
+  .fullscreen-panel h1.title-bouncy, .title-bouncy {
     top: clamp(8px, 4vh, 40px);
     font-size: clamp(18px, 4.5vw, 28px);
   }
@@ -116,7 +121,11 @@ html, body {
   filter: brightness(1.18);
 }
 .list { display: flex; flex-direction: column; gap: 8px; min-width: 240px; }
-.row { display: flex; gap: 8px; align-items: center; }
+.list > p { text-align: center; }
+.row { display: flex; gap: 8px; align-items: center; justify-content: center; flex-wrap: wrap; }
+/* Two 180 px buttons don't fit side by side on a 320 px phone: never
+   wider than the screen allows. */
+.fullscreen-panel button { max-width: 100%; }
 .muted { opacity: 0.65; font-size: 13px; }
 
 .upgrades-list { display: flex; flex-direction: column; gap: 10px; width: min(480px, 100%); }
@@ -434,11 +443,20 @@ html, body {
 .setting-row input[type="range"] {
   flex: 2;
   -webkit-appearance: none; appearance: none;
-  height: 6px; background: rgba(160, 200, 240, 0.25);
-  border-radius: 3px; outline: none;
+  /* The element is the touch target: 32 px tall, with the 6 px track
+     drawn inside it (a 6 px element was nearly impossible to grab). */
+  height: 32px; background: transparent;
+  outline: none; margin: 0;
+}
+.setting-row input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 3px; background: rgba(160, 200, 240, 0.25);
+}
+.setting-row input[type="range"]::-moz-range-track {
+  height: 6px; border-radius: 3px; background: rgba(160, 200, 240, 0.25);
 }
 .setting-row input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
+  margin-top: -7px;
   width: 20px; height: 20px; border-radius: 50%;
   background: #7baaff; cursor: pointer; border: 2px solid #fff;
 }
@@ -610,7 +628,7 @@ html, body {
 }
 
 /* On/Off switch in Settings (Vibration). */
-.fullscreen-panel .setting-row .toggle { min-width: 72px; padding: 6px 14px; font-weight: 700; }
+.fullscreen-panel .setting-row .toggle { min-width: 72px; min-height: 40px; padding: 6px 14px; font-weight: 700; }
 .fullscreen-panel .setting-row .toggle[aria-pressed="false"] { background: rgba(255, 255, 255, 0.08); color: rgba(255, 255, 255, 0.7); }
 
 /* Pause button: a drawn icon instead of the letters 'II' (#28). */
@@ -665,5 +683,5 @@ html, body {
 .bi-label { opacity: 0.7; flex: 0 0 auto; }
 .bi-val { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; text-align: right; overflow-wrap: anywhere; min-width: 0; }
 .bi-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
-.fullscreen-panel .bi-actions .toggle { min-width: 0; padding: 6px 12px; font-size: 13px; }
+.fullscreen-panel .bi-actions .toggle { min-width: 0; min-height: 40px; padding: 6px 14px; font-size: 13px; }
 .build-info textarea { width: 100%; min-height: 120px; margin-top: 8px; box-sizing: border-box; }
