@@ -740,6 +740,38 @@ async function main() {
       await page.waitForSelector('#downhill');
     });
 
+    await step('Build / Update Info in Settings: runtime metadata, fallbacks, live update', async () => {
+      const read = () => page.$$eval('#build-info .bi-row', rows => Object.fromEntries(rows.map(r => [r.dataset.id, r.querySelector('.bi-val').textContent])));
+      await page.evaluate(() => { delete window.__OTA__; });
+      await page.click('#menu-settings');
+      await page.waitForSelector('#build-info');
+      // No native shell (browser): honest fallbacks, never undefined/null.
+      let v = await read();
+      if (v.source !== 'Browser (no native app shell)' || v['app-version'] !== 'Unavailable') fail(`no-shell rows: ${JSON.stringify(v)}`);
+      if (Object.values(v).some(x => /undefined|null|NaN/.test(x))) fail(`bad value: ${JSON.stringify(v)}`);
+      if (!/^[0-9a-f]{8}…/.test(v.commit)) fail(`bundle commit not shown: ${v.commit}`);
+      // The shell injects metadata after load (App.tsx onLoadEnd): the open panel updates.
+      await page.evaluate(() => {
+        window.__OTA__ = {
+          updateId: '01a0e4f8-a3b7-7817-b044-39670636a47d', runtimeVersion: '0.0.1', channel: 'preview',
+          createdAt: '2026-09-28T01:02:03.000Z', isEmbeddedLaunch: false, isEmergencyLaunch: false,
+          nativeAppVersion: '0.0.1', nativeVersionCode: 5,
+          otaMeta: { commit: 'abcdef1234567890abcdef1234567890abcdef12', label: 'OTA #99', message: 'Smoke canary (OTA #99)', run: '999', branch: 'b' },
+        };
+        window.dispatchEvent(new CustomEvent('ota-info', { detail: window.__OTA__ }));
+      });
+      v = await read();
+      const want = { 'app-version': '0.0.1', 'native-build': '5', runtime: '0.0.1', channel: 'preview', source: 'OTA update (downloaded)',
+        'ota-name': 'Smoke canary (OTA #99)', 'update-id': '01a0e4f8…', commit: 'abcdef12…', branch: 'b' };
+      for (const [k, w] of Object.entries(want)) if (v[k] !== w) fail(`${k}: '${v[k]}' != '${w}'`);
+      await page.click('#bi-full');
+      v = await read();
+      if (v['update-id'] !== '01a0e4f8-a3b7-7817-b044-39670636a47d') fail(`full id: ${v['update-id']}`);
+      await page.click('#settings-back');
+      await page.waitForSelector('#downhill');
+      await page.evaluate(() => { delete window.__OTA__; });
+    });
+
     console.log('smoke: PASS');
   } finally {
     await browser.close();

@@ -5,6 +5,7 @@ import { ProfileService } from '../profiles/ProfileService';
 import { showAbout } from './About';
 import { openBugReport, openFeatureRequest } from '../util/bugReport';
 import { escapeHtml } from '../util/escapeHtml';
+import { buildInfoHtml, wireBuildInfo } from './BuildInfoPanel';
 
 // State machine for the OTA update flow. Native side posts these via
 // CustomEvent('update-status'); the Settings panel listens and updates
@@ -77,6 +78,7 @@ export function showSettings(
             <button id="settings-about">About / Build info</button>
             <button id="settings-bug">🐞 Send bug report</button>
             <button id="settings-feature">💡 Send feature request</button>
+            ${buildInfoHtml()}
             <button id="settings-back">Back</button>
           </div>
         </div>
@@ -171,7 +173,9 @@ export function showSettings(
       });
       paintUpdateRow();
 
+      const unwireInfo = wireBuildInfo(root);
       root.querySelector<HTMLButtonElement>('#settings-about')!.addEventListener('click', async () => {
+        unwireInfo();
         await showAbout(root);
         render();
       });
@@ -182,6 +186,7 @@ export function showSettings(
         openFeatureRequest();
       });
       root.querySelector<HTMLButtonElement>('#settings-back')!.addEventListener('click', () => {
+        unwireInfo();
         flushSave();
         window.removeEventListener('update-status', onUpdateStatus);
         resolve();

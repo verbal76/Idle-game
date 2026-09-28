@@ -41,6 +41,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'app.json'
+      - 'app.config.js'
       - 'eas.json'
       - 'babel.config.js'
       - 'metro.config.js'

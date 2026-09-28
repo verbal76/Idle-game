@@ -5,6 +5,7 @@ import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { Asset } from 'expo-asset';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as Updates from 'expo-updates';
+import { requireOptionalNativeModule } from 'expo';
 import { HTML_BUNDLE } from './src/__generated__/html-bundle';
 import { UpdateGate } from './src/shell/updateGate';
 
@@ -17,6 +18,39 @@ interface OtaInfo {
   channel: string | null;
   createdAt: string | null;
   isEmbeddedLaunch: boolean | null;
+  isEmergencyLaunch: boolean | null;
+  // From the app config baked into the installed APK, so they describe
+  // the native build even while an OTA is running.
+  nativeAppVersion: string | null;
+  nativeVersionCode: number | null;
+  // What the publishing workflow stamped into this update's manifest
+  // (app.config.js -> extra.ota): commit, label, message, run, branch.
+  otaMeta: Record<string, unknown> | null;
+}
+
+// The APK's embedded app config (expo-constants' native module).
+function readNativeConfig(): { version: string | null; versionCode: number | null } {
+  try {
+    const mod = requireOptionalNativeModule<{ manifest?: unknown }>('ExponentConstants');
+    const raw = mod?.manifest;
+    const cfg = (typeof raw === 'string' ? JSON.parse(raw) : raw) as { version?: unknown; android?: { versionCode?: unknown } } | undefined;
+    return {
+      version: typeof cfg?.version === 'string' ? cfg.version : null,
+      versionCode: typeof cfg?.android?.versionCode === 'number' ? cfg.android.versionCode : null,
+    };
+  } catch {
+    return { version: null, versionCode: null };
+  }
+}
+
+function readOtaMeta(): Record<string, unknown> | null {
+  try {
+    const m = Updates.manifest as { extra?: { expoClient?: { extra?: { ota?: unknown } } } } | undefined;
+    const ota = m?.extra?.expoClient?.extra?.ota;
+    return ota && typeof ota === 'object' ? (ota as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
 }
 
 const MUSIC_TRACKS: { module: number; title: string }[] = [
@@ -30,12 +64,17 @@ function readOtaInfo(): OtaInfo {
     try { return fn(); } catch { return fallback; }
   };
   const created = safe(() => Updates.createdAt, null);
+  const native = readNativeConfig();
   return {
     updateId:        safe(() => Updates.updateId ?? null, null),
     runtimeVersion:  safe(() => Updates.runtimeVersion ?? null, null),
     channel:         safe(() => Updates.channel ?? null, null),
     createdAt:       created instanceof Date ? created.toISOString() : null,
     isEmbeddedLaunch: safe(() => Updates.isEmbeddedLaunch ?? null, null),
+    isEmergencyLaunch: safe(() => Updates.isEmergencyLaunch ?? null, null),
+    nativeAppVersion: native.version,
+    nativeVersionCode: native.versionCode,
+    otaMeta: readOtaMeta(),
   };
 }
 
