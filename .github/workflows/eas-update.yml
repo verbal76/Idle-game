@@ -23,6 +23,7 @@ on:
       - 'assets/adaptive-icon.png'
       - 'assets/splash-icon.png'
       - '.github/workflows/**'
+      - '.github/scripts/**'
       - 'README.md'
       - 'MOBILE_GAME_DEV_RULES.md'
       - '.gitignore'
@@ -35,7 +36,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  route:
+    # One-at-a-time rule: decides whether this push is native (APK) or
+    # JS-only (OTA). eas-build.yml and eas-update.yml run the same script
+    # on the same commit range, so a push can never start both.
+    runs-on: ubuntu-latest
+    outputs:
+      native: ${{ steps.route.outputs.native }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: route
+        run: bash .github/scripts/release-route.sh
+        env:
+          BEFORE: ${{ github.event.before }}
+
   update:
+    needs: route
+    # JS-only pushes publish; a push that changes the native build leaves
+    # it to the APK workflow (publish an OTA by hand after the APK is out).
+    if: needs.route.outputs.native != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -63,7 +63,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  route:
+    # One-at-a-time rule: decides whether this push is native (APK) or
+    # JS-only (OTA). eas-build.yml and eas-update.yml run the same script
+    # on the same commit range, so a push can never start both.
+    runs-on: ubuntu-latest
+    outputs:
+      native: ${{ steps.route.outputs.native }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: route
+        run: bash .github/scripts/release-route.sh
+        env:
+          BEFORE: ${{ github.event.before }}
+
   build:
+    needs: route
+    # Only pushes that change the native build (not e.g. devDependencies).
+    if: needs.route.outputs.native != 'false'
     name: Build Android APK
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -95,6 +114,9 @@ jobs:
       # (read by expo prebuild via app.json). Both are .gitignored
       # generated outputs; we materialise them on the runner here
       # so prebuild + Gradle find them in the workspace.
+      - name: Unit tests (block the APK on any failure)
+        run: npm test
+
       - name: Build web bundle + icons
         run: npm run web:build
 
