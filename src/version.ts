@@ -20,4 +20,4 @@
 // in a bug report identifies the exact build the user is on.
 
 export const BUILD_VERSION = "build #4 - re-encoded icon (Sharp/libvips compat fix)";
-export const OTA_VERSION   = 'OTA #70 - audit: snow trail observer leak';
+export const OTA_VERSION   = 'OTA #71 - new metallic Settings gear';

@@ -396,10 +396,19 @@ html, body {
   display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer;
   min-width: 0; padding: 0;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
-  opacity: 0.85;
+  opacity: 1;
   transition: opacity 0.12s ease;
 }
+/* The Settings gear artwork (src/assets/settings-gear.png, used as
+   supplied): drawn whole and in proportion (contain), transparent areas
+   untouched, inside the unchanged 52 px touch target. */
+.settings-gear {
+  display: inline-block; flex: none;
+  width: 34px; height: 34px;
+  background: url('./assets/settings-gear.png') center / contain no-repeat;
+  pointer-events: none;
+}
+.settings-gear.inline { width: 22px; height: 22px; vertical-align: -5px; margin-left: 4px; }
 .gear-btn:hover  { opacity: 1; }
 .gear-btn:active { opacity: 0.55; }
 #hud .top-bar .gear-btn { margin-left: auto; }

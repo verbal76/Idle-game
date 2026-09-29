@@ -15,6 +15,7 @@ import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { chromium } from 'playwright-core';
+import { PNG } from 'pngjs';
 
 const DIST = 'dist';
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml' };
@@ -828,6 +829,60 @@ async function main() {
       // Still playable: open Stats and come back.
       await page.click('#stats');
       await page.click('#stats-back');
+      await page.waitForSelector('#downhill');
+    });
+
+    await step('Settings gear: the supplied artwork, whole and see-through, still opens Settings', async () => {
+      // What the control draws, measured in the page (not the file name).
+      const art = (sel) => page.evaluate(async (sel) => {
+        const btn = document.querySelector(sel);
+        const g = btn.querySelector('.settings-gear');
+        const m = /url\("(.+)"\)/.exec(getComputedStyle(g).backgroundImage);
+        const img = new Image();
+        if (m) { img.src = m[1]; await img.decode(); }
+        const r = g.getBoundingClientRect();
+        return { glyph: btn.textContent.includes('⚙'), w: img.naturalWidth, h: img.naturalHeight, size: getComputedStyle(g).backgroundSize, box: [r.width, r.height] };
+      }, sel);
+      const expectArt = (where, a) => {
+        if (a.glyph) fail(`${where}: still shows the old ⚙ glyph`);
+        if (a.w !== 1262 || a.h !== 1246) fail(`${where}: not the supplied gear artwork (${a.w}x${a.h})`);
+        if (a.size !== 'contain' || Math.abs(a.box[0] - a.box[1]) > 0.5) fail(`${where}: gear not drawn whole/in proportion (${a.size}, ${a.box})`);
+      };
+      // The centre hole and the corners show what's behind; the ring is drawn.
+      const seeThrough = async (sel) => {
+        const gear = page.locator(`${sel} .settings-gear`);
+        // Element screenshots follow the element even if the page is scrolled.
+        const grab = async () => PNG.sync.read(await gear.screenshot({ animations: 'disabled' }));
+        await page.waitForTimeout(500);                       // any panel fade-in finishes
+        const shown = await grab();
+        if (!shown.data.equals((await grab()).data)) fail(`${sel}: screen still changing; can't compare`);
+        await page.evaluate((sel) => { document.querySelector(`${sel} .settings-gear`).style.opacity = '0'; }, sel);
+        const hidden = await grab();
+        await page.evaluate((sel) => { document.querySelector(`${sel} .settings-gear`).style.opacity = ''; }, sel);
+        const px = (img, fx, fy) => { const x = Math.round((img.width - 1) * fx), y = Math.round((img.height - 1) * fy), i = (y * img.width + x) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
+        const d = (fx, fy) => Math.max(...px(shown, fx, fy).map((v, i) => Math.abs(v - px(hidden, fx, fy)[i])));
+        // Centre of the hole (the artwork's gear is centred at ~47.5% / 50.9%),
+        // a corner, and the solid ring just above the hole.
+        if (d(0.475, 0.509) > 2 || d(0.02, 0.02) > 2) fail(`${sel}: gear centre/background not transparent (centre ${d(0.475, 0.509)}, corner ${d(0.02, 0.02)})`);
+        if (d(0.475, 0.23) < 20) fail(`${sel}: gear ring not drawn (${d(0.475, 0.23)})`);
+      };
+      expectArt('main menu', await art('#menu-settings'));
+      await seeThrough('#menu-settings');
+      await page.click('#menu-settings');
+      await page.waitForSelector('#settings-back');
+      await page.click('#settings-back');
+      await page.waitForSelector('#downhill');
+      await page.click('#downhill');
+      await page.setViewportSize(LANDSCAPE);
+      await page.waitForSelector('#hud');
+      expectArt('in-run HUD', await art('#hud-settings'));
+      await page.click('#hud-settings');
+      await page.waitForSelector('#settings-back');
+      await page.click('#settings-back');
+      await page.click('#pause');
+      expectArt('pause menu', await art('#pause-settings'));
+      await quitRun();
+      await page.setViewportSize(PORTRAIT);
       await page.waitForSelector('#downhill');
     });
 

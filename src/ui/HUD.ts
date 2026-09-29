@@ -51,7 +51,7 @@ export function buildHUD(root: HTMLElement): HUDRefs {
           <span class="ring-best" id="ring-best">best 0</span>
         </div>
         <div class="top-actions">
-          <button class="gear-btn" id="hud-settings" aria-label="Settings">⚙</button>
+          <button class="gear-btn" id="hud-settings" aria-label="Settings"><span class="settings-gear" aria-hidden="true"></span></button>
           <button class="pause-btn" id="pause" aria-label="Pause">
             <svg class="pause-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4.2" height="14" rx="1.4" /><rect x="13.8" y="5" width="4.2" height="14" rx="1.4" /></svg>
           </button>
@@ -100,7 +100,7 @@ export function buildHUD(root: HTMLElement): HUDRefs {
         <div class="list">
           <button id="resume">Resume</button>
           <button id="pause-upgrades">Upgrades 🛍</button>
-          <button id="pause-settings">Settings ⚙</button>
+          <button id="pause-settings">Settings <span class="settings-gear inline" aria-hidden="true"></span></button>
           <button id="pause-howto" style="display:none">How to play</button>
           <button id="switch-style">Switch Style</button>
           <button id="quit" class="danger">Quit run</button>
