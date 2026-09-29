@@ -853,13 +853,25 @@ async function main() {
         const gear = page.locator(`${sel} .settings-gear`);
         // Element screenshots follow the element even if the page is scrolled.
         const grab = async () => PNG.sync.read(await gear.screenshot({ animations: 'disabled' }));
-        await page.waitForTimeout(500);                       // any panel fade-in finishes
-        const shown = await grab();
-        if (!shown.data.equals((await grab()).data)) fail(`${sel}: screen still changing; can't compare`);
+        const px = (img, fx, fy) => { const x = Math.round((img.width - 1) * fx), y = Math.round((img.height - 1) * fy), i = (y * img.width + x) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
+        // The points compared below: hole centre, a corner, the ring above
+        // the hole. (The bouncing title can graze the box's bottom edge,
+        // so only these points must hold still between captures.)
+        const POINTS = [[0.475, 0.509], [0.02, 0.02], [0.475, 0.23]];
+        const sample = (img) => JSON.stringify(POINTS.map(([fx, fy]) => px(img, fx, fy)));
+        // Wait for those points to hold still (panel fade-ins, a transition
+        // from the previous tap); give up after ~2 s.
+        let shown = await grab();
+        for (let tries = 0; ; tries++) {
+          await page.waitForTimeout(300);
+          const next = await grab();
+          if (sample(next) === sample(shown)) break;
+          if (tries >= 5) fail(`${sel}: gear area still changing; can't compare`);
+          shown = next;
+        }
         await page.evaluate((sel) => { document.querySelector(`${sel} .settings-gear`).style.opacity = '0'; }, sel);
         const hidden = await grab();
         await page.evaluate((sel) => { document.querySelector(`${sel} .settings-gear`).style.opacity = ''; }, sel);
-        const px = (img, fx, fy) => { const x = Math.round((img.width - 1) * fx), y = Math.round((img.height - 1) * fy), i = (y * img.width + x) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
         const d = (fx, fy) => Math.max(...px(shown, fx, fy).map((v, i) => Math.abs(v - px(hidden, fx, fy)[i])));
         // Centre of the hole (the artwork's gear is centred at ~47.5% / 50.9%),
         // a corner, and the solid ring just above the hole.
