@@ -17,7 +17,7 @@ export function showContinuePrompt(root: HTMLElement, profiles: ProfileService):
     const p = profiles.activeProfile!;
     const lastPlayed = p.lastPlayedMs ? new Date(p.lastPlayedMs).toLocaleString() : 'unknown';
     root.innerHTML = `
-      <div class="fullscreen-panel menu-bg menu-bg-stacked">
+      <div class="fullscreen-panel menu-bg menu-bg-stacked splash-bg">
         <h1 class="title-bouncy">${bouncyTextHtml("Where's the Bottom?")}</h1>
         <p class="muted">Last player: ${escapeHtml(p.name)}</p>
         <p class="muted">Last played: ${escapeHtml(lastPlayed)}</p>

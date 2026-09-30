@@ -50,6 +50,18 @@ html, body {
   background-repeat: no-repeat;
   backdrop-filter: none;
 }
+/* Splash / profile picker: the portrait snowboarder art, full-bleed.
+   cover keeps its proportions and fills the whole panel (safe areas
+   included; the panel's padding keeps the controls clear of them).
+   30% down keeps the rider's goggles in view when landscape crops the
+   height. Same readability shade as the other menus. */
+.fullscreen-panel.menu-bg.splash-bg {
+  background-image:
+    linear-gradient(rgba(11, 19, 32, 0.55), rgba(11, 19, 32, 0.78)),
+    url('./assets/splash-bg.png');
+  background-position: center, center 30%;
+  background-size: 100% 100%, cover;
+}
 .fullscreen-panel.menu-bg-stacked {
   justify-content: flex-end;
   padding-bottom: clamp(20px, 8vh, 80px);

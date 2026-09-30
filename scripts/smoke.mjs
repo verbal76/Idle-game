@@ -898,6 +898,81 @@ async function main() {
       await page.waitForSelector('#downhill');
     });
 
+    await step('splash / profile picker: the supplied background art, full-bleed, no top band', async () => {
+      // The panel's own background, measured in the page: which image,
+      // how it's scaled, and whether it covers the whole screen.
+      const bg = () => page.evaluate(async () => {
+        const panel = document.querySelector('.fullscreen-panel.splash-bg');
+        if (!panel) return null;
+        const cs = getComputedStyle(panel);
+        const urls = [...cs.backgroundImage.matchAll(/url\("(.+?)"\)/g)].map(m => m[1]);
+        const img = new Image();
+        if (urls.length === 1) { img.src = urls[0]; await img.decode(); }
+        const r = panel.getBoundingClientRect();
+        const onTop = (el) => { const b = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2)); };
+        const buttons = [...panel.querySelectorAll('button')];
+        return {
+          urls: urls.length, w: img.naturalWidth, h: img.naturalHeight,
+          size: cs.backgroundSize, rect: [r.left, r.top, r.right, r.bottom],
+          view: [innerWidth, innerHeight],
+          title: !!panel.querySelector('.title-bouncy'),
+          buttons: buttons.length,
+          blocked: buttons.filter(b => !onTop(b)).map(b => b.id || b.textContent),
+        };
+      });
+      // Average colour of screenshot rows [y0, y1): tolerant of scaling
+      // and small rendering differences.
+      const rows = (img, y0, y1) => {
+        const sum = [0, 0, 0]; let n = 0;
+        for (let y = y0; y < y1; y++) for (let x = 0; x < img.width; x++) {
+          const i = (y * img.width + x) * 4; sum[0] += img.data[i]; sum[1] += img.data[i + 1]; sum[2] += img.data[i + 2]; n++;
+        }
+        return sum.map(v => v / n);
+      };
+      const check = async (where) => {
+        await page.waitForTimeout(400); // resize + panel fade-in
+        const b = await bg();
+        if (!b) fail(`${where}: splash background panel missing`);
+        if (b.urls !== 1 || b.w !== 941 || b.h !== 1672) fail(`${where}: not the supplied splash art (${b.urls} images, ${b.w}x${b.h})`);
+        if (!/(^|, )cover$/.test(b.size)) fail(`${where}: art not scaled with cover, so not in proportion (${b.size})`);
+        if (b.rect[0] !== 0 || b.rect[1] !== 0 || b.rect[2] !== b.view[0] || b.rect[3] !== b.view[1]) fail(`${where}: background doesn't reach the screen edges: ${b.rect} vs ${b.view}`);
+        if (!b.title || b.buttons < 2 || b.blocked.length) fail(`${where}: live UI missing or covered (title ${b.title}, ${b.buttons} buttons, covered: ${b.blocked})`);
+        // Top edge: no dark strip or separate band. The top rows must be
+        // lit and match the art just below them (the old art had black,
+        // then blue-grey rows baked into its top edge).
+        // The live UI is hidden for this capture, so only the background counts.
+        const hideUi = (on) => page.evaluate((on) => { for (const el of document.querySelectorAll('.splash-bg > *')) el.style.visibility = on ? 'hidden' : ''; }, on);
+        await hideUi(true);
+        const shot = PNG.sync.read(await page.screenshot({ clip: { x: 0, y: 0, width: b.view[0], height: 48 }, animations: 'disabled' }));
+        await hideUi(false);
+        const top = rows(shot, 0, 8), below = rows(shot, 28, 44);
+        if (Math.max(...top) < 30) fail(`${where}: dark strip at the top (${top.map(Math.round)})`);
+        const jump = Math.max(...top.map((v, i) => Math.abs(v - below[i])));
+        if (jump > 30) fail(`${where}: band at the top edge (top ${top.map(Math.round)} vs below ${below.map(Math.round)})`);
+      };
+      // Supported sizes plus a 393x873 phone.
+      const sizes = [[320, 568], [412, 915], [568, 320], [915, 412], [800, 1280], [1280, 800], [393, 873]];
+      // Profile picker (from the main menu).
+      await page.click('#switch');
+      await page.waitForSelector('#profile-list');
+      for (const [width, height] of sizes) { await page.setViewportSize({ width, height }); await check(`picker ${width}x${height}`); }
+      // The picker's gear still opens Settings on this background.
+      await page.setViewportSize(PORTRAIT);
+      await page.click('#ps-settings');
+      await page.waitForSelector('#settings-back');
+      await page.click('#settings-back');
+      await page.waitForSelector('#profile-list');
+      // Continue prompt: the launch splash when a profile is saved.
+      await page.reload();
+      await page.waitForSelector('#continue');
+      for (const [width, height] of sizes) { await page.setViewportSize({ width, height }); await check(`continue ${width}x${height}`); }
+      await page.setViewportSize(PORTRAIT);
+      await page.click('#continue');
+      await page.waitForSelector('#downhill');
+      // Other menus keep their own art.
+      if (await page.$('.splash-bg')) fail('main menu picked up the splash art');
+    });
+
     console.log('smoke: PASS');
   } finally {
     await browser.close();
