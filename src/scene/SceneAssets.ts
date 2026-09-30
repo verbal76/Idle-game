@@ -74,20 +74,21 @@ export class SceneAssets {
     this.buildTreeTemplates();
   }
 
-  // Colours are tuned so warm sun + hemi light never clip the snow to
-  // white: peak rendered R stays around 0.83.
+  // Daytime palette: the lit snow stays just under white so the facets
+  // still read; the shaded side goes cool blue.
   private buildSharedMaterials(): void {
-    this.snowMat     = mkMat(this.scene, 'snow',     new Color3(0.78, 0.82, 0.88));
+    this.snowMat     = mkMat(this.scene, 'snow',     new Color3(0.84, 0.89, 0.97));
     // Steep segments can flip triangle normals; draw both sides so a
     // flipped triangle never becomes a hole.
     this.snowMat.backFaceCulling = false;
     // A cool emissive floor keeps the snow readable against the warm fog.
-    this.snowMat.emissiveColor = new Color3(0.08, 0.12, 0.18);
-    this.rockMat     = mkMat(this.scene, 'rock',     new Color3(0.32, 0.35, 0.38));
+    this.snowMat.emissiveColor = new Color3(0.10, 0.15, 0.25);
+    this.rockMat     = mkMat(this.scene, 'rock',     new Color3(0.36, 0.37, 0.43));
     // Pine colours come from Kenney's MTL files.
     this.trunkMat    = mkMat(this.scene, 'trunk',    new Color3(0.8000, 0.4627, 0.3686));
-    this.foliageMat  = mkMat(this.scene, 'foliage',  new Color3(0.1686, 0.6510, 0.6667));
-    this.mountainMat = mkMat(this.scene, 'mountain', new Color3(0.42, 0.46, 0.58));
+    // Deep pine green (the Kenney teal read as plastic on white snow).
+    this.foliageMat  = mkMat(this.scene, 'foliage',  new Color3(0.13, 0.46, 0.34));
+    this.mountainMat = mkMat(this.scene, 'mountain', new Color3(0.44, 0.54, 0.72));
     this.cliffMat = mkMat(this.scene, 'cliff', new Color3(0.55, 0.78, 0.95));
     this.cliffMat.emissiveColor = new Color3(0.18, 0.30, 0.40);
   }

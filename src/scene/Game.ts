@@ -22,6 +22,11 @@ import { ChunkStreamer } from './ChunkStreamer';
 import { HP } from './halfPipeGeometry';
 import { buildBackgroundMountains, buildSky, buildSnowDust, buildSnowTrail, spawnRingFlicker } from './environment';
 
+// Chase camera: close enough that the rider fills a useful part of a
+// phone screen (was 13 m back / 6.5 m up, which left a ~40 px rider).
+const CAM_RADIUS = 9.5;
+const CAM_HEIGHT = 4.6;
+
 export type { GameMode } from './Terrain';
 
 export interface GameInput {
@@ -236,17 +241,17 @@ export class Game {
     this.scene = stage.scene;
     this.assets = stage.assets;
 
-    // Warm dusk lighting, balanced with the snow material so the
-    // brightest pixel stays below white. The pipe walls block the sun,
-    // so the half-pipe gets more hemispheric fill.
+    // Bright alpine day: cool sky fill, warm-white sun. Balanced with the
+    // snow material so lit snow stays just under white. The pipe walls
+    // block the sun, so the half-pipe gets more hemispheric fill.
     const hemi = new HemisphericLight('hemi', new Vector3(0, 1, 0), this.scene);
-    hemi.intensity = (mode === 'half-pipe') ? 0.65 : 0.40;
-    hemi.diffuse    = new Color3(0.78, 0.72, 0.85);
-    hemi.groundColor = new Color3(0.45, 0.30, 0.40);
+    hemi.intensity = (mode === 'half-pipe') ? 0.72 : 0.52;
+    hemi.diffuse    = new Color3(0.82, 0.90, 1.00);
+    hemi.groundColor = new Color3(0.46, 0.54, 0.72);
     const sun = new DirectionalLight('sun', new Vector3(-0.45, -0.85, -0.25), this.scene);
-    sun.intensity = 0.75;
-    sun.diffuse  = new Color3(1.00, 0.78, 0.58);
-    sun.specular = new Color3(0.30, 0.25, 0.20);
+    sun.intensity = 0.72;
+    sun.diffuse  = new Color3(1.00, 0.95, 0.86);
+    sun.specular = new Color3(0.25, 0.25, 0.25);
 
     this.rider = buildRider(this.scene);
     this.terrain = new Terrain(this.scene, this.mode, new SeedRng(this.runSeed), this.assets);
@@ -344,10 +349,10 @@ export class Game {
 
     const rp = this.rider.root.position;
     const cam = new FollowCamera('cam',
-      new Vector3(rp.x, rp.y + 6.5, rp.z - 13),
+      new Vector3(rp.x, rp.y + CAM_HEIGHT, rp.z - CAM_RADIUS),
       this.scene, follow);
-    cam.heightOffset = 6.5;
-    cam.radius = 13;
+    cam.heightOffset = CAM_HEIGHT;
+    cam.radius = CAM_RADIUS;
     cam.rotationOffset = 180;
     // Snap into place for the first ~120 ms, then smooth follow.
     cam.cameraAcceleration = 1.0;
@@ -377,7 +382,7 @@ export class Game {
     const speedFrac = Math.min(1, this.speed / this.maxSpeed);
     const baseFov = 0.80;
     const fovBreathe = baseFov + 0.12 * speedFrac;
-    const baseHeight = 6.5;
+    const baseHeight = CAM_HEIGHT;
     let dipHeight = baseHeight;
     const now = this.clock;
     if (now < this.impactBurstUntil) {

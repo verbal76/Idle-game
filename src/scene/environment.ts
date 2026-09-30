@@ -9,14 +9,23 @@ import { mkMat } from './SceneAssets';
 export function buildBackgroundMountains(scene: Scene, mountainMat: StandardMaterial): TransformNode {
   const anchor = new TransformNode('mountain-anchor', scene);
 
+  // Each peak is a rock cone with a snow cap (a smaller cone of the
+  // same slope on top). All cones merge into two meshes: 2 draw calls.
+  const rock: Mesh[] = [];
+  const caps: Mesh[] = [];
   let i = 0;
   const make = (x: number, z: number, h: number, w: number) => {
-    const m = MeshBuilder.CreateCylinder(`mountain-${i++}`, {
+    const m = MeshBuilder.CreateCylinder(`mountain-${i}`, {
       diameterTop: 0, diameterBottom: w, height: h, tessellation: 8
     }, scene);
-    m.material = mountainMat;
     m.position.set(x, h / 2 - 18, z);
-    m.parent = anchor;
+    rock.push(m);
+    const ch = h * 0.4;
+    const c = MeshBuilder.CreateCylinder(`mountain-cap-${i++}`, {
+      diameterTop: 0, diameterBottom: w * 0.4 * 1.04, height: ch * 1.04, tessellation: 8
+    }, scene);
+    c.position.set(x, h - 18 - ch * 1.04 / 2 + 0.2, z);
+    caps.push(c);
   };
 
   const wallSpan = [-260, -180, -100, -20, 60, 140, 220, 300, 380, 460];
@@ -38,21 +47,35 @@ export function buildBackgroundMountains(scene: Scene, mountainMat: StandardMate
   for (const x of [-260, -80, 120, 280]) {
     make(x, -360 + Math.sin(x * 0.02) * 30, 110 + Math.sin(x) * 30, 90);
   }
+  const rockMesh = Mesh.MergeMeshes(rock, true, true)!;
+  rockMesh.name = 'mountains';
+  rockMesh.material = mountainMat;
+  rockMesh.parent = anchor;
+  const capMesh = Mesh.MergeMeshes(caps, true, true)!;
+  capMesh.name = 'mountain-caps';
+  const capMat = new StandardMaterial('mountain-cap-mat', scene);
+  capMat.diffuseColor = new Color3(0.92, 0.95, 1.0);
+  capMat.emissiveColor = new Color3(0.30, 0.36, 0.48);
+  capMat.specularColor = new Color3(0, 0, 0);
+  capMesh.material = capMat;
+  capMesh.parent = anchor;
   return anchor;
 }
 
-// Dusk gradient on an inside-out sphere. Radius 1200 keeps the far
+// Sky gradient on an inside-out sphere. Radius 1200 keeps the far
 // mountains (z≈900) inside it so the sky never occludes them.
 export function buildSky(scene: Scene, anchor: TransformNode): void {
   const tex = new DynamicTexture('sky-tex', { width: 64, height: 512 }, scene, false);
   const ctx = tex.getContext() as unknown as CanvasRenderingContext2D;
   const g = ctx.createLinearGradient(0, 0, 0, 512);
-  g.addColorStop(0.00, '#0d143a');
-  g.addColorStop(0.30, '#2a2256');
-  g.addColorStop(0.55, '#7a3d63');
-  g.addColorStop(0.78, '#d56a4f');
-  g.addColorStop(0.92, '#f0a878');
-  g.addColorStop(1.00, '#a47a86');
+  // Alpine day: deep blue overhead to pale haze at the horizon (the
+  // texture's v runs top → bottom of the sphere).
+  g.addColorStop(0.00, '#0b3f9e');
+  g.addColorStop(0.30, '#1f6fd6');
+  g.addColorStop(0.46, '#58a4f0');
+  g.addColorStop(0.50, '#bfe0ff');
+  g.addColorStop(0.53, '#dcefff');
+  g.addColorStop(1.00, '#cfe3f7');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 64, 512);
   tex.update();
@@ -70,6 +93,33 @@ export function buildSky(scene: Scene, anchor: TransformNode): void {
   sky.material = mat;
   sky.applyFog = false;
   sky.parent = anchor;
+
+  // Sun: a glowing billboard up-sky, ahead and to the left (where the
+  // sun sits in the menu art). Additive, so it only brightens the sky.
+  const sunTex = new DynamicTexture('sun-tex', 128, scene, false);
+  const sctx = sunTex.getContext() as unknown as CanvasRenderingContext2D;
+  const sg = sctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  sg.addColorStop(0.00, 'rgba(255,255,255,1)');
+  sg.addColorStop(0.12, 'rgba(255,252,235,1)');
+  sg.addColorStop(0.30, 'rgba(255,240,200,0.45)');
+  sg.addColorStop(1.00, 'rgba(255,230,190,0)');
+  sctx.fillStyle = sg;
+  sctx.fillRect(0, 0, 128, 128);
+  sunTex.update();
+  sunTex.hasAlpha = true;
+  const sunMat = new StandardMaterial('sun-mat', scene);
+  sunMat.emissiveTexture = sunTex;
+  sunMat.opacityTexture = sunTex;
+  sunMat.diffuseColor = new Color3(0, 0, 0);
+  sunMat.specularColor = new Color3(0, 0, 0);
+  sunMat.disableLighting = true;
+  sunMat.alphaMode = 1; // ALPHA_ADD
+  const sun = MeshBuilder.CreatePlane('sun', { size: 260 }, scene);
+  sun.material = sunMat;
+  sun.billboardMode = Mesh.BILLBOARDMODE_ALL;
+  sun.applyFog = false;
+  sun.position.set(-420, 380, 900);
+  sun.parent = anchor;
 }
 
 // Board spray. Emits from the follow target (already positioned each
@@ -113,10 +163,15 @@ export function buildSnowDust(scene: Scene, emitter: Mesh): ParticleSystem {
 export function buildSnowTrail(scene: Scene): { anchor: TransformNode; trail: TrailMesh } {
   const anchor = new TransformNode('trail-anchor', scene);
   anchor.position.set(0, 0.02, 0);
-  const trail = new TrailMesh('snow-trail', anchor, scene, 0.32, 80, false);
-  const trailMat = mkMat(scene, 'trail', new Color3(0.74, 0.81, 0.92));
-  trailMat.emissiveColor = new Color3(0.20, 0.24, 0.30);
-  trailMat.alpha = 0.55;
+  // A flat, cool-blue board track lying on the snow (2 sections = a
+  // ribbon), tapering out behind the rider. The old 0.32 m round tube
+  // read as a glowing white pole running under the chase camera.
+  const trail = new TrailMesh('snow-trail', anchor, scene, { diameter: 0.13, length: 30, sections: 2, autoStart: false });
+  const trailMat = mkMat(scene, 'trail', new Color3(0.66, 0.75, 0.92));
+  trailMat.emissiveColor = new Color3(0.08, 0.12, 0.20);
+  trailMat.specularColor = new Color3(0, 0, 0);
+  trailMat.alpha = 0.35;
+  trailMat.backFaceCulling = false;
   trail.material = trailMat;
   return { anchor, trail };
 }

@@ -18,11 +18,22 @@ export class Stage {
   constructor(canvas: HTMLCanvasElement) {
     this.engine = new Engine(canvas, true, { stencil: true });
     this.scene = new Scene(this.engine);
-    this.scene.clearColor = new Color4(0.36, 0.26, 0.42, 1);
+    // Bright alpine day (matches the menu art): pale blue haze.
+    this.scene.clearColor = new Color4(0.62, 0.80, 0.97, 1);
     this.scene.fogEnabled = true;
     this.scene.fogMode = Scene.FOGMODE_EXP2;
-    this.scene.fogDensity = 0.0022;
-    this.scene.fogColor = new Color3(0.78, 0.55, 0.55);
+    this.scene.fogDensity = 0.0026;
+    this.scene.fogColor = new Color3(0.78, 0.88, 0.98);
+    // Colour grading in the material shaders (no extra pass): a little
+    // contrast and a soft vignette. Replaces the CSS filter on the canvas,
+    // which cost a full-screen composite every frame on phones.
+    const ip = this.scene.imageProcessingConfiguration;
+    ip.contrast = 1.12;
+    ip.exposure = 1.04;
+    ip.vignetteEnabled = true;
+    ip.vignetteWeight = 0.9;
+    ip.vignetteStretch = 0.4;
+    ip.vignetteColor = new Color4(0.05, 0.12, 0.28, 0);
     this.assets = new SceneAssets(this.scene);
     this.assets.buildTemplates();
     for (const o of this.allObjects()) this.baseline.add(o);

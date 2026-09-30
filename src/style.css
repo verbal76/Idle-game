@@ -14,7 +14,6 @@ html, body {
 }
 #renderCanvas {
   position: fixed; inset: 0; width: 100vw; height: 100vh; outline: none; display: block;
-  filter: saturate(1.08) contrast(1.04);
 }
 #renderCanvas::after { content: ''; }
 .vignette {
