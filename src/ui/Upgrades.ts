@@ -3,6 +3,7 @@ import { costForNext, purchaseUpgrade } from '../game/shop';
 import { soundFx } from '../audio/SoundFx';
 import { haptics } from '../util/haptics';
 import { displayFlakes } from '../game/economy';
+import { ICON_FLAKE } from './icons';
 import { UPGRADES, effectPreview } from '../game/upgrades';
 import { countAt } from '../game/economy';
 
@@ -17,9 +18,9 @@ export function showUpgrades(root: HTMLElement, profiles: ProfileService): Promi
     const render = () => {
       const p = profiles.activeProfile!;
       root.innerHTML = `
-        <div class="fullscreen-panel menu-bg">
+        <div class="fullscreen-panel menu-bg splash-bg">
           <h1>UPGRADES</h1>
-          <div class="shop-balance" id="shop-balance">${displayFlakes(p.currency)} <span>❄</span></div>
+          <div class="shop-balance" id="shop-balance">${displayFlakes(p.currency)} <span>${ICON_FLAKE}</span></div>
           <div class="upgrades-list" id="upgrades-list"></div>
           <div class="row"><button id="upgrades-back">Back</button></div>
         </div>

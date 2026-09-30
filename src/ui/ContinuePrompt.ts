@@ -22,7 +22,7 @@ export function showContinuePrompt(root: HTMLElement, profiles: ProfileService):
         <p class="muted">Last player: ${escapeHtml(p.name)}</p>
         <p class="muted">Last played: ${escapeHtml(lastPlayed)}</p>
         <div class="list">
-          <button id="continue">Continue as ${escapeHtml(p.name)}</button>
+          <button id="continue" class="btn-go">Continue as ${escapeHtml(p.name)}</button>
           <button id="new-profile">New Profile</button>
         </div>
       </div>

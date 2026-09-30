@@ -66,14 +66,14 @@ export function buildHUD(root: HTMLElement): HUDRefs {
         <div class="halfpipe-intro-card">
           <h1>Half-pipe</h1>
           <ul class="halfpipe-intro-list">
-            <li><span class="hp-icon hp-icon-strip">▮</span> <b>Yellow strips</b> in the trough — speed boost</li>
-            <li><span class="hp-icon hp-icon-ring">◯</span> <b>Magenta rings</b> — flip-through bonus + streak (miss one and the streak resets)</li>
-            <li><span class="hp-icon">⤺</span> <b>Hit the lip</b> — bounces you back into the bowl</li>
-            <li><span class="hp-icon">↷</span> <b>Hold Deep carve</b> (curved arrow) — tighter, deeper carve</li>
-            <li><span class="hp-icon">↻</span> <b>FLIP</b> = front flip, <b>FLIP + Deep carve</b> = back flip (+25%)</li>
-            <li><span class="hp-icon">⟲</span> Steer in the air to spin; land within 30° — backward rides switch (+50% spin)</li>
-            <li><span class="hp-icon">✦</span> Flip + spin in one jump = <b>cork</b> (×1.5)</li>
-            <li><span class="hp-icon">+</span> Chain landings within 5 s — combo multiplier</li>
+            <li><span class="hp-icon hp-icon-strip">▮</span><span class="hp-text"><b>Yellow strips</b> in the trough — speed boost</span></li>
+            <li><span class="hp-icon hp-icon-ring">◯</span><span class="hp-text"><b>Magenta rings</b> — flip-through bonus + streak (miss one and the streak resets)</span></li>
+            <li><span class="hp-icon">⤺</span><span class="hp-text"><b>Hit the lip</b> — bounces you back into the bowl</span></li>
+            <li><span class="hp-icon">↷</span><span class="hp-text"><b>Hold Deep carve</b> (curved arrow) — tighter, deeper carve</span></li>
+            <li><span class="hp-icon">↻</span><span class="hp-text"><b>FLIP</b> = front flip, <b>FLIP + Deep carve</b> = back flip (+25%)</span></li>
+            <li><span class="hp-icon">⟲</span><span class="hp-text">Steer in the air to spin; land within 30° — backward rides switch (+50% spin)</span></li>
+            <li><span class="hp-icon">✦</span><span class="hp-text">Flip + spin in one jump = <b>cork</b> (×1.5)</span></li>
+            <li><span class="hp-icon">+</span><span class="hp-text">Chain landings within 5 s — combo multiplier</span></li>
           </ul>
           <p class="halfpipe-intro-hint">Tap to dismiss</p>
         </div>
@@ -98,8 +98,8 @@ export function buildHUD(root: HTMLElement): HUDRefs {
       <div id="pause-menu" class="fullscreen-panel" style="display:none">
         <h1>Paused</h1>
         <div class="list">
-          <button id="resume">Resume</button>
-          <button id="pause-upgrades">Upgrades 🛍</button>
+          <button id="resume" class="btn-go">Resume</button>
+          <button id="pause-upgrades" class="btn-accent">Upgrades</button>
           <button id="pause-settings">Settings <span class="settings-gear inline" aria-hidden="true"></span></button>
           <button id="pause-howto" style="display:none">How to play</button>
           <button id="switch-style">Switch Style</button>
@@ -111,8 +111,8 @@ export function buildHUD(root: HTMLElement): HUDRefs {
         <h1 id="fell-title">You fell</h1>
         <div id="fell-stats"></div>
         <div class="list">
-          <button id="fell-ok">Back to menu</button>
-          <button id="fell-upgrades">Upgrades 🛍</button>
+          <button id="fell-ok" class="btn-go">Back to menu</button>
+          <button id="fell-upgrades" class="btn-accent">Upgrades</button>
           <button id="fell-switch">Switch Style</button>
         </div>
       </div>

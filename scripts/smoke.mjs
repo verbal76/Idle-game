@@ -367,16 +367,15 @@ async function main() {
       const a = await read();
       if (!/Milestones [1-9]\d*\/15/.test(a.miles)) fail(`milestones header: ${a.miles}`);
       if (!/Finish 3 runs today ?✔/.test(a.daily)) fail(`daily not done: ${a.daily}`);
-      const menu = await page.textContent('.fullscreen-panel');
-      const bal = Number((menu.match(/— (\d+) ❄/) ?? [])[1]);
+      const bal = Number((await page.textContent('.menu-profile .pill-flakes')).replace(/\D/g, ''));
       if (!(bal >= 25)) fail(`expected >= 25 ❄ (10 first-run milestone + 15 daily), got ${bal}`);
       await page.reload();
       await page.click('#continue');
       await page.waitForSelector('#downhill');
       const b = await read();
       if (b.miles !== a.miles || b.daily !== a.daily) fail(`goals changed on reload: ${JSON.stringify([a, b])}`);
-      const menu2 = await page.textContent('.fullscreen-panel');
-      if (Number((menu2.match(/— (\d+) ❄/) ?? [])[1]) !== bal) fail('balance changed on reload');
+      const bal2 = Number((await page.textContent('.menu-profile .pill-flakes')).replace(/\D/g, ''));
+      if (bal2 !== bal) fail('balance changed on reload');
     });
 
     await step('OTA reload deferred: run:start/run:end bracket every run (#1)', async () => {
@@ -412,8 +411,8 @@ async function main() {
       // 10.7 ❄: menu must show whole flakes (#4), and one purchase leaves
       // the 0.7 fraction in the bank.
       await patchProfile({ currency: 10.7 });
-      const menu = await page.textContent('.fullscreen-panel');
-      if (!/— 10 ❄/.test(menu)) fail(`menu should show 10 ❄ for 10.7, got: ${menu}`);
+      const menu = (await page.textContent('.menu-profile .pill-flakes')).trim();
+      if (menu !== '10') fail(`menu should show 10 ❄ for 10.7, got: ${menu}`);
       await page.click('#upgrades');
       await page.waitForSelector('.upgrade-buy:not([disabled])');
       await page.evaluate(() => {
@@ -423,7 +422,8 @@ async function main() {
       await page.waitForFunction(() => document.querySelector('.upgrade-level')?.textContent?.includes('1/20'));
       await page.waitForTimeout(700);                       // past the balance tick-down (#28)
       const text = await page.textContent('.fullscreen-panel');
-      if (!/\b0 ❄/.test(text)) fail(`expected 0 ❄ after one purchase, got: ${text}`);
+      const shop = (await page.textContent('#shop-balance')).trim();
+      if (shop !== '0') fail(`expected 0 ❄ after one purchase, got: ${shop}`);
       if (/2\/20/.test(text)) fail('double tap bought two levels');
       await page.click('#upgrades-back');
       await page.waitForSelector('#downhill');
@@ -898,7 +898,7 @@ async function main() {
       await page.waitForSelector('#downhill');
     });
 
-    await step('splash / profile picker: the supplied background art, full-bleed, no top band', async () => {
+    await step('menu art (splash, picker, main menu, Upgrades): the supplied background, full-bleed, no top band', async () => {
       // The panel's own background, measured in the page: which image,
       // how it's scaled, and whether it covers the whole screen.
       const bg = () => page.evaluate(async () => {
@@ -917,7 +917,8 @@ async function main() {
           view: [innerWidth, innerHeight],
           title: !!panel.querySelector('.title-bouncy'),
           buttons: buttons.length,
-          blocked: buttons.filter(b => !onTop(b)).map(b => b.id || b.textContent),
+          // Buttons scrolled below the fold aren't checked.
+          blocked: buttons.filter(b => { const r = b.getBoundingClientRect(); return r.bottom <= innerHeight && r.top >= 0 && !onTop(b); }).map(b => b.id || b.textContent),
         };
       });
       // Average colour of screenshot rows [y0, y1): tolerant of scaling
@@ -929,14 +930,14 @@ async function main() {
         }
         return sum.map(v => v / n);
       };
-      const check = async (where) => {
+      const check = async (where, { title = true } = {}) => {
         await page.waitForTimeout(400); // resize + panel fade-in
         const b = await bg();
         if (!b) fail(`${where}: splash background panel missing`);
         if (b.urls !== 1 || b.w !== 941 || b.h !== 1672) fail(`${where}: not the supplied splash art (${b.urls} images, ${b.w}x${b.h})`);
         if (!/(^|, )cover$/.test(b.size)) fail(`${where}: art not scaled with cover, so not in proportion (${b.size})`);
         if (b.rect[0] !== 0 || b.rect[1] !== 0 || b.rect[2] !== b.view[0] || b.rect[3] !== b.view[1]) fail(`${where}: background doesn't reach the screen edges: ${b.rect} vs ${b.view}`);
-        if (!b.title || b.buttons < 2 || b.blocked.length) fail(`${where}: live UI missing or covered (title ${b.title}, ${b.buttons} buttons, covered: ${b.blocked})`);
+        if ((title && !b.title) || b.buttons < 2 || b.blocked.length) fail(`${where}: live UI missing or covered (title ${b.title}, ${b.buttons} buttons, covered: ${b.blocked})`);
         // Top edge: no dark strip or separate band. The top rows must be
         // lit and match the art just below them (the old art had black,
         // then blue-grey rows baked into its top edge).
@@ -969,8 +970,15 @@ async function main() {
       await page.setViewportSize(PORTRAIT);
       await page.click('#continue');
       await page.waitForSelector('#downhill');
-      // Other menus keep their own art.
-      if (await page.$('.splash-bg')) fail('main menu picked up the splash art');
+      // The main menu and Upgrades are on the same art (the old art's
+      // top band must not come back there either).
+      for (const [width, height] of [[412, 915], [915, 412], [320, 568]]) { await page.setViewportSize({ width, height }); await check(`main menu ${width}x${height}`); }
+      await page.setViewportSize(PORTRAIT);
+      await page.click('#upgrades');
+      await page.waitForSelector('#upgrades-list');
+      await check('upgrades 412x915', { title: false });
+      await page.click('#upgrades-back');
+      await page.waitForSelector('#downhill');
     });
 
     console.log('smoke: PASS');

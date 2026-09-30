@@ -72,14 +72,14 @@ export function showSettings(
           </div>
           <p class="muted" id="music-now">Now playing: ${escapeHtml(music.currentTitle())}</p>
           <div class="list">
-            <button id="music-skip">Skip track</button>
-            <button id="updates-check">Check for updates</button>
+            <button id="music-skip" class="btn-ghost">Skip track</button>
+            <button id="updates-check" class="btn-ghost">Check for updates</button>
             <p class="muted" id="updates-status"></p>
-            <button id="settings-about">About / Build info</button>
-            <button id="settings-bug">🐞 Send bug report</button>
-            <button id="settings-feature">💡 Send feature request</button>
+            <button id="settings-about" class="btn-ghost">About / Build info</button>
+            <button id="settings-bug" class="btn-ghost">Send bug report</button>
+            <button id="settings-feature" class="btn-ghost">Send feature request</button>
             ${buildInfoHtml()}
-            <button id="settings-back">Back</button>
+            <button id="settings-back" class="btn-go">Back</button>
           </div>
         </div>
       `;

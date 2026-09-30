@@ -1,3 +1,6 @@
+@font-face { font-family: 'Lilita One'; font-weight: 400; font-display: block; src: url('./assets/fonts/lilita-one-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Fredoka'; font-weight: 500; font-display: block; src: url('./assets/fonts/fredoka-latin-500-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Fredoka'; font-weight: 700; font-display: block; src: url('./assets/fonts/fredoka-latin-700-normal.woff2') format('woff2'); }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body {
   width: 100%; height: 100%;
@@ -34,33 +37,23 @@ html, body {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: none; }
 }
-.fullscreen-panel.menu-bg {
-  background-color: #0b1320;
-  background-image:
-    linear-gradient(rgba(11, 19, 32, 0.55), rgba(11, 19, 32, 0.78)),
-    url('./assets/menu-bg.png');
-  background-position: center, center top;
-  /* 120vmax × 120vmax = ~120% of cover for the square menu-bg art.
-     vmax picks whichever viewport dimension dominates (height in
-     portrait, width in landscape) so the image stays bigger than
-     the container in both orientations. center-top anchors the
-     boarder's head at the panel top — overflow crops the
-     snowboard bottom, not the face. */
-  background-size: 100% 100%, 120vmax 120vmax;
-  background-repeat: no-repeat;
-  backdrop-filter: none;
-}
-/* Splash / profile picker: the portrait snowboarder art, full-bleed.
+/* Menu screens (splash, profile picker, main menu, Upgrades): the
+   supplied snowboarder art (src/assets/splash-bg.png), full-bleed.
    cover keeps its proportions and fills the whole panel (safe areas
    included; the panel's padding keeps the controls clear of them).
    30% down keeps the rider's goggles in view when landscape crops the
-   height. Same readability shade as the other menus. */
-.fullscreen-panel.menu-bg.splash-bg {
+   height. The shade on top keeps text readable. (menu-bg.png, the old
+   art with a black + blue-grey band along its top edge, now only feeds
+   the app icon.) */
+.fullscreen-panel.menu-bg {
+  background-color: #0b1320;
   background-image:
-    linear-gradient(rgba(11, 19, 32, 0.55), rgba(11, 19, 32, 0.78)),
+    linear-gradient(rgba(11, 19, 32, 0.45) 0%, rgba(11, 19, 32, 0.30) 35%, rgba(11, 19, 32, 0.80) 100%),
     url('./assets/splash-bg.png');
   background-position: center, center 30%;
   background-size: 100% 100%, cover;
+  background-repeat: no-repeat;
+  backdrop-filter: none;
 }
 .fullscreen-panel.menu-bg-stacked {
   justify-content: flex-end;
@@ -706,3 +699,170 @@ html, body {
 .bi-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
 .fullscreen-panel .bi-actions .toggle { min-width: 0; min-height: 40px; padding: 6px 14px; font-size: 13px; }
 .build-info textarea { width: 100%; min-height: 120px; margin-top: 8px; box-sizing: border-box; }
+
+/* ════════════════════════════════════════════════════════════════════
+   Arcade theme (graphics/UI audit, G1). One layer on top of the rules
+   above: bundled display fonts (Lilita One for titles and numbers,
+   Fredoka for UI text; both SIL OFL, src/assets/fonts), chunky
+   two-tone buttons that press down, glassy cards, and SVG icons.
+   ════════════════════════════════════════════════════════════════════ */
+:root {
+  --font-ui: 'Fredoka', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Lilita One', 'Fredoka', system-ui, sans-serif;
+  --btn-blue: #2f86f6;  --btn-blue-hi: #5aa5ff;  --btn-blue-lo: #1b56b3;
+  --btn-go: #2fc766;    --btn-go-hi: #5fe48c;    --btn-go-lo: #1b8a45;
+  --btn-gold: #ffc53d;  --btn-gold-hi: #ffdd7a;  --btn-gold-lo: #c98a00;
+  --btn-red: #f0535a;   --btn-red-hi: #ff8086;   --btn-red-lo: #a82d33;
+  --ink: #0d1b33;
+  --card: linear-gradient(180deg, rgba(38, 72, 138, 0.78), rgba(18, 36, 76, 0.84));
+  --card-edge: rgba(150, 195, 255, 0.28);
+}
+html, body { font-family: var(--font-ui); font-weight: 500; }
+
+/* Plain panels (Settings, Stats, About, pause, run summary): a deep
+   blue wash instead of flat near-black. */
+.fullscreen-panel {
+  background: radial-gradient(120% 80% at 50% 0%, rgba(34, 78, 160, 0.94), rgba(9, 20, 44, 0.96) 70%);
+}
+
+/* Headings and the title in the display face. */
+.fullscreen-panel h1:not(.title-bouncy) {
+  font-family: var(--font-display); font-weight: 400;
+  font-size: 34px; letter-spacing: 0.06em;
+  text-shadow: 0 3px 0 #1b3d78, 0 6px 16px rgba(0, 0, 0, 0.45);
+}
+.fullscreen-panel h1.title-bouncy, .title-bouncy {
+  font-family: var(--font-display); font-weight: 400;
+  letter-spacing: 0.02em;
+  -webkit-text-stroke: 1.5px #7a1f3d;
+  text-shadow:
+    0 3px 0 #ef476f,
+    0 6px 0 #7a1f3d,
+    0 10px 18px rgba(0, 0, 0, 0.55);
+}
+
+/* ── Buttons: glossy top, darker lip underneath; pressing sinks it. ── */
+.fullscreen-panel button {
+  --b: var(--btn-blue); --b-hi: var(--btn-blue-hi); --b-lo: var(--btn-blue-lo);
+  font-family: var(--font-ui); font-weight: 700; font-size: 18px; letter-spacing: 0.01em;
+  color: #fff;
+  background: linear-gradient(180deg, var(--b-hi) 0%, var(--b) 55%);
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-radius: 16px;
+  padding: 11px 22px 13px;
+  min-height: 50px;
+  box-shadow: inset 0 -5px 0 var(--b-lo), 0 5px 0 rgba(0, 0, 0, 0.28), 0 8px 14px rgba(0, 0, 0, 0.25);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.28);
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  transition: transform 70ms ease-out, box-shadow 70ms ease-out, filter 70ms ease-out;
+}
+.fullscreen-panel button:active {
+  transform: translateY(4px);
+  box-shadow: inset 0 -2px 0 var(--b-lo), 0 1px 0 rgba(0, 0, 0, 0.28), 0 2px 6px rgba(0, 0, 0, 0.25);
+  filter: brightness(1.08);
+}
+.fullscreen-panel button:disabled { filter: saturate(0.3) brightness(0.8); }
+.fullscreen-panel button.btn-go,
+.fullscreen-panel button.primary { --b: var(--btn-go); --b-hi: var(--btn-go-hi); --b-lo: var(--btn-go-lo); }
+.fullscreen-panel button.btn-accent { --b: var(--btn-gold); --b-hi: var(--btn-gold-hi); --b-lo: var(--btn-gold-lo); color: var(--ink); text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4); }
+.fullscreen-panel button.danger { --b: var(--btn-red); --b-hi: var(--btn-red-hi); --b-lo: var(--btn-red-lo); background: linear-gradient(180deg, var(--b-hi) 0%, var(--b) 55%); }
+.fullscreen-panel button.btn-ghost {
+  background: rgba(10, 22, 48, 0.55); border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.3); font-size: 15px; min-height: 42px; padding: 8px 14px;
+}
+.fullscreen-panel button.btn-ghost.danger { color: #ffb3b6; }
+.fullscreen-panel button.toggle[aria-pressed="false"] { --b: #53607a; --b-hi: #6b7893; --b-lo: #333d52; }
+.ui-icon { width: 1.1em; height: 1.1em; flex: none; }
+/* The corner gear and the HUD keep their own look. */
+.fullscreen-panel .gear-btn, .fullscreen-panel .gear-btn:active {
+  background: transparent; border: 0; box-shadow: none; min-height: 0; transform: none; filter: none;
+}
+
+/* ── Main menu: two big play buttons, then a tidy grid. ── */
+.menu-profile { display: flex; gap: 8px; align-items: center; justify-content: center; flex-wrap: wrap; }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px; border-radius: 999px;
+  font-weight: 700; font-size: 16px;
+  background: rgba(8, 18, 40, 0.72); border: 2px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
+}
+.pill-flakes { font-family: var(--font-display); font-weight: 400; font-size: 20px; color: var(--ink); background: linear-gradient(180deg, #ffe08a, #ffc53d); border-color: rgba(255, 255, 255, 0.55); }
+.pill-flakes .ui-icon { color: #1b56b3; }
+.menu-list { width: min(360px, 100%); }
+.fullscreen-panel button.btn-play {
+  --b: var(--btn-gold); --b-hi: var(--btn-gold-hi); --b-lo: var(--btn-gold-lo);
+  color: var(--ink); text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+  font-family: var(--font-display); font-weight: 400; font-size: 26px; letter-spacing: 0.03em;
+  min-height: 64px; border-radius: 20px;
+}
+.fullscreen-panel button.btn-play.btn-alt { --b: var(--btn-go); --b-hi: var(--btn-go-hi); --b-lo: var(--btn-go-lo); color: #fff; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.25); }
+.btn-play small { font-family: var(--font-ui); font-weight: 700; font-size: 14px; opacity: 0.75; margin-left: 4px; }
+.menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.menu-grid > button { min-width: 0; }
+@media (orientation: landscape) and (max-height: 540px) {
+  .fullscreen-panel .menu-list > .menu-grid { grid-column: 1 / -1; }
+  .fullscreen-panel button.btn-play { min-height: 54px; font-size: 22px; }
+}
+
+/* Muted lines on the art (Last player / Pick a profile): readable. */
+.menu-bg .muted { opacity: 1; color: #e3edff; font-weight: 700; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); }
+
+/* ── Cards: rows, stats, settings, build info. ── */
+.upgrade-row, .stats-card, .setting-row, .build-info, .about-list, .halfpipe-intro-card,
+.run-summary .stats-card {
+  background: var(--card);
+  border: 2px solid var(--card-edge);
+  border-radius: 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 6px 14px rgba(0, 0, 0, 0.3);
+}
+.upgrade-name { font-size: 17px; }
+.upgrade-desc { color: #d6e6ff; }
+.fullscreen-panel .upgrade-buy {
+  --b: var(--btn-gold); --b-hi: var(--btn-gold-hi); --b-lo: var(--btn-gold-lo);
+  color: var(--ink); text-shadow: none;
+  font-family: var(--font-display); font-weight: 400; font-size: 20px;
+  min-width: 96px; min-height: 48px; padding: 6px 12px 9px;
+}
+.fullscreen-panel .upgrade-buy:disabled { opacity: 0.55; }
+.upgrade-pips .pip.on { background: linear-gradient(180deg, #ffe08a, #ffc53d); box-shadow: 0 0 4px rgba(255, 197, 61, 0.7); }
+.shop-balance, .summary-total {
+  font-family: var(--font-display); font-weight: 400;
+  display: inline-flex; align-items: center; gap: 8px;
+  -webkit-text-stroke: 1px #7a1f3d;
+}
+.shop-balance span { display: inline-flex; color: #8fd0ff; -webkit-text-stroke: 0; }
+.shop-balance .ui-icon { width: 30px; height: 30px; filter: drop-shadow(0 2px 0 #1b56b3); }
+.stats-card h2 { font-family: var(--font-display); font-weight: 400; font-size: 18px; letter-spacing: 0.04em; color: #ffd166; }
+.stat-label { opacity: 0.85; }
+.badge-new { font-family: var(--font-display); font-weight: 400; font-size: 12px; padding: 2px 8px; }
+
+/* Profile picker stats button: icon-only, square. */
+.fullscreen-panel button.profile-stats-btn { width: 56px; padding: 0; }
+.fullscreen-panel button.profile-stats-btn .ui-icon { width: 24px; height: 24px; }
+
+/* Settings slider in the theme colours. */
+.setting-row input[type="range"]::-webkit-slider-runnable-track { height: 8px; border-radius: 4px; background: rgba(8, 18, 40, 0.7); }
+.setting-row input[type="range"]::-webkit-slider-thumb { margin-top: -9px; width: 26px; height: 26px; background: linear-gradient(180deg, #ffe08a, #ffc53d); border: 3px solid #fff; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4); }
+.setting-label { font-weight: 700; font-size: 16px; }
+
+/* Half-pipe intro: icon column + text column (the icons no longer
+   split each line into ragged columns). */
+.halfpipe-intro-list li { display: grid; grid-template-columns: 24px 1fr; gap: 8px; align-items: start; }
+.halfpipe-intro-list .hp-icon { width: auto; }
+.halfpipe-intro-card h1 { font-size: 30px; }
+.halfpipe-intro-hint { font-size: 13px; opacity: 0.8; }
+
+/* Name picker in the theme. */
+.name-select .name-suggested { font-family: var(--font-display); font-weight: 400; background: var(--card); border-color: var(--card-edge); color: #fff; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fullscreen-panel button { transition: none; }
+}
+/* Title: bigger in the display face (still clear of the corner gear). */
+.fullscreen-panel h1.title-bouncy, .title-bouncy { font-size: clamp(26px, 8.2vw, 52px); }
+@media (max-height: 500px) {
+  .fullscreen-panel h1.title-bouncy, .title-bouncy { font-size: clamp(22px, 4.2vw, 36px); }
+}
+.setting-row { width: min(480px, 100%); min-width: 0; box-sizing: border-box; }
+.setting-row input[type="range"] { height: 36px; min-height: 36px; }

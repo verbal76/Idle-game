@@ -4,6 +4,7 @@ import { showSettings } from './Settings';
 import { showNameSelect } from './NameSelect';
 import { bouncyTextHtml } from '../util/bouncyText';
 import { showStats } from './Stats';
+import { ICON_STATS } from './icons';
 
 export async function showProfileSelect(
   root: HTMLElement,
@@ -45,7 +46,7 @@ export async function showProfileSelect(
           btn.textContent = p.name;
           const statsBtn = document.createElement('button');
           statsBtn.className = 'profile-stats-btn';
-          statsBtn.textContent = '📊';
+          statsBtn.innerHTML = ICON_STATS;
           statsBtn.setAttribute('aria-label', `Stats for ${p.name}`);
           statsBtn.addEventListener('click', async () => {
             if (picked) return;
