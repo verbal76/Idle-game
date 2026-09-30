@@ -21,3 +21,10 @@ export const ICON_UPGRADE = svg('icon-upgrade',
 
 /** Play triangle. */
 export const ICON_PLAY = svg('icon-play', '<path fill="currentColor" d="M7 4.2v15.6c0 .9 1 1.4 1.7.9l11.6-7.8a1.1 1.1 0 000-1.8L8.7 3.3C8 2.8 7 3.3 7 4.2z"/>');
+
+/** Steering chevrons. */
+export const ICON_LEFT = svg('icon-steer', '<path fill="currentColor" d="M15.6 3.6a1.6 1.6 0 010 2.3L9.5 12l6.1 6.1a1.6 1.6 0 11-2.3 2.3l-7.2-7.2a1.7 1.7 0 010-2.4l7.2-7.2a1.6 1.6 0 012.3 0z"/>');
+export const ICON_RIGHT = svg('icon-steer', '<path fill="currentColor" d="M8.4 3.6a1.6 1.6 0 000 2.3l6.1 6.1-6.1 6.1a1.6 1.6 0 102.3 2.3l7.2-7.2a1.7 1.7 0 000-2.4l-7.2-7.2a1.6 1.6 0 00-2.3 0z"/>');
+
+/** Mountain: altitude left to ride. */
+export const ICON_ALT = svg('icon-alt', '<path fill="currentColor" d="M2 20l6.5-11 4 6.2 2.6-4.2L22 20z"/>');

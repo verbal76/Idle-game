@@ -898,6 +898,32 @@ async function main() {
       await page.waitForSelector('#downhill');
     });
 
+    await step('HUD controls never overlap each other (graphics/UI audit)', async () => {
+      // Portrait had FLIP on top of the right steering button.
+      await page.click('#downhill');
+      await page.waitForSelector('#hud');
+      for (const [width, height] of [[320, 568], [360, 740], [412, 915], [568, 320], [915, 412], [800, 1280], [1280, 800]]) {
+        await page.setViewportSize({ width, height });
+        await page.waitForTimeout(150);
+        const hits = await page.evaluate(() => {
+          const ids = ['dpad-up', 'dpad-left', 'dpad-right', 'flip', 'jump', 'pause', 'hud-settings', 'jump-charge-bar'];
+          const r = Object.fromEntries(ids.map(id => [id, document.getElementById(id).getBoundingClientRect()]));
+          const out = [];
+          for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+            const a = r[ids[i]], b = r[ids[j]];
+            if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) out.push(`${ids[i]}/${ids[j]}`);
+          }
+          for (const id of ids) { const a = r[id]; if (a.left < 0 || a.top < 0 || a.right > innerWidth || a.bottom > innerHeight) out.push(`${id} off screen`); }
+          return out;
+        });
+        if (hits.length) fail(`HUD at ${width}x${height}: ${hits.join(', ')}`);
+      }
+      await page.setViewportSize(PORTRAIT);
+      await page.click('#pause');
+      await quitRun();
+      await page.waitForSelector('#downhill');
+    });
+
     await step('menu art (splash, picker, main menu, Upgrades): the supplied background, full-bleed, no top band', async () => {
       // The panel's own background, measured in the page: which image,
       // how it's scaled, and whether it covers the whole screen.

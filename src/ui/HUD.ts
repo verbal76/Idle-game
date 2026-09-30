@@ -1,4 +1,5 @@
 import type { HudReadout } from '../scene/Game';
+import { ICON_ALT, ICON_FLAKE, ICON_LEFT, ICON_RIGHT } from './icons';
 export interface HUDRefs {
   hud: HTMLElement;
   score: HTMLElement;
@@ -41,8 +42,8 @@ export function buildHUD(root: HTMLElement): HUDRefs {
       <div class="top-bar">
         <div class="hud-chips" id="score">
           <span class="chip chip-dist"><b id="chip-dist">0</b><small>m</small></span>
-          <span class="chip chip-alt" id="chip-alt-wrap" style="display:none"><span class="chip-icon">↧</span><b id="chip-alt">0</b><small>m</small></span>
-          <span class="chip chip-flakes"><span class="chip-icon">❄</span><b id="chip-flakes">0</b></span>
+          <span class="chip chip-alt" id="chip-alt-wrap" style="display:none"><span class="chip-icon">${ICON_ALT}</span><b id="chip-alt">0</b><small>m</small></span>
+          <span class="chip chip-flakes"><span class="chip-icon">${ICON_FLAKE}</span><b id="chip-flakes">0</b></span>
           <span class="chip chip-tricks" id="chip-tricks-wrap" style="display:none"><span class="chip-icon">↻</span><b id="chip-flips">0</b><span class="chip-icon">⟲</span><b id="chip-spins">0</b></span>
         </div>
         <div class="ring-widget" id="ring-widget" style="display:none">
@@ -87,13 +88,13 @@ export function buildHUD(root: HTMLElement): HUDRefs {
           <span class="dpad-caption">CARVE</span>
         </button>
         <div class="dpad-row">
-          <button class="dpad-btn left" id="dpad-left">◀</button>
-          <button class="dpad-btn right" id="dpad-right">▶</button>
+          <button class="dpad-btn left" id="dpad-left" aria-label="Steer left">${ICON_LEFT}</button>
+          <button class="dpad-btn right" id="dpad-right" aria-label="Steer right">${ICON_RIGHT}</button>
         </div>
       </div>
       <div class="actions-right">
-        <button class="action-btn flip" id="flip">FLIP</button>
-        <button class="action-btn jump" id="jump">JUMP</button>
+        <button class="action-btn flip" id="flip"><span>FLIP</span></button>
+        <button class="action-btn jump" id="jump"><span>JUMP</span></button>
       </div>
       <div id="pause-menu" class="fullscreen-panel" style="display:none">
         <h1>Paused</h1>

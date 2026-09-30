@@ -20,4 +20,4 @@
 // in a bug report identifies the exact build the user is on.
 
 export const BUILD_VERSION = "build #4 - re-encoded icon (Sharp/libvips compat fix)";
-export const OTA_VERSION   = 'OTA #73 - arcade UI: fonts, buttons, menus';
+export const OTA_VERSION   = 'OTA #74 - arcade HUD: round controls, no overlap';

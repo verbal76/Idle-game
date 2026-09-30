@@ -866,3 +866,116 @@ html, body { font-family: var(--font-ui); font-weight: 500; }
 }
 .setting-row { width: min(480px, 100%); min-width: 0; box-sizing: border-box; }
 .setting-row input[type="range"] { height: 36px; min-height: 36px; }
+
+/* ════════════════════════════════════════════════════════════════════
+   Arcade HUD (graphics/UI audit, G2). Controls size to the screen so
+   they never overlap (portrait had FLIP on top of ▶), round action
+   buttons, bolder read-outs.
+   ════════════════════════════════════════════════════════════════════ */
+#hud {
+  --pad: clamp(62px, 19vw, 86px);
+  --jump: clamp(84px, 24vw, 104px);
+  --flip: clamp(64px, 18vw, 80px);
+  --edge: clamp(14px, 4vw, 24px);
+  --actions-h: calc(var(--jump) + var(--flip) + 12px);
+}
+@media (orientation: landscape) {
+  #hud { --pad: clamp(62px, 17vh, 84px); --jump: clamp(80px, 24vh, 100px); --flip: clamp(62px, 19vh, 78px); --actions-h: var(--jump); }
+}
+.dpad-left { left: var(--edge); bottom: max(env(safe-area-inset-bottom, 0px), var(--edge)); gap: 10px; }
+.dpad-row { gap: 10px; }
+.dpad-btn {
+  width: var(--pad); height: var(--pad); border-radius: 24px;
+  color: #fff;
+  background: linear-gradient(180deg, rgba(90, 165, 255, 0.95), rgba(47, 134, 246, 0.95) 60%);
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  box-shadow: inset 0 -6px 0 rgba(27, 86, 179, 0.95), 0 6px 0 rgba(0, 0, 0, 0.22), 0 8px 16px rgba(0, 0, 0, 0.22);
+  transition: transform 60ms ease-out, box-shadow 60ms ease-out, background 60ms;
+}
+.dpad-btn .icon-steer { width: 46%; height: 46%; filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.25)); }
+.dpad-btn .carve-icon { width: 44%; height: 44%; }
+.dpad-btn .dpad-caption { font-family: var(--font-display); font-weight: 400; font-size: 12px; letter-spacing: 0.06em; }
+.dpad-btn.pressed {
+  transform: translateY(4px);
+  background: linear-gradient(180deg, #ffdd7a, #ffc53d 60%); color: var(--ink);
+  box-shadow: inset 0 -3px 0 #c98a00, 0 2px 0 rgba(0, 0, 0, 0.22);
+}
+
+/* Action buttons: round. Portrait stacks FLIP above JUMP so the pair
+   stays clear of the steering pad; landscape puts them side by side. */
+.actions-right {
+  right: var(--edge); bottom: max(env(safe-area-inset-bottom, 0px), var(--edge));
+  gap: 12px; flex-direction: column-reverse; align-items: center;
+}
+@media (orientation: landscape) { .actions-right { flex-direction: row; align-items: flex-end; } }
+.action-btn {
+  border-radius: 50%; padding: 0; min-width: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-weight: 400; letter-spacing: 0.05em;
+  border: 3px solid rgba(255, 255, 255, 0.6);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.3);
+  transition: transform 60ms ease-out, box-shadow 60ms ease-out;
+}
+.action-btn.jump {
+  width: var(--jump); height: var(--jump); padding: 0; font-size: 22px;
+  /* The charge fills round the rim (conic), over the button colour. */
+  background:
+    conic-gradient(rgba(255, 221, 122, 0.95) calc(var(--charge) * 360deg), transparent 0),
+    radial-gradient(circle at 50% 35%, #5aa5ff, #2f86f6 60%, #1b56b3);
+  box-shadow: 0 6px 0 rgba(12, 44, 100, 0.9), 0 10px 18px rgba(0, 0, 0, 0.28);
+}
+.action-btn.jump > span {
+  /* Inner disc so the charge reads as a ring round the edge. */
+  display: flex; align-items: center; justify-content: center;
+  width: 80%; height: 80%; border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, #5aa5ff, #2f86f6 60%, #1b56b3);
+}
+.action-btn.flip {
+  width: var(--flip); height: var(--flip); padding: 0; font-size: 18px;
+  background: radial-gradient(circle at 50% 35%, #ff9b6b, #f06b2f 60%, #b8471a);
+  box-shadow: 0 5px 0 rgba(110, 40, 10, 0.9), 0 8px 14px rgba(0, 0, 0, 0.28);
+}
+.action-btn.pressed { transform: translateY(4px); box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35); color: #fff; border-color: #fff; }
+.action-btn.flip.pressed { background: radial-gradient(circle at 50% 35%, #ffdd7a, #ffc53d 60%, #c98a00); color: var(--ink); }
+.action-btn.jump.pressed > span { background: radial-gradient(circle at 50% 35%, #ffdd7a, #ffc53d 60%, #c98a00); color: var(--ink); text-shadow: none; }
+
+/* Jump charge meter: between the top bar and the action buttons. */
+.jump-charge-bar {
+  right: calc(var(--edge) - 4px); width: 14px; height: auto;
+  top: calc(max(env(safe-area-inset-top, 0px), 12px) + 80px);
+  bottom: calc(max(env(safe-area-inset-bottom, 0px), var(--edge)) + var(--actions-h) + 18px);
+  background: rgba(8, 18, 40, 0.6); border: 2px solid rgba(255, 255, 255, 0.5);
+}
+.jump-charge-bar::before { background: linear-gradient(to top, #ff9b3d, #ffdd7a); }
+
+/* Read-outs in the display face; icons as SVG. */
+.chip { font-family: var(--font-display); font-weight: 400; font-size: 20px; padding: 4px 12px; border: 2px solid rgba(255, 255, 255, 0.7); align-items: center; }
+.chip small { font-family: var(--font-ui); }
+.chip-dist { font-size: 22px; }
+.chip-icon { display: inline-flex; opacity: 0.8; }
+.chip-icon .ui-icon { width: 16px; height: 16px; }
+.chip-flakes { background: linear-gradient(180deg, #ffe08a, #ffc53d); }
+.chip-flakes .chip-icon { color: #1b56b3; opacity: 1; }
+@media (max-height: 420px) { .chip { font-size: 16px; } .chip-dist { font-size: 17px; } }
+#hud .pause-btn {
+  background: linear-gradient(180deg, rgba(40, 72, 130, 0.92), rgba(18, 36, 76, 0.92));
+  border: 2px solid rgba(255, 255, 255, 0.55); border-radius: 14px;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.3);
+}
+.combo-bar, .ring-widget { font-family: var(--font-display); font-weight: 400; border-radius: 999px; }
+.combo-bar { background: linear-gradient(180deg, #ff9b3d, #f0532f); border-color: #ffdd7a; box-shadow: 0 4px 0 rgba(120, 30, 10, 0.6); }
+.ring-widget { background: linear-gradient(180deg, #e070ff, #a93cc8); box-shadow: 0 4px 0 rgba(70, 10, 90, 0.6); }
+.combo-mult { font-size: 26px; }
+
+/* Trick callouts: display face with an outline, so they pop over snow. */
+.callout { font-family: var(--font-display); font-weight: 400; }
+.callout-title { font-size: 34px; letter-spacing: 0.04em; -webkit-text-stroke: 1.5px rgba(13, 27, 51, 0.85); }
+.callout-sub { font-size: 20px; -webkit-text-stroke: 1px rgba(13, 27, 51, 0.7); }
+.callout-big .callout-title { font-size: 44px; -webkit-text-stroke: 2px #7a1f3d; }
+
+/* Run summary: the payout is the hero, and it lands with a bounce. */
+.summary-total { font-size: 56px; line-height: 1; animation: total-pop 700ms cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+@keyframes total-pop { 0% { transform: scale(0.3); opacity: 0; } 60% { opacity: 1; } 100% { transform: scale(1); } }
+@media (max-height: 420px) { .summary-total { font-size: 40px; } }
+@media (prefers-reduced-motion: reduce) { .summary-total { animation: none; } }
+#hud .top-bar { align-items: flex-start; }
