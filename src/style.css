@@ -1087,3 +1087,35 @@ details.build-details[open] > summary::after { border-top-color: transparent; bo
 /* Screens settle in a touch faster. */
 @keyframes panel-fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .fullscreen-panel { animation-duration: 170ms; }
+
+/* About: Copy diagnostics sits in the card. */
+.about-copy { margin-top: 10px; min-width: 0; min-height: 44px; padding: 8px 18px; }
+.about-card textarea.about-fallback { width: 100%; min-height: 120px; margin-top: 8px; box-sizing: border-box; }
+
+/* Hot Attic Games opening card: black, logo centred and contained. */
+.studio-splash {
+  position: fixed; inset: 0; z-index: 10100; background: #000;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 1; transition: opacity 200ms ease-out; touch-action: none;
+}
+.studio-splash.out { opacity: 0; pointer-events: none; }
+.studio-splash img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; user-select: none; -webkit-user-drag: none; }
+
+/* "Please wait, applying update": the game's own panel look. */
+.applying-update {
+  position: fixed; inset: 0; z-index: 10050; display: flex; align-items: center; justify-content: center;
+  background: rgba(9, 20, 44, 0.88); touch-action: none;
+}
+.applying-card {
+  display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 22px 28px;
+  width: min(420px, 86vw); text-align: center;
+  background: var(--card); border: 2px solid var(--card-edge); border-radius: 16px;
+}
+.applying-text { font-family: var(--font-display); font-size: 24px; color: #ffd166; -webkit-text-stroke: 1px #7a1f3d; }
+.applying-spinner {
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 5px solid rgba(255, 255, 255, 0.25); border-top-color: #ffd166;
+  animation: applying-spin 0.9s linear infinite;
+}
+@keyframes applying-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .applying-spinner { animation-duration: 3s; } }

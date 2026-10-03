@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BackHandler, Linking, StyleSheet, View } from 'react-native';
+import { BackHandler, Linking, Platform, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { Asset } from 'expo-asset';
@@ -27,6 +27,9 @@ interface OtaInfo {
   // What the publishing workflow stamped into this update's manifest
   // (app.config.js -> extra.ota): commit, label, message, run, branch.
   otaMeta: Record<string, unknown> | null;
+  updatesEnabled: boolean | null;
+  // Platform constants of the running device (react-native; no extra native module).
+  device: { os: string; release: string | null; api: number | null; model: string | null; brand: string | null } | null;
 }
 
 // The APK's embedded app config (expo-constants' native module).
@@ -76,6 +79,18 @@ function readOtaInfo(): OtaInfo {
     nativeAppVersion: native.version,
     nativeVersionCode: native.versionCode,
     otaMeta: readOtaMeta(),
+    updatesEnabled: safe(() => Updates.isEnabled ?? null, null),
+    device: safe(() => {
+      const c = Platform.constants as { Release?: unknown; Model?: unknown; Brand?: unknown } | undefined;
+      const str = (v: unknown) => (typeof v === 'string' && v ? v : null);
+      return {
+        os: Platform.OS,
+        release: str(c?.Release),
+        api: typeof Platform.Version === 'number' ? Platform.Version : null,
+        model: str(c?.Model),
+        brand: str(c?.Brand),
+      };
+    }, null),
   };
 }
 
@@ -108,6 +123,7 @@ function injectUpdateStatus(ref: React.RefObject<WebView | null>, status: string
   const js = `
     (function() {
       window.__UPDATE_STATUS__ = ${JSON.stringify(status)};
+      window.__UPDATE_STATUS_AT__ = ${JSON.stringify(new Date().toISOString())};
       try { window.dispatchEvent(new CustomEvent('update-status', { detail: ${JSON.stringify(status)} })); } catch (e) {}
     })();
     true;
