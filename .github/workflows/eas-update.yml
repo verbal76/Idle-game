@@ -1,77 +1,24 @@
 name: EAS Update (OTA)
 
+# DISABLED ON THIS BRANCH ON PURPOSE.
+#
+# main is behind the live release line (claude/repo-gameplay-review-loq9rq,
+# draft PR #64). Every installed APK listens to the single "preview" EAS
+# channel, so publishing from this branch would roll every player back to
+# old code. The real publishing workflow (tests, smoke, size budget,
+# "never go backwards" ancestry guard, delivery check) lives on the live
+# line and takes over when that line is merged here.
+#
+# When merging the live line into main, take the live line's version of
+# .github/workflows/eas-update.yml and eas-build.yml.
+
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - Github-APK-Transition-snow
-    paths-ignore:
-      - 'package.json'
-      - 'package-lock.json'
-      - 'app.json'
-      - 'eas.json'
-      - 'babel.config.js'
-      - 'metro.config.js'
-      - 'android/**'
-      - 'ios/**'
-      - 'assets/icon.png'
-      - 'assets/adaptive-icon.png'
-      - 'assets/splash-icon.png'
-      - '.github/workflows/**'
-      - 'README.md'
-      - 'MOBILE_GAME_DEV_RULES.md'
-      - '.gitignore'
-
-permissions:
-  contents: read
-
-concurrency:
-  group: eas-update-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
-  update:
+  disabled:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - run: npm install --no-audit --no-fund
-      - name: Apply temporary bounce-fix patch to Game.ts
-        run: node scripts/apply-bounce-fix-patch.mjs
-      - name: Regenerate html-bundle.ts (CRITICAL for OTA correctness)
-        run: npm run web:build
-        env:
-          NODE_ENV: production
-      - name: Verify html-bundle.ts has fresh CSS
-        run: |
-          BUNDLE='src/__generated__/html-bundle.ts'
-          echo "=== Bundle size ==="
-          wc -c "$BUNDLE"
-          echo ""
-          echo "=== gear-btn CSS rules (occurrence count) ==="
-          echo "transparent (new chromeless): $(grep -o 'background:transparent' "$BUNDLE" | wc -l)"
-          echo "#142038d1 (old chrome):        $(grep -o 'background:#142038d1' "$BUNDLE" | wc -l)"
-          echo ""
-          echo "=== gear-btn rule excerpt (first match) ==="
-          grep -o '\.gear-btn{[^}]*}' "$BUNDLE" | head -1
-      - name: Publish OTA update
-        run: |
-          MSG="$(git log -1 --pretty=%s | head -c 100)"
-          npx eas-cli@latest update \
-            --branch preview \
-            --platform android \
-            --non-interactive \
-            --message "$MSG"
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
-          NODE_ENV: production
-      - name: Re-link channel preview → branch preview
-        run: |
-          npx eas-cli@latest channel:edit preview \
-            --branch preview \
-            --non-interactive
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
+      - run: |
+          echo "::error::OTA publishing is disabled on this branch: it is older than the live release line and would downgrade installed players. Publish from claude/repo-gameplay-review-loq9rq (or from main after that line is merged)."
+          exit 1
