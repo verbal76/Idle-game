@@ -1,5 +1,5 @@
 import type { HudReadout } from '../scene/Game';
-import { ICON_ALT, ICON_FLAKE, ICON_LEFT, ICON_RIGHT } from './icons';
+import { ICON_ALT, ICON_CARVE, ICON_CHAIN, ICON_FLAKE, ICON_FLIP, ICON_LEFT, ICON_LIP, ICON_RIGHT, ICON_RING, ICON_SPIN, ICON_STAR, ICON_STRIP } from './icons';
 export interface HUDRefs {
   hud: HTMLElement;
   score: HTMLElement;
@@ -44,10 +44,10 @@ export function buildHUD(root: HTMLElement): HUDRefs {
           <span class="chip chip-dist"><b id="chip-dist">0</b><small>m</small></span>
           <span class="chip chip-alt" id="chip-alt-wrap" style="display:none"><span class="chip-icon">${ICON_ALT}</span><b id="chip-alt">0</b><small>m</small></span>
           <span class="chip chip-flakes"><span class="chip-icon">${ICON_FLAKE}</span><b id="chip-flakes">0</b></span>
-          <span class="chip chip-tricks" id="chip-tricks-wrap" style="display:none"><span class="chip-icon">↻</span><b id="chip-flips">0</b><span class="chip-icon">⟲</span><b id="chip-spins">0</b></span>
+          <span class="chip chip-tricks" id="chip-tricks-wrap" style="display:none"><span class="chip-icon">${ICON_FLIP}</span><b id="chip-flips">0</b><span class="chip-icon">${ICON_SPIN}</span><b id="chip-spins">0</b></span>
         </div>
         <div class="ring-widget" id="ring-widget" style="display:none">
-          <span class="ring-icon">◯</span>
+          <span class="ring-icon">${ICON_RING}</span>
           <span class="ring-streak" id="ring-streak">0</span>
           <span class="ring-best" id="ring-best">best 0</span>
         </div>
@@ -67,14 +67,14 @@ export function buildHUD(root: HTMLElement): HUDRefs {
         <div class="halfpipe-intro-card">
           <h1>Half-pipe</h1>
           <ul class="halfpipe-intro-list">
-            <li><span class="hp-icon hp-icon-strip">▮</span><span class="hp-text"><b>Yellow strips</b> in the trough — speed boost</span></li>
-            <li><span class="hp-icon hp-icon-ring">◯</span><span class="hp-text"><b>Magenta rings</b> — flip-through bonus + streak (miss one and the streak resets)</span></li>
-            <li><span class="hp-icon">⤺</span><span class="hp-text"><b>Hit the lip</b> — bounces you back into the bowl</span></li>
-            <li><span class="hp-icon">↷</span><span class="hp-text"><b>Hold Deep carve</b> (curved arrow) — tighter, deeper carve</span></li>
-            <li><span class="hp-icon">↻</span><span class="hp-text"><b>FLIP</b> = front flip, <b>FLIP + Deep carve</b> = back flip (+25%)</span></li>
-            <li><span class="hp-icon">⟲</span><span class="hp-text">Steer in the air to spin; land within 30° — backward rides switch (+50% spin)</span></li>
-            <li><span class="hp-icon">✦</span><span class="hp-text">Flip + spin in one jump = <b>cork</b> (×1.5)</span></li>
-            <li><span class="hp-icon">+</span><span class="hp-text">Chain landings within 5 s — combo multiplier</span></li>
+            <li><span class="hp-icon hp-icon-strip">${ICON_STRIP}</span><span class="hp-text"><b>Yellow strips</b> in the trough — speed boost</span></li>
+            <li><span class="hp-icon hp-icon-ring">${ICON_RING}</span><span class="hp-text"><b>Magenta rings</b> — flip-through bonus + streak (miss one and the streak resets)</span></li>
+            <li><span class="hp-icon">${ICON_LIP}</span><span class="hp-text"><b>Hit the lip</b> — bounces you back into the bowl</span></li>
+            <li><span class="hp-icon">${ICON_CARVE}</span><span class="hp-text"><b>Hold Deep carve</b> (curved arrow) — tighter, deeper carve</span></li>
+            <li><span class="hp-icon">${ICON_FLIP}</span><span class="hp-text"><b>FLIP</b> = front flip, <b>FLIP + Deep carve</b> = back flip (+25%)</span></li>
+            <li><span class="hp-icon">${ICON_SPIN}</span><span class="hp-text">Steer in the air to spin; land within 30° — backward rides switch (+50% spin)</span></li>
+            <li><span class="hp-icon">${ICON_STAR}</span><span class="hp-text">Flip + spin in one jump = <b>cork</b> (×1.5)</span></li>
+            <li><span class="hp-icon">${ICON_CHAIN}</span><span class="hp-text">Chain landings within 5 s — combo multiplier</span></li>
           </ul>
           <button id="halfpipe-intro-ok" class="btn-go halfpipe-intro-ok" data-back>Got it!</button>
         </div>
@@ -111,7 +111,7 @@ export function buildHUD(root: HTMLElement): HUDRefs {
       <div id="fell-overlay" class="fullscreen-panel" style="display:none">
         <h1 id="fell-title">You fell</h1>
         <div id="fell-stats"></div>
-        <div class="list">
+        <div class="list sticky-actions">
           <button id="fell-ok" class="btn-go" data-back>Back to menu</button>
           <button id="fell-upgrades" class="btn-accent">Upgrades</button>
           <button id="fell-switch">Switch Style</button>

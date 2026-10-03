@@ -19,6 +19,16 @@ export function displayFlakes(n: number): number {
   return Math.floor(normalizeFlakes(n));
 }
 
+/** A count for display: whole, grouped ("1,234,567"). The one format used on every screen. */
+export function formatCount(n: number): string {
+  return Math.floor(Number.isFinite(n) ? Math.max(0, n) : 0).toLocaleString('en-US');
+}
+
+/** Snowflakes for display: whole and grouped. */
+export function formatFlakes(n: number): string {
+  return formatCount(displayFlakes(n));
+}
+
 // Downhill pays for distance: 1 snowflake per 50 m, times Flake Bonus
 // (not the trick combo).
 export const DISTANCE_PAY_EVERY_M = 50;

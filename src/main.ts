@@ -119,7 +119,7 @@ async function bootstrap(): Promise<void> {
   // A soft tick on menu buttons (not the in-run controls).
   document.addEventListener('pointerdown', (e) => {
     const b = (e.target as Element | null)?.closest?.('.fullscreen-panel button');
-    if (b && !(b as HTMLButtonElement).disabled) { soundFx.resume(); soundFx.play('tap'); }
+    if (b && !(b as HTMLButtonElement).disabled && !b.classList.contains('poor')) { soundFx.resume(); soundFx.play('tap'); }
   }, { capture: true });
   // 250 ms delay so a freshly OTA-reloaded bundle gives the previous
   // WebView's HTMLAudioElement / Android MediaPlayer time to fully

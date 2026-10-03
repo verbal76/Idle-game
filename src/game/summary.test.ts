@@ -24,7 +24,7 @@ describe('run summary (#21)', () => {
     const run: RunStats = { mode: 'downhill', distanceMeters: 400, flips: 5, spins: 0, coins: 8, rings: 0, bestCombo: 3, bestRingStreak: 0 };
     const s = buildRunSummary(run, bankRun(p, run), p.stats);
     expect(s.records).toEqual([
-      { label: 'Distance', run: '400 m', best: '1000 m', isNew: false },
+      { label: 'Distance', run: '400 m', best: '1,000 m', isNew: false },
       { label: 'Flips', run: '5', best: '5', isNew: true },
     ]);
     expect(s.anyNewBest).toBe(true);

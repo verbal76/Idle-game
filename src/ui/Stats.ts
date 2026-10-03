@@ -1,9 +1,10 @@
 import type { SaveData } from '../profiles/IndexedDbStore';
 import { escapeHtml } from '../util/escapeHtml';
-import { displayFlakes } from '../game/economy';
+import { formatCount, formatFlakes } from '../game/economy';
+import { ICON_CHECK, ICON_FLAKE, withIcons } from './icons';
 import { DAILY_ALL_BONUS, DAILY_REWARD, MILESTONES, dailyDef, dailyFor } from '../game/goals';
 
-const n = (v: number) => Math.floor(v).toLocaleString('en-US');
+const n = formatCount;
 
 /** Per-profile records and lifetime totals. Resolves on Back. */
 export function showStats(root: HTMLElement, p: SaveData): Promise<void> {
@@ -15,14 +16,14 @@ export function showStats(root: HTMLElement, p: SaveData): Promise<void> {
     const dailyRows = today.ids.map((id, i) => {
       const def = dailyDef(id);
       if (!def) return '';
-      const prog = today.done[i] ? '✔' : `${n(Math.min(today.progress[i], def.target))}/${n(def.target)}`;
-      return `<div class="stat-row goal-row${today.done[i] ? ' done' : ''}"><span class="stat-label">${def.label}</span><span class="stat-val">${prog} · ${DAILY_REWARD} ❄</span></div>`;
+      const prog = today.done[i] ? ICON_CHECK : `${n(Math.min(today.progress[i], def.target))}/${n(def.target)}`;
+      return `<div class="stat-row goal-row${today.done[i] ? ' done' : ''}"><span class="stat-label">${withIcons(escapeHtml(def.label))}</span><span class="stat-val">${prog} · ${DAILY_REWARD}${ICON_FLAKE}</span></div>`;
     }).join('');
     const claimed = new Set(p.milestones ?? []);
     const milestoneRows = MILESTONES.map(m => {
       const done = claimed.has(m.id);
-      const prog = done ? '✔' : `${n(Math.min(m.value(p), m.target))}/${n(m.target)}`;
-      return `<div class="stat-row goal-row${done ? ' done' : ''}"><span class="stat-label">${m.label}</span><span class="stat-val">${prog} · ${m.reward} ❄</span></div>`;
+      const prog = done ? ICON_CHECK : `${n(Math.min(m.value(p), m.target))}/${n(m.target)}`;
+      return `<div class="stat-row goal-row${done ? ' done' : ''}"><span class="stat-label">${withIcons(escapeHtml(m.label))}</span><span class="stat-val">${prog} · ${m.reward}${ICON_FLAKE}</span></div>`;
     }).join('');
     root.innerHTML = `
       <div class="fullscreen-panel stats-panel">
@@ -36,7 +37,7 @@ export function showStats(root: HTMLElement, p: SaveData): Promise<void> {
           </section>
           <section class="stats-card" id="stats-halfpipe">
             <h2>Half-pipe</h2>
-            ${row('Best run', `${displayFlakes(s.halfPipe.bestRunFlakes)} ❄`)}
+            ${row('Best run', `${formatFlakes(s.halfPipe.bestRunFlakes)}${ICON_FLAKE}`)}
             ${row('Best ring streak', n(s.halfPipe.bestRingStreak))}
             ${row('Best combo', n(s.halfPipe.bestCombo))}
           </section>
@@ -47,19 +48,19 @@ export function showStats(root: HTMLElement, p: SaveData): Promise<void> {
             ${row('Flips', n(s.lifetime.flips))}
             ${row('Spins', n(s.lifetime.spins))}
             ${row('Rings', n(s.lifetime.rings))}
-            ${row('Snowflakes earned', `${displayFlakes(s.lifetime.flakesEarned)} ❄`)}
+            ${row('Snowflakes earned', `${formatFlakes(s.lifetime.flakesEarned)}${ICON_FLAKE}`)}
           </section>
           <section class="stats-card" id="stats-daily">
             <h2>Today</h2>
             ${dailyRows}
-            <p class="muted goal-note">All three: +${DAILY_ALL_BONUS} ❄ bonus${today.allPaid ? ' ✔' : ''}</p>
+            <p class="muted goal-note">All three: +${DAILY_ALL_BONUS}${ICON_FLAKE} bonus${today.allPaid ? ICON_CHECK : ''}</p>
           </section>
           <section class="stats-card" id="stats-milestones">
             <h2>Milestones ${claimed.size}/${MILESTONES.length}</h2>
             ${milestoneRows}
           </section>
         </div>
-        <div class="row"><button id="stats-back" data-back>Back</button></div>
+        <div class="row sticky-actions"><button id="stats-back" class="btn-go" data-back>Back</button></div>
       </div>
     `;
     root.querySelector<HTMLButtonElement>('#stats-back')!.addEventListener('click', () => resolve());

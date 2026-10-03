@@ -40,3 +40,38 @@ export const ICON_SPIN = svg('icon-spin', '<g fill="none" stroke="currentColor" 
 
 /** Ring. */
 export const ICON_RING = svg('icon-ring', '<circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="3"/>');
+
+/** Check mark (a finished goal). */
+export const ICON_CHECK = svg('icon-check', '<path fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.8l5 5 10-11"/>');
+
+/** Dice (random name). */
+export const ICON_DICE = svg('icon-dice', '<g fill="currentColor"><path fill-rule="evenodd" d="M6 3h12a3 3 0 013 3v12a3 3 0 01-3 3H6a3 3 0 01-3-3V6a3 3 0 013-3zm2.5 4.2a1.3 1.3 0 100 2.6 1.3 1.3 0 000-2.6zm7 7a1.3 1.3 0 100 2.6 1.3 1.3 0 000-2.6zM12 10.7a1.3 1.3 0 100 2.6 1.3 1.3 0 000-2.6z"/></g>');
+
+/** Keyboard cursor / type. */
+export const ICON_TYPE = svg('icon-type', '<path fill="currentColor" d="M4 5.5A1.5 1.5 0 015.5 4h13A1.5 1.5 0 0120 5.5V8h-2V6h-5v12h2v2H9v-2h2V6H6v2H4z"/>');
+
+/** Speed strip (a boost bar). */
+export const ICON_STRIP = svg('icon-strip', '<path fill="currentColor" d="M5 7h9l5 5-5 5H5l5-5z"/>');
+
+/** Bounce off the lip. */
+export const ICON_LIP = svg('icon-lip', '<g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 4v7a6 6 0 01-6 6H6"/><path d="M10 12.5L5.5 17 10 21.5"/></g>');
+
+/** Cork: a flip and a spin in one jump. */
+export const ICON_STAR = svg('icon-star', '<path fill="currentColor" d="M12 2.8l2.7 5.9 6.4.7-4.8 4.3 1.4 6.3L12 16.7 6.3 20l1.4-6.3L2.9 9.4l6.4-.7z"/>');
+
+/** Chain: combo. */
+export const ICON_CHAIN = svg('icon-chain', '<g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M10 14l4-4"/><path d="M8.2 11.8l-2 2a3.4 3.4 0 004.8 4.8l2-2"/><path d="M15.8 12.2l2-2a3.4 3.4 0 00-4.8-4.8l-2 2"/></g>');
+
+/** Warning triangle. */
+export const ICON_WARN = svg('icon-warn', '<path fill="currentColor" d="M12 3l10 18H2zm-1 7v5h2v-5zm0 7v2h2v-2z"/>');
+
+/**
+ * Turns the ❄ and ✔ characters in already-escaped text into the bundled
+ * SVG icons (they render differently on every Android skin as text).
+ */
+export function withIcons(escapedHtml: string): string {
+  return escapedHtml.replace(/❄/g, ICON_FLAKE).replace(/✔/g, ICON_CHECK);
+}
+
+/** Deep carve (curved arrow). */
+export const ICON_CARVE = svg('icon-carve', '<g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19C5 10 11 5.5 18 8"/><path d="M13.5 4.5L18.5 8 13 11"/></g>');

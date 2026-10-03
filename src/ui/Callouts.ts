@@ -1,4 +1,6 @@
 import type { Callout } from '../game/callout';
+import { escapeHtml } from '../util/escapeHtml';
+import { withIcons } from './icons';
 
 const MAX_SHOWN = 3;
 const LIFE_MS = 1400;
@@ -17,12 +19,12 @@ export function createCallouts(hud: HTMLElement): (c: Callout) => void {
     el.className = `callout callout-${c.tone}`;
     const title = document.createElement('div');
     title.className = 'callout-title';
-    title.textContent = c.title;
+    title.innerHTML = withIcons(escapeHtml(c.title));
     el.appendChild(title);
     if (c.sub) {
       const sub = document.createElement('div');
       sub.className = 'callout-sub';
-      sub.textContent = c.sub;
+      sub.innerHTML = withIcons(escapeHtml(c.sub));
       el.appendChild(sub);
     }
     stack.prepend(el);

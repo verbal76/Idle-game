@@ -5,7 +5,6 @@ import { ProfileService } from '../profiles/ProfileService';
 import { showAbout } from './About';
 import { openBugReport, openFeatureRequest } from '../util/bugReport';
 import { escapeHtml } from '../util/escapeHtml';
-import { buildInfoHtml, wireBuildInfo } from './BuildInfoPanel';
 
 // State machine for the OTA update flow. Native side posts these via
 // CustomEvent('update-status'); the Settings panel listens and updates
@@ -72,16 +71,15 @@ export function showSettings(
             <span class="setting-label">Vibration</span>
             <button id="haptics-toggle" class="toggle" aria-pressed="${hapticsOn}">${hapticsOn ? 'On' : 'Off'}</button>
           </div>
-          <p class="muted" id="music-now">Now playing: ${escapeHtml(music.currentTitle())}</p>
+          <p class="muted" id="music-now">${escapeHtml(nowPlaying(music))}</p>
           <div class="list">
             <button id="music-skip" class="btn-ghost">Skip track</button>
             <button id="updates-check" class="btn-ghost">Check for updates</button>
             <p class="muted" id="updates-status"></p>
-            <button id="settings-about" class="btn-ghost">About / Build info</button>
+            <button id="settings-about" class="btn-ghost">About</button>
             <button id="settings-bug" class="btn-ghost">Send bug report</button>
             <button id="settings-feature" class="btn-ghost">Send feature request</button>
-            ${buildInfoHtml()}
-            <button id="settings-back" class="btn-go" data-back>Back</button>
+            <button id="settings-back" class="btn-go sticky-actions" data-back>Back</button>
           </div>
         </div>
       `;
@@ -144,7 +142,7 @@ export function showSettings(
       const nowLabel = root.querySelector<HTMLElement>('#music-now')!;
       skipBtn.addEventListener('click', () => {
         music.next();
-        nowLabel.textContent = `Now playing: ${music.currentTitle()}`;
+        nowLabel.textContent = nowPlaying(music);
       });
 
       const updatesBtn = root.querySelector<HTMLButtonElement>('#updates-check')!;
@@ -175,9 +173,7 @@ export function showSettings(
       });
       paintUpdateRow();
 
-      const unwireInfo = wireBuildInfo(root);
       root.querySelector<HTMLButtonElement>('#settings-about')!.addEventListener('click', async () => {
-        unwireInfo();
         await showAbout(root);
         render();
       });
@@ -188,7 +184,6 @@ export function showSettings(
         openFeatureRequest();
       });
       root.querySelector<HTMLButtonElement>('#settings-back')!.addEventListener('click', () => {
-        unwireInfo();
         flushSave();
         window.removeEventListener('update-status', onUpdateStatus);
         resolve();
@@ -197,3 +192,8 @@ export function showSettings(
     render();
   });
 }
+
+const nowPlaying = (music: MusicPlayer): string => {
+  const t = music.currentTitle();
+  return t === '(loading…)' ? 'Loading music…' : `Now playing: ${t}`;
+};

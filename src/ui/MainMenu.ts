@@ -1,7 +1,7 @@
 import { ProfileService } from '../profiles/ProfileService';
 import { bouncyTextHtml } from '../util/bouncyText';
 import { escapeHtml } from '../util/escapeHtml';
-import { displayFlakes } from '../game/economy';
+import { formatFlakes } from '../game/economy';
 import { ICON_FLAKE, ICON_PLAY, ICON_STATS, ICON_UPGRADE } from './icons';
 
 export type MenuChoice = 'half-pipe' | 'downhill' | 'switch-profile' | 'upgrades' | 'stats' | 'settings' | 'quit';
@@ -15,10 +15,10 @@ export function showMainMenu(root: HTMLElement, profiles: ProfileService): Promi
         <h1 class="title-bouncy">${bouncyTextHtml("Where's the Bottom?")}</h1>
         <div class="menu-profile">
           <span class="pill pill-name">${escapeHtml(p.name)}</span>
-          <span class="pill pill-flakes">${ICON_FLAKE}${displayFlakes(p.currency)}</span>
+          <span class="pill pill-flakes">${ICON_FLAKE}${formatFlakes(p.currency)}</span>
         </div>
         <div class="list menu-list">
-          <button id="downhill" class="btn-play">${ICON_PLAY}<span>Downhill <small>idle</small></span></button>
+          <button id="downhill" class="btn-play">${ICON_PLAY}<span>Downhill</span></button>
           <button id="half-pipe" class="btn-play btn-alt">${ICON_PLAY}<span>Half-pipe</span></button>
           <div class="menu-grid">
             <button id="upgrades" class="btn-accent">${ICON_UPGRADE}Upgrades</button>

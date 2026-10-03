@@ -2,7 +2,7 @@
 // WebView for now; a native haptics engine (expo-haptics) would need a
 // new APK, so the bridge is left as a hook for later.
 
-export type HapticKind = 'land' | 'trick' | 'bigTrick' | 'sketchy' | 'bail' | 'crash' | 'grace' | 'purchase';
+export type HapticKind = 'land' | 'trick' | 'bigTrick' | 'sketchy' | 'bail' | 'crash' | 'grace' | 'purchase' | 'deny';
 
 /** Milliseconds: a single buzz, or on/off/on… patterns. */
 export const PATTERNS: Record<HapticKind, number | number[]> = {
@@ -14,6 +14,7 @@ export const PATTERNS: Record<HapticKind, number | number[]> = {
   crash: [80, 40, 120],
   grace: [30, 40, 30],
   purchase: 15,
+  deny: [18, 40, 18],
 };
 
 // Two buzzes closer than this are merged (a trick lands with its thud).

@@ -54,3 +54,14 @@ describe('balance tick-down (#28)', () => {
     expect(countAt(100, 0, 0.5)).toBeLessThan(25);
   });
 });
+
+describe('display formatting (R6)', () => {
+  it('counts and snowflakes are whole and grouped, the same everywhere', async () => {
+    const { formatCount, formatFlakes } = await import('./economy');
+    expect(formatCount(1234567.9)).toBe('1,234,567');
+    expect(formatFlakes(1234.99)).toBe('1,234');
+    expect(formatFlakes(10.7)).toBe('10');
+    expect(formatCount(NaN)).toBe('0');
+    expect(formatCount(-5)).toBe('0');
+  });
+});

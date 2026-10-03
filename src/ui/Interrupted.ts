@@ -19,12 +19,11 @@ export function showInterrupted(root: HTMLElement, profile: SaveData, run: Pendi
     root.innerHTML = `
       <div class="fullscreen-panel interrupted-panel">
         <h1>Run interrupted</h1>
-        <p class="muted">Your last ${mode} run was cut short — nothing is lost.</p>
+        <p class="muted">Your last ${mode} run was cut short. Nothing is lost.</p>
         <div id="interrupted-stats">
-          <p class="muted">Distance ${Math.floor(run.distanceMeters)} m • Flips ${run.flips} • Spins ${run.spins}</p>
           ${runSummaryHtml(buildRunSummary(run, result, preview.stats, extra))}
         </div>
-        <div class="list"><button id="interrupted-collect" class="primary">Collect</button></div>
+        <div class="list"><button id="interrupted-collect" class="btn-go">Collect</button></div>
       </div>
     `;
     const btn = root.querySelector<HTMLButtonElement>('#interrupted-collect')!;

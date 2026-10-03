@@ -9,7 +9,7 @@
 export type SfxName =
   | 'ring' | 'boost'
   | 'jump' | 'land' | 'trick' | 'bigTrick' | 'sketchy' | 'bail' | 'crash' | 'grace' | 'combo'
-  | 'purchase' | 'newBest' | 'goal' | 'tap';
+  | 'purchase' | 'newBest' | 'goal' | 'tap' | 'deny';
 
 /** One voice of a sound. Times in seconds from the sound's start. */
 export interface Voice {
@@ -41,6 +41,8 @@ export const RECIPES: Record<SfxName, Voice[]> = {
   newBest: [note(0, 523.25, 0.12, 0.16, 'triangle'), note(0.1, 659.25, 0.12, 0.16, 'triangle'), note(0.2, 783.99, 0.12, 0.16, 'triangle'), note(0.3, 1046.5, 0.5, 0.2, 'triangle')],
   goal: [note(0, 698.46, 0.14, 0.14, 'triangle'), note(0.1, 880, 0.3, 0.16, 'triangle')],
   tap: [note(0, 1400, 0.035, 0.05, 'triangle')],
+  // A soft, short downward blip: "not yet".
+  deny: [{ at: 0, dur: 0.14, vol: 0.12, type: 'square', freq: 260, to: 170 }],
 };
 
 /** The minimal slice of the Web Audio API the player uses (tests fake it). */

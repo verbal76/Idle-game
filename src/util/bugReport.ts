@@ -1,65 +1,26 @@
 import { BUILD_INFO } from '../__generated__/build-info';
-import { BUILD_VERSION, OTA_VERSION } from '../version';
+import { buildInfoText, describeBuild, otaName } from '../shell/buildInfo';
 import { getEntries, getPreviousRun, formatEntry } from './debug';
 
 // Bug-report / feature-request mailto composer for the in-WebView
-// Settings panel. Adapted from a sister project's RN-side helper —
-// since this app's Settings is rendered inside the WebView (not
-// React Native), we can't use expo-constants / expo-device /
-// react-native.Linking. The data we DO have on the web side:
+// Settings panel. The diagnostic block is the same Build / Update Info
+// rows the About screen shows (shell/buildInfo.ts), so a report always
+// identifies the exact APK, runtime, update and commit.
 //
-//   - BUILD_INFO from src/__generated__/build-info.ts:
-//       branch, commit, commitShort, builtAt, appVersion,
-//       androidVersionCode, dirty
-//   - BUILD_VERSION + OTA_VERSION from src/version.ts (the friendly
-//     bump strings that surface on the About panel)
-//   - window.__OTA__ injected by App.tsx pre-content:
-//       updateId, runtimeVersion, channel, createdAt,
-//       isEmbeddedLaunch
-//   - navigator.userAgent — gives a hint of device/OS even without
-//     expo-device
-//
-// Open mechanism: setting `window.location.href = "mailto:..."`
-// triggers an Android ACTION_VIEW intent in the WebView; Android
-// resolves it to the user's default email app. Doesn't actually
-// unload the WebView page (the intent fires before navigation
-// commits). Works on existing APKs without any RN-side handler
-// change, so this is OTA-deliverable.
+// Open mechanism: an <a href="mailto:"> click triggers an Android
+// ACTION_VIEW intent in the WebView; Android resolves it to the user's
+// default email app. It works on existing APKs with no native handler,
+// so it is OTA-deliverable.
 
 const SUPPORT_EMAIL = 'hotatticgames@gmail.com';
 
-interface OtaInfo {
-  updateId: string | null;
-  runtimeVersion: string | null;
-  channel: string | null;
-  createdAt: string | null;
-  isEmbeddedLaunch: boolean | null;
-}
-
-function readOta(): OtaInfo {
-  const w = window as unknown as { __OTA__?: OtaInfo };
-  return w.__OTA__ ?? {
-    updateId: null, runtimeVersion: null, channel: null,
-    createdAt: null, isEmbeddedLaunch: null,
-  };
-}
-
 function diagnosticBlock(): string {
-  const ota = readOta();
-  return [
-    `Build:    ${BUILD_VERSION}`,
-    `OTA:      ${OTA_VERSION}`,
-    `Branch:   ${BUILD_INFO.branch}${BUILD_INFO.dirty ? ' (dirty)' : ''}`,
-    `Commit:   ${BUILD_INFO.commit}`,
-    `Built:    ${BUILD_INFO.builtAt}`,
-    `App:      ${BUILD_INFO.appVersion} (versionCode ${BUILD_INFO.androidVersionCode ?? 'n/a'})`,
-    `Runtime:  ${ota.runtimeVersion ?? 'n/a'}`,
-    `Channel:  ${ota.channel ?? 'n/a'}`,
-    `Update:   ${ota.updateId ?? 'n/a'}`,
-    `OTA at:   ${ota.createdAt ?? 'n/a'}`,
-    `Embedded: ${ota.isEmbeddedLaunch === null ? 'n/a' : (ota.isEmbeddedLaunch ? 'yes' : 'no')}`,
-    `Agent:    ${navigator.userAgent}`,
-  ].join('\n');
+  return `${buildInfoText(describeBuild(window.__OTA__, BUILD_INFO))}\nAgent: ${navigator.userAgent}`;
+}
+
+function buildLabel(): string {
+  const n = otaName(window.__OTA__);
+  return n === 'Unavailable' || n.startsWith('None') ? '' : ` — ${n}`;
 }
 
 function composeUrl(subject: string, leadIn: string): string {
@@ -83,14 +44,14 @@ function composeUrl(subject: string, leadIn: string): string {
 
 export function composeBugReportUrl(): string {
   return composeUrl(
-    `Where's the Bottom? bug report — ${OTA_VERSION}`,
+    `Where's the Bottom? bug report${buildLabel()}`,
     'Describe what happened above this line. Anything below is for context — leave it as-is.',
   );
 }
 
 export function composeFeatureRequestUrl(): string {
   return composeUrl(
-    `Where's the Bottom? feature request — ${OTA_VERSION}`,
+    `Where's the Bottom? feature request${buildLabel()}`,
     "Describe the feature you'd like above this line. Diagnostic info below identifies your build.",
   );
 }

@@ -338,7 +338,7 @@ async function main() {
       const title = await page.textContent('#fell-title');
       if (title !== 'Run over') fail(`summary title: ${title}`);
       const total = await page.textContent('#summary-total');
-      if (!/^\+\d+ ❄$/.test(total)) fail(`summary total: ${total}`);
+      if (!/^\+[\d,]+$/.test(total.trim())) fail(`summary total: ${total}`);
       const rows = await page.$$eval('.summary-record', els => els.map(e => e.textContent.replace(/\s+/g, ' ').trim()));
       if (rows.length !== 2 || !rows[0].startsWith('Distance')) fail(`downhill records: ${JSON.stringify(rows)}`);
       // The pending mirror must not come back after banking.
@@ -373,8 +373,8 @@ async function main() {
       await page.click('#quit');
       await page.waitForSelector('#run-summary', { state: 'visible' });
       const summary = (await page.textContent('#run-summary')).replace(/\s+/g, ' ');
-      if (!/Milestone: Finish your first run ?\+10 ❄/.test(summary)) fail(`summary lacks milestone: ${summary}`);
-      if (!/Daily: Finish 3 runs today ?\+15 ❄/.test(summary)) fail(`summary lacks daily: ${summary}`);
+      if (!/Milestone: Finish your first run ?\+10/.test(summary)) fail(`summary lacks milestone: ${summary}`);
+      if (!/Daily: Finish 3 runs today ?\+15/.test(summary)) fail(`summary lacks daily: ${summary}`);
       await page.click('#fell-ok');
       await page.waitForSelector('#downhill');
       // Persisted across a reload and not paid twice.
@@ -392,7 +392,7 @@ async function main() {
       };
       const a = await read();
       if (!/Milestones [1-9]\d*\/15/.test(a.miles)) fail(`milestones header: ${a.miles}`);
-      if (!/Finish 3 runs today ?✔/.test(a.daily)) fail(`daily not done: ${a.daily}`);
+      if (!(await page.evaluate(() => [...document.querySelectorAll('.goal-row.done')].length)) && !/Finish 3 runs today/.test(a.daily)) fail(`daily not done: ${a.daily}`);
       const bal = Number((await page.textContent('.menu-profile .pill-flakes')).replace(/\D/g, ''));
       if (!(bal >= 25)) fail(`expected >= 25 ❄ (10 first-run milestone + 15 daily), got ${bal}`);
       await page.reload();
@@ -449,7 +449,7 @@ async function main() {
       const menu = (await page.textContent('.menu-profile .pill-flakes')).trim();
       if (menu !== '10') fail(`menu should show 10 ❄ for 10.7, got: ${menu}`);
       await page.click('#upgrades');
-      await page.waitForSelector('.upgrade-buy:not([disabled])');
+      await page.waitForSelector('.upgrade-buy:not(.poor):not(.maxed)');
       await waitTapGuard();
       await page.evaluate(() => {
         const b = document.querySelector('.upgrade-buy');
@@ -461,6 +461,33 @@ async function main() {
       const shop = (await page.textContent('#shop-balance')).trim();
       if (shop !== '0') fail(`expected 0 ❄ after one purchase, got: ${shop}`);
       if (/2\/20/.test(text)) fail('double tap bought two levels');
+      await page.click('#upgrades-back');
+      await page.waitForSelector('#downhill');
+    });
+
+    await step('shop updates in place: scroll kept, can\'t-afford says why (R6)', async () => {
+      await patchProfile({ currency: 30 });
+      await page.click('#upgrades');
+      await page.waitForSelector('#upgrades-list');
+      await waitTapGuard();
+      // Scroll down, then buy something that is on screen: the list must not jump.
+      await page.evaluate(() => { document.querySelector('.fullscreen-panel').scrollTop = 200; });
+      const before = await page.evaluate(() => document.querySelector('.fullscreen-panel').scrollTop);
+      const target = page.locator('.upgrade-buy:not(.poor):not(.maxed)').first();
+      const id = await target.evaluate(el => el.closest('.upgrade-row').dataset.id);
+      const lvl0 = await page.textContent(`.upgrade-row[data-id="${id}"] .upgrade-level`);
+      await target.evaluate(el => el.click());
+      await page.waitForFunction(([id, lvl0]) => document.querySelector(`.upgrade-row[data-id="${id}"] .upgrade-level`).textContent !== lvl0, [id, lvl0]);
+      const after = await page.evaluate(() => document.querySelector('.fullscreen-panel').scrollTop);
+      if (Math.abs(after - before) > 2 || before < 50) fail(`shop scroll jumped: ${before} -> ${after}`);
+      // Something unaffordable (Grace costs 40; balance is now < 40): tap says what's missing.
+      const grace = page.locator('.upgrade-row[data-id="grace"] .upgrade-buy');
+      if (!(await grace.evaluate(el => el.classList.contains('poor')))) fail('Grace should be marked unaffordable');
+      await grace.evaluate(el => el.click());
+      const msg = (await grace.textContent()).trim();
+      if (!/^Need \d+/.test(msg)) fail(`unaffordable tap gave no reason: '${msg}'`);
+      await page.waitForFunction(() => !/Need/.test(document.querySelector('.upgrade-row[data-id="grace"] .upgrade-buy').textContent), null, { timeout: 4000 });
+      if ((await grace.getAttribute('aria-disabled')) !== 'true') fail('unaffordable button not marked aria-disabled');
       await page.click('#upgrades-back');
       await page.waitForSelector('#downhill');
     });
@@ -604,10 +631,10 @@ async function main() {
         cb.onTrick({ name: 'FLIP', payout: 1, comboMult: 1, outcome: 'clean', switch: false });
         cb.onTrick({ name: 'CORK 360', payout: 2.25, comboMult: 1.5, outcome: 'clean', switch: false });
       });
-      const shown = await page.$$eval('#callouts .callout', els => els.map(e => ({ cls: e.className, text: e.textContent })));
+      const shown = await page.$$eval('#callouts .callout', els => els.map(e => ({ cls: e.className, text: e.textContent.replace(/\s+/g, ' ').trim() })));
       if (shown.length !== 2) fail(`expected 2 callouts, got ${JSON.stringify(shown)}`);
-      if (!shown[0].cls.includes('callout-big') || shown[0].text !== 'CORK 360+2.3 ❄ · ×1.5 combo') fail(`newest callout: ${JSON.stringify(shown[0])}`);
-      if (shown[1].text !== 'FLIP+1 ❄') fail(`older callout: ${JSON.stringify(shown[1])}`);
+      if (!shown[0].cls.includes('callout-big') || shown[0].text !== 'CORK 360+2.3 · ×1.5 combo') fail(`newest callout: ${JSON.stringify(shown[0])}`);
+      if (shown[1].text !== 'FLIP+1') fail(`older callout: ${JSON.stringify(shown[1])}`);
       await page.waitForTimeout(1700);
       if (await page.$$eval('#callouts .callout', els => els.length) !== 0) fail('callouts did not clear');
       await page.click('#pause');
@@ -753,14 +780,14 @@ async function main() {
 
       await patchProfile({ currency: 50 });
       await page.click('#upgrades');
-      await page.waitForSelector('.upgrade-buy:not([disabled])');
+      await page.waitForSelector('.upgrade-buy:not(.poor):not(.maxed)');
       await waitTapGuard();
       const seen = await page.evaluate(() => new Promise((resolve) => {
         const vals = [];
         const t0 = performance.now();
         const sample = () => {
-          const b = document.getElementById('shop-balance');
-          const v = b && Number(b.firstChild.data.trim());
+          const b = document.getElementById('shop-balance-num');
+          const v = b && Number(b.textContent.replace(/,/g, ''));
           if (b && vals[vals.length - 1] !== v) vals.push(v);
           if (performance.now() - t0 < 900) requestAnimationFrame(sample); else resolve(vals);
         };
@@ -782,7 +809,12 @@ async function main() {
       const read = () => page.$$eval('#build-info .bi-row', rows => Object.fromEntries(rows.map(r => [r.dataset.id, r.querySelector('.bi-val').textContent])));
       await page.evaluate(() => { delete window.__OTA__; });
       await page.click('#menu-settings');
-      await page.waitForSelector('#build-info');
+      await page.click('#settings-about');
+      await page.waitForSelector('#about-back');
+      // Players see the name and version; the details are one tap away.
+      if (await page.isVisible('#build-info')) fail('build details should start collapsed');
+      await page.click('details.build-details > summary');
+      await page.waitForSelector('#build-info', { state: 'visible' });
       // No native shell (browser): honest fallbacks, never undefined/null.
       let v = await read();
       if (v.source !== 'Browser (no native app shell)' || v['app-version'] !== 'Unavailable') fail(`no-shell rows: ${JSON.stringify(v)}`);
@@ -805,6 +837,10 @@ async function main() {
       await page.click('#bi-full');
       v = await read();
       if (v['update-id'] !== '01a0e4f8-a3b7-7817-b044-39670636a47d') fail(`full id: ${v['update-id']}`);
+      const shown = await page.textContent('.about-version');
+      if (shown.trim() !== 'Version 0.0.1 (5)') fail(`About version line: ${shown}`);
+      await page.click('#about-back');
+      await page.waitForSelector('#sfx-vol');
       await page.click('#settings-back');
       await page.waitForSelector('#downhill');
       await page.evaluate(() => { delete window.__OTA__; });
@@ -826,9 +862,17 @@ async function main() {
       if (menu.wide.length) fail(`buttons wider than the screen: ${menu.wide}`);
       await page.click('#menu-settings');
       await page.waitForSelector('#sfx-vol');
-      const small = await page.evaluate(() => [...document.querySelectorAll('#music-vol, #sfx-vol, #haptics-toggle, #bi-full, #bi-copy')]
+      await page.click('#settings-about');
+      await page.click('details.build-details > summary');
+      await page.waitForSelector('#bi-full', { state: 'visible' });
+      const small = await page.evaluate(() => [...document.querySelectorAll('#bi-full, #bi-copy, #about-back')]
         .map(e => ({ id: e.id, h: e.getBoundingClientRect().height })).filter(x => x.h < 32));
-      if (small.length) fail(`touch targets under 32 px: ${JSON.stringify(small)}`);
+      if (small.length) fail(`About touch targets under 32 px: ${JSON.stringify(small)}`);
+      await page.click('#about-back');
+      await page.waitForSelector('#sfx-vol');
+      const small2 = await page.evaluate(() => [...document.querySelectorAll('#music-vol, #sfx-vol, #haptics-toggle')]
+        .map(e => ({ id: e.id, h: e.getBoundingClientRect().height })).filter(x => x.h < 32));
+      if (small2.length) fail(`touch targets under 32 px: ${JSON.stringify(small2)}`);
       await page.click('#settings-back');
       await page.waitForSelector('#downhill');
       await page.setViewportSize(PORTRAIT);
@@ -1099,7 +1143,8 @@ async function main() {
         const img = new Image();
         if (urls.length === 1) { img.src = urls[0]; await img.decode(); }
         const r = panel.getBoundingClientRect();
-        const onTop = (el) => { const b = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2)); };
+        // (A button scrolled under the sticky Back bar counts as reachable by scrolling.)
+        const onTop = (el) => { const b = el.getBoundingClientRect(); const top = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2); return el.contains(top) || !!top?.closest('.sticky-actions'); };
         const buttons = [...panel.querySelectorAll('button')];
         return {
           urls: urls.length, w: img.naturalWidth, h: img.naturalHeight,

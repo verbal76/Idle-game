@@ -646,9 +646,9 @@ html, body {
 .upgrade-row.just-bought { animation: bought-pulse 520ms cubic-bezier(0.2, 1.4, 0.4, 1); }
 .upgrade-row.just-bought .pip.new { animation: pip-pop 520ms ease-out; }
 .upgrade-row.just-bought::after {
-  content: '✦  ✧  ✦'; position: absolute; right: 18px; top: -6px;
-  color: #ffd166; font-size: 16px; letter-spacing: 4px; pointer-events: none;
-  text-shadow: 0 0 8px rgba(255, 209, 102, 0.9);
+  content: ''; position: absolute; right: 22px; top: 50%; width: 6px; height: 6px; border-radius: 50%;
+  pointer-events: none;
+  box-shadow: -14px -16px 0 #ffd166, 14px -14px 0 #fff, -20px 8px 0 #fff, 18px 10px 0 #ffd166, 0 -22px 0 #fff, 2px 20px 0 #ffd166;
   animation: sparkle 700ms ease-out forwards;
 }
 @keyframes bought-pulse {
@@ -1024,3 +1024,55 @@ html, body { font-family: var(--font-ui); font-weight: 500; }
     transition-duration: 1ms !important;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   Release polish (R6): in-place shop, can't-afford feedback, About,
+   sticky actions, icon sizing.
+   ════════════════════════════════════════════════════════════════════ */
+.shop-balance .shop-flake { display: inline-flex; }
+.upgrade-buy { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.upgrade-buy .ui-icon { width: 18px; height: 18px; }
+/* Can't buy it yet: dimmed but tappable (a tap says what's missing). */
+.fullscreen-panel button.upgrade-buy.poor { filter: saturate(0.35) brightness(0.85); }
+.fullscreen-panel button.upgrade-buy.maxed { filter: saturate(0.2) brightness(0.8); }
+.upgrade-buy.shake { animation: buy-shake 360ms cubic-bezier(0.3, 0.1, 0.3, 1); }
+@keyframes buy-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); } 40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); } 80% { transform: translateX(3px); }
+}
+/* Back / main actions stay reachable at the bottom of long screens. */
+.sticky-actions {
+  position: sticky; bottom: calc(-1 * max(16px, env(safe-area-inset-bottom, 0px)));
+  z-index: 4; padding: 12px 0 max(4px, env(safe-area-inset-bottom, 0px));
+  width: 100%; justify-content: center;
+  background: linear-gradient(to top, rgba(9, 20, 44, 0.96) 62%, rgba(9, 20, 44, 0));
+}
+.fullscreen-panel > .list.sticky-actions { display: flex; flex-direction: column; align-items: center; }
+.fullscreen-panel button.sticky-actions { width: min(480px, 100%); }
+/* About */
+.about-card {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 18px 22px;
+  width: min(480px, 100%); text-align: center;
+  background: var(--card); border: 2px solid var(--card-edge); border-radius: 16px;
+}
+.about-title { font-family: var(--font-display); font-size: 28px; color: #ffd166; -webkit-text-stroke: 1px #7a1f3d; }
+.about-version { font-weight: 700; font-size: 18px; }
+details.build-details { width: min(480px, 100%); }
+details.build-details > summary {
+  cursor: pointer; padding: 12px 8px; min-height: 48px; text-align: center; font-weight: 700; opacity: 0.85;
+  list-style: none;
+}
+details.build-details > summary::-webkit-details-marker { display: none; }
+details.build-details > summary::after { content: ''; display: inline-block; margin-left: 8px; border: 5px solid transparent; border-top-color: currentColor; vertical-align: -2px; }
+details.build-details[open] > summary::after { border-top-color: transparent; border-bottom-color: currentColor; vertical-align: 3px; }
+/* Icons set into text rows. */
+.stat-val .ui-icon, .callout .ui-icon { width: 0.95em; height: 0.95em; vertical-align: -0.12em; margin-left: 2px; }
+.stat-val .icon-check { color: #7ee2a8; }
+.summary-total .ui-icon { width: 0.7em; height: 0.7em; vertical-align: -0.04em; margin-left: 4px; color: #8fd0ff; }
+.hp-icon .ui-icon { width: 20px; height: 20px; }
+.ring-icon .ui-icon { width: 18px; height: 18px; }
+.fullscreen-panel button .ui-icon { width: 1.1em; height: 1.1em; }
+/* Screens settle in a touch faster. */
+@keyframes panel-fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.fullscreen-panel { animation-duration: 170ms; }

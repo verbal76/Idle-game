@@ -1,3 +1,4 @@
+import { ICON_DICE, ICON_TYPE } from './icons';
 import { generateWhimsicalName } from '../util/whimsicalNames';
 import { escapeHtml } from '../util/escapeHtml';
 
@@ -26,8 +27,8 @@ export function showNameSelect(root: HTMLElement): Promise<string | null> {
           }
           <div class="row">
             ${custom
-              ? `<button id="random-mode">🎲 Random</button>`
-              : `<button id="reroll">🎲 Reroll</button><button id="custom-mode">✏️ Type</button>`
+              ? `<button id="random-mode">${ICON_DICE}Random</button>`
+              : `<button id="reroll">${ICON_DICE}Reroll</button><button id="custom-mode">${ICON_TYPE}Type</button>`
             }
           </div>
           <div class="row">
