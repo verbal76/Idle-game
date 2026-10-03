@@ -107,8 +107,14 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      # The runner image already has the Android SDK (ANDROID_HOME). The action's
+      # default package list asks for the retired 'tools' package, which current
+      # cmdline-tools reject ("Failed to find package 'tools'"), so install nothing
+      # here; the exact components are installed after prebuild, below.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: ''
 
       - name: Install dependencies (exactly package-lock.json)
         run: npm ci --no-audit --no-fund
@@ -142,6 +148,22 @@ jobs:
         run: npx expo prebuild --platform android --clean
         env:
           EXPO_NO_TELEMETRY: '1'
+
+      # Exactly the platform / build-tools / NDK the generated project asks for
+      # (read from android/), plus accepted licences, so Gradle never stalls on a
+      # download prompt and a newer compileSdk than the image carries still works.
+      - name: Install the Android SDK components this build needs
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKM" ] || SDKM=$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | tail -1)
+          CS=$(grep -E '^android.compileSdkVersion=' android/gradle.properties | cut -d= -f2)
+          BT=$(grep -oE "buildToolsVersion = findProperty\('android.buildToolsVersion'\) \?: '[0-9.]+'" android/build.gradle | grep -oE "[0-9]+\.[0-9.]+")
+          NDK=$(grep -oE 'ndkVersion = "[0-9.]+"' android/build.gradle | grep -oE "[0-9][0-9.]+" || true)
+          echo "compileSdk=$CS buildTools=$BT ndk=$NDK"
+          yes | "$SDKM" --licenses > /dev/null || true
+          PKGS=("platforms;android-$CS" "build-tools;$BT" "platform-tools")
+          [ -n "$NDK" ] && PKGS+=("ndk;$NDK")
+          "$SDKM" --install "${PKGS[@]}"
 
       - name: Cache Gradle
         uses: actions/cache@v4
