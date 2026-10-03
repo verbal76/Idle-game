@@ -34,9 +34,29 @@ const app     = JSON.parse(readFileSync('app.json', 'utf8'));
 // The shipped app version is app.json's (the runtime version follows it).
 const appVersion        = app?.expo?.version ?? pkg.version ?? 'unknown';
 const androidVersionCode = app?.expo?.android?.versionCode ?? null;
+const appName   = app?.expo?.name ?? 'unknown';
+const packageId = app?.expo?.android?.package ?? 'unknown';
+
+// Android SDK levels the native build is generated with: the React Native
+// template's defaults (expo prebuild uses the same ones for this SDK). The
+// installed APK's own value is not readable at runtime, so About shows
+// these as build-config values.
+function sdkLevel(name) {
+  try {
+    const gradle = readFileSync('node_modules/react-native/template/android/build.gradle', 'utf8');
+    const m = gradle.match(new RegExp(`${name}\\s*=\\s*(\\d+)`));
+    return m ? Number(m[1]) : null;
+  } catch {
+    return null;
+  }
+}
+const minSdk = sdkLevel('minSdkVersion');
+const compileSdk = sdkLevel('compileSdkVersion');
+const targetSdk = sdkLevel('targetSdkVersion');
 
 const data = {
   branch, commit, commitShort, dirty, builtAt, appVersion, androidVersionCode,
+  appName, packageId, minSdk, compileSdk, targetSdk,
 };
 
 mkdirSync(dirname(OUTPUT), { recursive: true });
@@ -51,6 +71,11 @@ writeFileSync(OUTPUT,
   `  builtAt: string;\n` +
   `  appVersion: string;\n` +
   `  androidVersionCode: number | null;\n` +
+  `  appName: string;\n` +
+  `  packageId: string;\n` +
+  `  minSdk: number | null;\n` +
+  `  compileSdk: number | null;\n` +
+  `  targetSdk: number | null;\n` +
   `}\n` +
   `export const BUILD_INFO: BuildInfo = ${JSON.stringify(data, null, 2)};\n`
 );

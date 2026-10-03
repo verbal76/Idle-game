@@ -1067,6 +1067,76 @@ async function main() {
       await page.waitForSelector('#downhill');
     });
 
+    await step('applying-update modal, Copy diagnostics, studio card', async () => {
+      await page.waitForSelector('#downhill');
+      const modal = () => page.evaluate(() => {
+        const m = document.getElementById('applying-update');
+        return m ? { text: m.textContent.trim(), top: document.elementFromPoint(innerWidth / 2, innerHeight / 2) === m || m.contains(document.elementFromPoint(innerWidth / 2, innerHeight / 2)) } : null;
+      });
+      const status = (s) => page.evaluate((s) => { window.__UPDATE_STATUS__ = s; window.dispatchEvent(new CustomEvent('update-status', { detail: s })); }, s);
+      // Only the real activation shows it.
+      for (const s of ['checking', 'downloading', 'up-to-date', 'ready', 'deferred', 'offline', 'unavailable']) {
+        await status(s);
+        if (await modal()) fail(`applying modal shown for status '${s}'`);
+      }
+      await status('reloading');
+      let m = await modal();
+      if (!m) fail('applying modal not shown on activation');
+      if (m.text !== 'Please wait, applying update') fail(`applying modal text: ${m.text}`);
+      if (!m.top) fail('applying modal does not cover the screen');
+      await status('reloading');
+      if ((await page.$$('#applying-update')).length !== 1) fail('applying modal stacked');
+      // Android Back does nothing while it is up.
+      await page.evaluate(() => window.__wtbBack && window.__wtbBack());
+      if (!(await modal())) fail('Back dismissed the applying modal');
+      if (!(await page.isVisible('#downhill'))) fail('Back changed the screen under the applying modal');
+      // A failed activation (the shell reports ready again) removes it.
+      await status('ready');
+      if (await modal()) fail('applying modal stayed after a failed activation');
+      if (await page.evaluate(() => document.body.innerText.includes('applying update'))) fail('applying text left behind');
+
+      // Copy diagnostics (About).
+      await page.evaluate(() => {
+        window.__copied = null;
+        Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (t) => { window.__copied = t; } }, configurable: true });
+      });
+      await page.click('#menu-settings');
+      await page.click('#settings-about');
+      await page.waitForSelector('#about-copy');
+      await status('up-to-date');
+      await page.waitForSelector('#about-copy');
+      await page.click('#about-copy');
+      await page.waitForFunction(() => window.__copied);
+      const text = await page.evaluate(() => window.__copied);
+      if (!text.startsWith('HOT ATTIC GAMES DIAGNOSTICS')) fail(`diagnostics header: ${text.slice(0, 60)}`);
+      for (const want of ['Captured at: ', '\nAPPLICATION\n', '\nDEVICE\n', '\nINSTALL\n', '\nOTA\n', '\nUPDATE STATE\n', '\nGOOGLE PLAY / ANDROID\n',
+        'Package ID: com.hotatticgames.snow', 'Update state: Up to date', 'Play API compliant: ', 'Signing: Debug keystore']) {
+        if (!text.includes(want)) fail(`diagnostics missing ${JSON.stringify(want)}:\n${text}`);
+      }
+      if (/undefined|null|NaN/.test(text)) fail(`diagnostics has a bad value:\n${text}`);
+      await page.click('#about-back');
+      await page.waitForSelector('#sfx-vol');
+      await page.click('#settings-back');
+      await page.waitForSelector('#downhill');
+
+      // Studio card (the canonical logo is supplied separately; exercise the card with a stand-in image).
+      const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+      const shown = await page.evaluate((png) => !!window.__hag.showStudioSplash({ logoUrl: png, durationMs: 400 }), png);
+      if (!shown) fail('studio card not shown');
+      const card = await page.evaluate(() => {
+        const el = document.getElementById('studio-splash'); const img = el.querySelector('img');
+        const r = img.getBoundingClientRect(), c = getComputedStyle(el);
+        return { bg: c.backgroundColor, pos: c.position, fit: getComputedStyle(img).objectFit, w: el.getBoundingClientRect().width, h: el.getBoundingClientRect().height,
+          cx: r.left + r.width / 2, cy: r.top + r.height / 2, vw: innerWidth, vh: innerHeight };
+      });
+      if (card.bg !== 'rgb(0, 0, 0)' || card.pos !== 'fixed' || card.fit !== 'contain') fail(`studio card style: ${JSON.stringify(card)}`);
+      if (Math.abs(card.w - card.vw) > 1 || Math.abs(card.h - card.vh) > 1) fail(`studio card not full screen: ${JSON.stringify(card)}`);
+      if (Math.abs(card.cx - card.vw / 2) > 1.5 || Math.abs(card.cy - card.vh / 2) > 1.5) fail(`studio logo not centred: ${JSON.stringify(card)}`);
+      await page.waitForSelector('#studio-splash', { state: 'detached', timeout: 6000 });
+      const again = await page.evaluate((png) => !!window.__hag.showStudioSplash({ logoUrl: png, durationMs: 400 }), png);
+      if (again) fail('studio card replayed within one page load');
+    });
+
     await step('HUD controls never overlap each other (graphics/UI audit)', async () => {
       // Portrait had FLIP on top of the right steering button.
       await page.click('#downhill');
