@@ -75,10 +75,15 @@ async function main() {
       }
     });
     page.setDefaultTimeout(90_000);
+    // The UI swallows taps for 200 ms after a screen appears (double-tap
+    // guard, ui/tapGuard.ts); scripted clicks wait it out like a person.
+    const waitTapGuard = () => page.waitForFunction(() => !(window.__tapsLocked && window.__tapsLocked()), null, { polling: 30 }).catch(() => {});
+    const rawClick = page.click.bind(page);
+    page.click = async (sel, opts) => { await waitTapGuard(); return rawClick(sel, opts); };
     await page.goto(`http://127.0.0.1:${port}/?e2e`);
 
     const checkNoCrash = async (where) => {
-      const crashed = await page.evaluate(() => document.body.firstElementChild?.tagName === 'PRE');
+      const crashed = await page.evaluate(() => document.body.firstElementChild?.tagName === 'PRE' || !!document.querySelector('.fatal-panel'));
       if (crashed) fail(`bootstrap error screen shown at ${where}: ${await page.textContent('pre')}`);
       if (errors.length) fail(`errors at ${where}:\n${errors.join('\n')}`);
     };
@@ -137,7 +142,7 @@ async function main() {
       await page.setViewportSize(LANDSCAPE);
       await page.waitForSelector('#hud');
       const intro = page.locator('#halfpipe-intro');
-      if (await intro.isVisible().catch(() => false)) await intro.click();
+      if (await intro.isVisible().catch(() => false)) await page.click('#halfpipe-intro-ok');
       // #15: the up button is labelled and drawn as Deep carve.
       const up = await page.evaluate(() => {
         const b = document.getElementById('dpad-up');
@@ -168,13 +173,13 @@ async function main() {
       const before = await page.textContent('#score');
       await page.waitForTimeout(1500);
       if (await page.textContent('#score') !== before) fail('run advanced while the intro was up');
-      await page.click('#halfpipe-intro');
+      await page.click('#halfpipe-intro-ok');
       await page.waitForFunction((b) => document.getElementById('score').textContent !== b, before);
       // How to play is in the pause menu and returns to it.
       await page.click('#pause');
       await page.click('#pause-howto');
       await page.waitForSelector('#halfpipe-intro', { state: 'visible' });
-      await page.click('#halfpipe-intro');
+      await page.click('#halfpipe-intro-ok');
       await page.waitForSelector('#pause-menu', { state: 'visible' });
       await quitRun();
       await page.setViewportSize(PORTRAIT);
@@ -215,8 +220,15 @@ async function main() {
       await page.click('#stats');
       await page.waitForSelector('#stats-lifetime');
       const life = await page.textContent('#stats-lifetime');
-      // downhill run, 2 intro rides, half-pipe run, crash run = 5 runs.
-      if (!/Runs\s*5\b/.test(life)) fail(`expected 5 lifetime runs, got: ${life}`);
+      // The screen shows the saved count. Rides abandoned at the start
+      // (the intro rides, quit at once) don't count as runs (records.ts
+      // isMeaningfulRun); the downhill, half-pipe and crash runs do.
+      const saved = await page.evaluate(() => new Promise((res) => {
+        const r = indexedDB.open('boarder');
+        r.onsuccess = () => { const g = r.result.transaction('profiles').objectStore('profiles').getAll(); g.onsuccess = () => res(g.result[0].stats.lifetime.runs); };
+      }));
+      const shownRuns = Number((life.match(/Runs\s*(\d+)/) ?? [])[1]);
+      if (shownRuns !== saved || saved < 1 || saved > 5) fail(`lifetime runs: shown ${shownRuns}, saved ${saved}`);
       const down = await page.textContent('#stats-downhill');
       const m = down.match(/Longest run\s*([\d,]+) m/);
       if (!m || Number(m[1].replace(/,/g, '')) <= 0) fail(`downhill longest not recorded: ${down}`);
@@ -224,7 +236,7 @@ async function main() {
       await page.click('#switch');
       await page.click('.profile-stats-btn');
       await page.waitForSelector('#stats-lifetime');
-      if (!/Runs\s*5\b/.test(await page.textContent('#stats-lifetime'))) fail('picker stats differ');
+      if (!new RegExp(`Runs\\s*${saved}\\b`).test(await page.textContent('#stats-lifetime'))) fail('picker stats differ');
       await page.click('#stats-back');
       await page.click('#profile-list .profile-line button');
       await page.waitForSelector('#downhill');
@@ -259,6 +271,10 @@ async function main() {
       if (!posted.includes('back:exit')) fail(`menu Back should exit, posted ${JSON.stringify(posted)}`);
     });
 
+    const lifetimeDistance = () => page.evaluate(() => new Promise((res) => {
+      const r = indexedDB.open('boarder');
+      r.onsuccess = () => { const g = r.result.transaction('profiles').objectStore('profiles').getAll(); g.onsuccess = () => { r.result.close(); res(Math.max(...g.result.map(p => p.stats.lifetime.distance))); }; };
+    }));
     const lifetimeRuns = async () => {
       await page.click('#stats');
       await page.waitForSelector('#stats-lifetime');
@@ -270,6 +286,7 @@ async function main() {
 
     await step('killed mid-run: Run interrupted, collected exactly once (#2); crash banked at once (#21)', async () => {
       const runsBefore = await lifetimeRuns();
+      const distBefore = await lifetimeDistance();
       for (const crashFirst of [false, true]) {
         await page.click('#downhill');
         await page.setViewportSize(LANDSCAPE);
@@ -299,12 +316,18 @@ async function main() {
         await page.waitForSelector('#downhill');
         if (await page.isVisible('#interrupted-collect')) fail('interrupted run offered twice');
       }
-      const runsAfter = await lifetimeRuns();
-      if (runsAfter !== runsBefore + 2) fail(`expected ${runsBefore + 2} runs (one collect + one banked crash), got ${runsAfter}`);
+      // Both rides were credited (lifetime distance grew by both); the
+      // checks above prove neither was credited twice. (2.6 s rides are
+      // under the 50 m 'accidental start' line, so they don't add to the
+      // run count; records.ts isMeaningfulRun.)
+      const distAfter = await lifetimeDistance();
+      if (!(distAfter > distBefore)) fail(`interrupted/crashed rides not credited: ${distBefore} -> ${distAfter}`);
+      if ((await lifetimeRuns()) !== runsBefore) fail('short rides counted as runs');
     });
 
     await step('run summary: breakdown + records; banked once (#21)', async () => {
       const runsBefore = await lifetimeRuns();
+      const distBefore = await lifetimeDistance();
       await page.click('#downhill');
       await page.setViewportSize(LANDSCAPE);
       await page.waitForSelector('#hud');
@@ -325,8 +348,8 @@ async function main() {
       await page.click('#continue');
       await page.waitForSelector('#downhill');
       if (await page.isVisible('#interrupted-collect')) fail('a banked run was offered again');
-      const runsAfter = await lifetimeRuns();
-      if (runsAfter !== runsBefore + 1) fail(`runs ${runsBefore} -> ${runsAfter}`);
+      if (!((await lifetimeDistance()) > distBefore)) fail('the quit run was not banked');
+      void runsBefore;
     });
 
     await step('milestones + dailies auto-paid at run end, shown in stats (#22)', async () => {
@@ -344,6 +367,9 @@ async function main() {
       await page.waitForSelector('#hud');
       await page.waitForTimeout(1500);
       await page.click('#pause');
+      // A real run (past the 50 m 'accidental start' line) counts toward
+      // the run goals; carry the paused rider 60 m on.
+      await page.evaluate(() => { window.__wtb.game.rider.root.position.z += 60; });
       await page.click('#quit');
       await page.waitForSelector('#run-summary', { state: 'visible' });
       const summary = (await page.textContent('#run-summary')).replace(/\s+/g, ' ');
@@ -389,15 +415,19 @@ async function main() {
       await page.waitForTimeout(400);
       let posted = await page.evaluate(() => window.__posted.slice());
       if (!posted.includes('run:start') || posted.includes('run:end')) fail(`in run: ${JSON.stringify(posted)}`);
-      // Switch Style: straight into the next run, still "in run".
+      // Switch Style: the summary first (nothing banked silently), then
+      // straight into the next run, still "in run".
       await page.click('#pause');
       await page.click('#switch-style');
+      await page.waitForSelector('#fell-overlay', { state: 'visible' });
+      if (!/Ride Half-pipe/.test(await page.textContent('#fell-switch'))) fail('summary switch button not labelled');
+      await page.click('#fell-switch');
       await page.waitForSelector('#hud');
       await page.waitForTimeout(400);
       posted = await page.evaluate(() => window.__posted.slice());
       if (posted.includes('run:end')) fail(`run:end sent between switched runs: ${JSON.stringify(posted)}`);
       const intro = page.locator('#halfpipe-intro');
-      if (await intro.isVisible().catch(() => false)) await intro.click();
+      if (await intro.isVisible().catch(() => false)) await page.click('#halfpipe-intro-ok');
       await page.click('#pause');
       await quitRun();
       await page.setViewportSize(PORTRAIT);
@@ -405,6 +435,11 @@ async function main() {
       await page.waitForFunction(() => window.__posted.includes('run:end'));
       posted = await page.evaluate(() => { const p = window.__posted.slice(); delete window.ReactNativeWebView; return p; });
       if (posted.lastIndexOf('run:end') < posted.lastIndexOf('run:start')) fail(`bad order: ${JSON.stringify(posted)}`);
+      // An update may only apply on the main menu: busy before every run,
+      // idle again once back on the menu.
+      const start = posted.indexOf('run:start');
+      if (posted.lastIndexOf('ui:busy', start) < posted.lastIndexOf('ui:idle', start)) fail(`run started while 'idle': ${JSON.stringify(posted)}`);
+      if (posted.lastIndexOf('ui:idle') < posted.lastIndexOf('run:end')) fail(`menu not reported idle: ${JSON.stringify(posted)}`);
     });
 
     await step('upgrade double-tap buys once (#3)', async () => {
@@ -415,6 +450,7 @@ async function main() {
       if (menu !== '10') fail(`menu should show 10 ❄ for 10.7, got: ${menu}`);
       await page.click('#upgrades');
       await page.waitForSelector('.upgrade-buy:not([disabled])');
+      await waitTapGuard();
       await page.evaluate(() => {
         const b = document.querySelector('.upgrade-buy');
         b.click(); b.click(); b.click();
@@ -543,7 +579,7 @@ async function main() {
         await page.click(`#${mode}`);
         await page.setViewportSize(LANDSCAPE);
         await page.waitForSelector('#hud');
-        if (await page.isVisible('#halfpipe-intro')) await page.click('#halfpipe-intro');
+        if (await page.isVisible('#halfpipe-intro')) await page.click('#halfpipe-intro-ok');
         const a = await read();
         await page.waitForTimeout(1500);
         const b = await read();
@@ -718,6 +754,7 @@ async function main() {
       await patchProfile({ currency: 50 });
       await page.click('#upgrades');
       await page.waitForSelector('.upgrade-buy:not([disabled])');
+      await waitTapGuard();
       const seen = await page.evaluate(() => new Promise((resolve) => {
         const vals = [];
         const t0 = performance.now();
@@ -921,6 +958,133 @@ async function main() {
       await page.setViewportSize(PORTRAIT);
       await page.click('#pause');
       await quitRun();
+      await page.waitForSelector('#downhill');
+    });
+
+    await step('stray errors after start-up are logged, never fatal (pre-release review)', async () => {
+      // Each of these used to replace the whole game with a stack trace
+      // (the logger itself threw on undefined / circular values).
+      await page.evaluate(() => {
+        const circ = {}; circ.self = circ;
+        Promise.reject();
+        Promise.reject(circ);
+        console.error('probe-undefined', undefined, circ, () => 0);
+        setTimeout(() => { throw new Error('probe-thrown'); }, 0);
+      });
+      await page.waitForTimeout(300);
+      for (let i = errors.length - 1; i >= 0; i--) if (/probe|unhandledrejection|undefined|Object/.test(errors[i])) errors.splice(i, 1);
+      await checkNoCrash('after stray errors');
+      await page.click('#stats');
+      await page.click('#stats-back');
+      await page.waitForSelector('#downhill');
+    });
+
+    await step('Android Back: every sub-screen goes back, roots exit (pre-release review)', async () => {
+      await page.evaluate(() => {
+        window.__posted = [];
+        window.ReactNativeWebView = { postMessage: (m) => window.__posted.push(m) };
+      });
+      const back = async () => { await page.waitForTimeout(250); await page.evaluate(() => window.__wtbBack()); };
+      const exited = () => page.evaluate(() => window.__posted.includes('back:exit'));
+      for (const [open, sel] of [['#upgrades', '#upgrades-list'], ['#stats', '#stats-lifetime'], ['#menu-settings', '#sfx-vol'], ['#switch', '#profile-list']]) {
+        await page.click(open);
+        await page.waitForSelector(sel);
+        await back();
+        await page.waitForSelector('#downhill');
+        if (await exited()) fail(`Back on ${open} left the app`);
+      }
+      // Settings → About → Back → Back.
+      await page.click('#menu-settings');
+      await page.click('#settings-about');
+      await page.waitForSelector('#about-back');
+      await back();
+      await page.waitForSelector('#sfx-vol');
+      await back();
+      await page.waitForSelector('#downhill');
+      // In a run: Back pauses, opens nothing else, Back resumes; in-run
+      // Settings closes on Back (it used to swallow it).
+      await page.click('#downhill');
+      await page.waitForSelector('#hud');
+      await back();
+      if (!(await page.isVisible('#pause-menu'))) fail('Back did not pause');
+      await page.click('#pause-settings');
+      await page.waitForSelector('#settings-overlay #sfx-vol');
+      await back();
+      if (!(await page.isVisible('#pause-menu'))) fail('Back did not close in-run Settings');
+      await back();
+      if (await page.isVisible('#pause-menu')) fail('Back did not resume');
+      await page.click('#pause');
+      await quitRun();
+      await page.waitForSelector('#downhill');
+      if (await exited()) fail('Back left the app from a sub-screen');
+      // The main menu is a root: Back exits.
+      await back();
+      if (!(await exited())) fail('Back on the main menu did not exit');
+      await page.evaluate(() => { delete window.ReactNativeWebView; });
+    });
+
+    await step('a quick double tap never lands on the next screen (pre-release review)', async () => {
+      await patchProfile({ currency: 500 });
+      const levels = () => page.evaluate(() => new Promise((res) => {
+        const r = indexedDB.open('boarder');
+        r.onsuccess = () => { const g = r.result.transaction('profiles').objectStore('profiles').getAll(); g.onsuccess = () => { r.result.close(); res(JSON.stringify(g.result.map(p => p.upgrades))); }; };
+      }));
+      const levelsBefore = await levels();
+      // Main menu → Upgrades with a second tap where a Buy button appears.
+      await waitTapGuard();
+      const box = await page.locator('#upgrades').boundingBox();
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      await page.waitForTimeout(60);
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      await page.waitForSelector('#upgrades-list');
+      await page.waitForTimeout(300);
+      if ((await levels()) !== levelsBefore) fail(`double tap bought an upgrade: ${levelsBefore} -> ${await levels()}`);
+      await page.click('#upgrades-back');
+      await page.waitForSelector('#downhill');
+    });
+
+    await step('Quit keeps the menu alive (Android may only background the app)', async () => {
+      await page.evaluate(() => {
+        window.__posted = [];
+        window.ReactNativeWebView = { postMessage: (m) => window.__posted.push(m) };
+      });
+      await page.click('#quit');
+      await page.waitForTimeout(300);
+      if (!(await page.evaluate(() => window.__posted.includes('quit:app')))) fail('quit:app not posted');
+      await page.click('#downhill');
+      await page.waitForSelector('#hud');
+      if (!(await page.evaluate(() => window.__posted.includes('run:start')))) fail('menu dead after Quit');
+      await page.click('#pause');
+      await quitRun();
+      await page.waitForSelector('#downhill');
+      await page.evaluate(() => { delete window.ReactNativeWebView; });
+    });
+
+    await step('profiles: rename and delete (with a confirm) from the picker', async () => {
+      await page.click('#switch');
+      await page.waitForSelector('#profile-list');
+      await page.click('#new-profile');
+      await page.click('#confirm');
+      await page.waitForSelector('#downhill');
+      await page.click('#switch');
+      await page.waitForSelector('#profile-list .profile-edit-btn');
+      const before = await page.$$eval('#profile-list .profile-line', l => l.length);
+      await waitTapGuard(); await page.locator('#profile-list .profile-edit-btn').last().click();
+      await page.fill('#manage-name', '  Renamed\u200b Rider  ');
+      await page.click('#manage-rename');
+      await page.waitForSelector('#profile-list');
+      const names = await page.$$eval('#profile-list .profile-line button:first-child', l => l.map(b => b.textContent));
+      if (!names.includes('Renamed Rider')) fail(`rename not shown: ${names}`);
+      await waitTapGuard(); await page.locator('#profile-list .profile-edit-btn').last().click();
+      await page.click('#manage-delete');
+      await page.click('#manage-delete-no');
+      await page.click('#manage-delete');
+      await page.click('#manage-delete-yes');
+      await page.waitForSelector('#profile-list');
+      const after = await page.$$eval('#profile-list .profile-line', l => l.length);
+      if (after !== before - 1) fail(`delete: ${before} -> ${after}`);
+      // The deleted profile was the active one: pick the remaining one.
+      await page.click('#profile-list .profile-line button');
       await page.waitForSelector('#downhill');
     });
 

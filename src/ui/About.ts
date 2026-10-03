@@ -96,7 +96,7 @@ export function showAbout(root: HTMLElement): Promise<void> {
           ${stale ? `<p class="about-warn">⚠ OTA is older than the embedded bundle — launcher fell back to embedded.</p>` : ''}
           <div class="row">
             <button id="about-copy">Copy</button>
-            <button id="about-back">Back</button>
+            <button id="about-back" data-back>Back</button>
           </div>
         </div>
       `;

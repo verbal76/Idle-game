@@ -35,12 +35,54 @@ export function defaultStats(): ProfileStats {
   };
 }
 
+// Ceilings far beyond anything a real run reaches; they only stop a
+// physics fault (NaN, Infinity, runaway values) reaching the bank.
+const RUN_CAP = { distanceMeters: 1e7, flips: 1e5, spins: 1e5, coins: 1e7, rings: 1e5, bestCombo: 1e4, bestRingStreak: 1e5 } as const;
+const finite = (v: unknown, cap: number): number =>
+  typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.min(cap, v) : 0;
+
+/**
+ * The single gate between the simulation and the profile: every count is
+ * finite, non-negative and capped. A NaN in a live run would otherwise
+ * turn the whole balance into NaN (and a reload would then reset it to 0).
+ */
+export function sanitizeRun(run: RunStats): RunStats {
+  const out: RunStats = {
+    mode: run.mode === 'half-pipe' ? 'half-pipe' : 'downhill',
+    distanceMeters: finite(run.distanceMeters, RUN_CAP.distanceMeters),
+    flips: Math.floor(finite(run.flips, RUN_CAP.flips)),
+    spins: Math.floor(finite(run.spins, RUN_CAP.spins)),
+    coins: finite(run.coins, RUN_CAP.coins),
+    rings: Math.floor(finite(run.rings, RUN_CAP.rings)),
+    bestCombo: Math.floor(finite(run.bestCombo, RUN_CAP.bestCombo)),
+    bestRingStreak: Math.floor(finite(run.bestRingStreak, RUN_CAP.bestRingStreak)),
+  };
+  if (run.earned) {
+    out.earned = {
+      distance: finite(run.earned.distance, RUN_CAP.coins),
+      tricks: finite(run.earned.tricks, RUN_CAP.coins),
+      rings: finite(run.earned.rings, RUN_CAP.coins),
+    };
+  }
+  return out;
+}
+
+// Below this a run is treated as an accidental start (Switch Style or
+// Quit straight away): its snowflakes and records still count, but it
+// isn't a "run" for the run-count milestones and daily.
+export const MEANINGFUL_RUN_M = 50;
+/** Whether a run counts as played: it rode 50 m or earned/landed anything. */
+export function isMeaningfulRun(run: RunStats): boolean {
+  return run.distanceMeters >= MEANINGFUL_RUN_M || run.coins > 0 || run.flips > 0 || run.spins > 0 || run.rings > 0;
+}
+
 /**
  * Credits a run to the profile: snowflakes into the bank, the run's
  * mode's records (only ever raised), and lifetime totals. A half-pipe
  * run never touches Downhill records and vice versa.
  */
-export function bankRun(p: SaveData, run: RunStats): BankResult {
+export function bankRun(p: SaveData, rawRun: RunStats): BankResult {
+  const run = sanitizeRun(rawRun);
   const s = p.stats;
   const newBests: RecordKey[] = [];
   const raise = <T extends Record<string, number>>(obj: T, key: keyof T & string, value: number, id: RecordKey) => {
@@ -60,7 +102,7 @@ export function bankRun(p: SaveData, run: RunStats): BankResult {
   }
 
   const l = s.lifetime;
-  l.runs += 1;
+  if (isMeaningfulRun(run)) l.runs += 1;
   l.distance += run.distanceMeters;
   l.flips += run.flips;
   l.spins += run.spins;

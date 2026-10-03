@@ -1,6 +1,7 @@
 import type { SaveData } from '../profiles/IndexedDbStore';
 import type { RunStats } from './records';
 import { addFlakes } from './economy';
+import { isMeaningfulRun, sanitizeRun } from './records';
 
 // Milestones (one-time, lifetime) and daily challenges (3 a day, reset at
 // local midnight). Both are checked and paid automatically when a run is
@@ -51,7 +52,7 @@ export const DAILIES: DailyDef[] = [
   { id: 'flips',  target: 6,    how: 'sum', label: 'Land 6 flips today',            value: r => r.flips },
   { id: 'spins',  target: 4,    how: 'sum', label: 'Land 4 spins today',            value: r => r.spins },
   { id: 'rings',  target: 15,   how: 'sum', label: 'Fly through 15 rings today',    value: r => r.rings },
-  { id: 'runs',   target: 3,    how: 'sum', label: 'Finish 3 runs today',           value: () => 1 },
+  { id: 'runs',   target: 3,    how: 'sum', label: 'Finish 3 runs today',           value: r => (isMeaningfulRun(r) ? 1 : 0) },
   { id: 'earn',   target: 25,   how: 'sum', label: 'Earn 25 ❄ from runs today',     value: r => r.coins },
   { id: 'combo',  target: 3,    how: 'max', label: 'Chain a 3-trick combo',         value: r => r.bestCombo },
   { id: 'long',   target: 600,  how: 'max', label: 'Ride 600 m in one Downhill run', value: r => (r.mode === 'downhill' ? r.distanceMeters : 0) },
@@ -84,12 +85,15 @@ export function dailyIdsFor(day: string): string[] {
  * The profile's daily state for today (a fresh one once the stored day is
  * over). Doesn't mutate. The stored day never goes backwards: if the
  * clock or time zone moves to an earlier date, the later day's state is
- * kept, so an already-paid day can't be re-opened and paid again.
+ * kept, so an already-paid day can't be re-opened and paid again. A
+ * stored day more than a day ahead (the clock was set far forward, then
+ * fixed) is dropped, or no new dailies would appear until that date.
  */
 export function dailyFor(p: SaveData, nowMs: number): DailyState {
   const day = dayKey(nowMs);
+  const latest = dayKey(nowMs + 36 * 3600 * 1000);
   const d = p.daily;
-  if (d && Array.isArray(d.ids) && d.ids.length === 3 && d.day >= day) return d;
+  if (d && Array.isArray(d.ids) && d.ids.length === 3 && d.day >= day && d.day <= latest) return d;
   return { day, ids: dailyIdsFor(day), progress: [0, 0, 0], done: [false, false, false], allPaid: false };
 }
 
@@ -99,7 +103,8 @@ export function dailyFor(p: SaveData, nowMs: number): DailyState {
  * in p.daily.done, so nothing pays twice. Rewards go to the balance and to
  * lifetime snowflakes earned.
  */
-export function awardGoals(p: SaveData, run: RunStats, nowMs: number): GoalAward[] {
+export function awardGoals(p: SaveData, rawRun: RunStats, nowMs: number): GoalAward[] {
+  const run = sanitizeRun(rawRun);
   const awards: GoalAward[] = [];
 
   const daily = { ...dailyFor(p, nowMs) };

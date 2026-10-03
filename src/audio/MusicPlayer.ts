@@ -37,21 +37,22 @@ export class MusicPlayer {
     });
     this.audio = a;
 
-    if (Array.isArray(window.__MUSIC_URLS__)) {
-      this.playlist = window.__MUSIC_URLS__;
-    }
+    this.playlist = validTracks(window.__MUSIC_URLS__);
     window.addEventListener('music-urls', (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!Array.isArray(detail)) return;
-      this.playlist = detail as Track[];
+      const tracks = validTracks((e as CustomEvent).detail);
+      if (tracks.length === 0) return;
+      this.playlist = tracks;
       this.trackIdx = 0;
       if (this.wantPlaying && !this.audio.src) {
         void this.start();
       }
     });
 
+    // Never fight the system for audio while the app is in the
+    // background: hidden pauses the music (wantPlaying stays set) and
+    // coming back resumes it.
     const resumeIfWanted = () => {
-      if (!this.wantPlaying) return;
+      if (!this.wantPlaying || document.hidden) return;
       if (this.playlist.length === 0) return;
       if (this.audio.paused) {
         this.audio.play().catch(() => {/* will retry on next event */});
@@ -61,7 +62,8 @@ export class MusicPlayer {
       setTimeout(resumeIfWanted, 200);
     });
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) resumeIfWanted();
+      if (document.hidden) { try { this.audio.pause(); } catch { /* detached */ } }
+      else resumeIfWanted();
     });
     setInterval(resumeIfWanted, 5000);
 
@@ -94,6 +96,9 @@ export class MusicPlayer {
     // because pagehide on Android WebView during a JS-bundle swap
     // is not consistently fired.
     window.addEventListener('music-pause-before-reload', hardStop);
+    // The native side sends this when a reload it announced didn't
+    // happen (the update failed to apply): bring the music back.
+    window.addEventListener('music-resume', () => { void this.start(); });
   }
 
   setVolume(v: number): void {
@@ -139,4 +144,12 @@ export class MusicPlayer {
     this.audio.src = this.playlist[this.trackIdx].url;
     this.audio.load();
   }
+}
+
+/** Only well-formed { url, title } entries from the native side. */
+function validTracks(v: unknown): Track[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((t): t is Track => !!t && typeof t === 'object'
+    && typeof (t as Track).url === 'string' && (t as Track).url.length > 0
+    && typeof (t as Track).title === 'string');
 }

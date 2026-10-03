@@ -31,7 +31,7 @@ export function showNameSelect(root: HTMLElement): Promise<string | null> {
             }
           </div>
           <div class="row">
-            <button id="cancel">Cancel</button>
+            <button id="cancel" data-back>Cancel</button>
             <button id="confirm" class="primary">Use this</button>
           </div>
         </div>

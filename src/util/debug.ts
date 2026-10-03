@@ -96,11 +96,21 @@ export function formatEntry(e: DebugEntry): string {
 load();
 
 const ORIG_CONSOLE_ERROR = console.error;
-console.error = (...args: unknown[]): void => {
-  addEntry('error', args.map((a) => {
+/** Never throws, whatever it is given (undefined, circular, BigInt, functions). */
+export function describeForLog(a: unknown): string {
+  try {
     if (a instanceof Error) return `${a.name}: ${a.message}`;
-    return typeof a === 'string' ? a : JSON.stringify(a).slice(0, 120);
-  }).join(' '));
+    if (typeof a === 'string') return a;
+    return (JSON.stringify(a) ?? String(a)).slice(0, 120);
+  } catch {
+    try { return String(a).slice(0, 120); } catch { return '[unprintable]'; }
+  }
+}
+
+console.error = (...args: unknown[]): void => {
+  // Logging must never become the error: a throw here would turn a
+  // handled problem into an uncaught one.
+  try { addEntry('error', args.map(describeForLog).join(' ')); } catch { /* ignore */ }
   ORIG_CONSOLE_ERROR(...args);
 };
 
@@ -108,7 +118,7 @@ window.addEventListener('error', (e: ErrorEvent) => {
   addEntry('error', `${e.message || 'error'} @ ${e.filename || '?'}:${e.lineno ?? '?'}:${e.colno ?? '?'}`);
 });
 window.addEventListener('unhandledrejection', (e: PromiseRejectionEvent) => {
-  const reason = e.reason instanceof Error ? `${e.reason.name}: ${e.reason.message}` : String(e.reason);
+  const reason = describeForLog(e.reason);
   addEntry('error', `unhandledrejection: ${reason}`);
 });
 

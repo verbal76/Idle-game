@@ -10,7 +10,7 @@ import { buildInfoHtml, wireBuildInfo } from './BuildInfoPanel';
 // State machine for the OTA update flow. Native side posts these via
 // CustomEvent('update-status'); the Settings panel listens and updates
 // the inline label + button label.
-type UpdateStatus = 'idle' | 'checking' | 'up-to-date' | 'downloading' | 'ready' | 'reloading' | 'unavailable';
+type UpdateStatus = 'idle' | 'checking' | 'up-to-date' | 'downloading' | 'ready' | 'deferred' | 'reloading' | 'offline' | 'unavailable';
 
 declare global {
   interface Window {
@@ -25,8 +25,10 @@ const STATUS_LABEL: Record<UpdateStatus, string> = {
   'up-to-date':   'Up to date',
   downloading:    'Downloading…',
   ready:          'Update ready — restart now',
+  deferred:       'Update downloaded — it installs when this run ends',
   reloading:      'Restarting…',
-  unavailable:    'Updates unavailable (dev build)',
+  offline:        'Couldn\u2019t check for updates. Are you online?',
+  unavailable:    'Updates aren\u2019t available in this build',
 };
 
 // Single-purpose settings shell: routes to the About panel, holds the
@@ -79,7 +81,7 @@ export function showSettings(
             <button id="settings-bug" class="btn-ghost">Send bug report</button>
             <button id="settings-feature" class="btn-ghost">Send feature request</button>
             ${buildInfoHtml()}
-            <button id="settings-back" class="btn-go">Back</button>
+            <button id="settings-back" class="btn-go" data-back>Back</button>
           </div>
         </div>
       `;

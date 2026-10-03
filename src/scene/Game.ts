@@ -13,7 +13,7 @@ import { addFlakes, displayFlakes, distanceSegments, DISTANCE_PAY } from '../gam
 import type { RunStats } from '../game/records';
 import { segmentHitsCircle, segmentHitsRect } from '../game/collision';
 import { judgeLanding, type LandingOutcome } from '../game/tricks';
-import { effects } from '../game/upgrades';
+import { effectiveLevel, effects, type UpgradeId } from '../game/upgrades';
 import { DEEP_CARVE_RESPONSE, leanLimit, physicalLeanLimit } from '../game/carve';
 import type { SceneAssets } from './SceneAssets';
 import type { Stage } from './Stage';
@@ -63,6 +63,9 @@ export interface GameCallbacks {
   // Every landing that did something: a trick (with its payout after
   // combo and Flake Bonus), a sketchy landing, or a bail.
   onTrick?: (t: TrickEvent) => void;
+  // An exception escaped a frame. The loop has stopped (a frozen frame
+  // with no feedback is worse than ending the run); fired once.
+  onFault?: (err: unknown) => void;
 }
 
 export interface GameOptions {
@@ -142,7 +145,7 @@ export class Game {
   // Saves used this run; saves left follow the current Grace level, so a
   // level bought from the pause menu applies straight away.
   private gracesUsed = 0;
-  private get gracesLeft(): number { return Math.max(0, effects.graceSaves(this.upgrades.grace ?? 0) - this.gracesUsed); }
+  private get gracesLeft(): number { return Math.max(0, effects.graceSaves(this.lvl('grace')) - this.gracesUsed); }
   // Bank at run start; the HUD shows bank + this run's earnings live.
   private bankAtStart = 0;
   private fellAlready = false;
@@ -270,7 +273,10 @@ export class Game {
     this.trail = snowTrail.trail;
     this.streamer.update(this.rider.root.position);
 
-    this.engine.runRenderLoop(() => this.tick());
+    this.engine.runRenderLoop(() => {
+      if (this.faulted) return;
+      try { this.tick(); } catch (e) { this.fault(e); }
+    });
   }
 
   start(): void {
@@ -282,6 +288,14 @@ export class Game {
     if (this.trail) this.trail.start();
   }
   pause(): void { this.running = false; }
+  private faulted = false;
+  private fault(e: unknown): void {
+    this.faulted = true;
+    this.running = false;
+    this.engine.stopRenderLoop();
+    console.error('[game] frame fault; run stopped', e);
+    this.callbacks.onFault?.(e);
+  }
   resume(): void { if (!this.fellAlready) this.running = true; }
   /** Called after the player spends in the pause-menu shop. */
   setBankSnapshot(bank: number): void { this.bankAtStart = bank; }
@@ -318,25 +332,27 @@ export class Game {
   // Upgrade effects (20 levels each): speed +0.5 m/s, jump +5%, edge grip
   // +3% lean / +5% response, charge +5%, spin speed +4%, flip speed +4%,
   // flake bonus +5% payout.
-  private get maxSpeed(): number { return effects.maxSpeed(this.upgrades.speed); }
-  private get jumpMaxScaled(): number { return this.jumpMax * effects.jumpMult(this.upgrades.jump); }
-  private get maxLeanScaled(): number { return effects.maxLean(this.upgrades.turn ?? 0); }
+  /** Upgrade level in use (live: a mid-run purchase applies at once). */
+  private lvl(id: UpgradeId): number { return effectiveLevel(id, this.upgrades[id]); }
+  private get maxSpeed(): number { return effects.maxSpeed(this.lvl('speed')); }
+  private get jumpMaxScaled(): number { return this.jumpMax * effects.jumpMult(this.lvl('jump')); }
+  private get maxLeanScaled(): number { return effects.maxLean(this.lvl('turn')); }
   private get leanResponseScaled(): number {
-    return this.leanResponse * effects.leanResponseMult(this.upgrades.turn ?? 0);
+    return this.leanResponse * effects.leanResponseMult(this.lvl('turn'));
   }
   private get chargeRateScaled(): number {
-    return this.chargeRate * effects.chargeMult(this.upgrades.charge ?? 0);
+    return this.chargeRate * effects.chargeMult(this.lvl('charge'));
   }
   private get airSpinRateScaled(): number {
-    return this.airSpinRate * effects.spinMult(this.upgrades.spin ?? 0);
+    return this.airSpinRate * effects.spinMult(this.lvl('spin'));
   }
   private get flipRateScaled(): number {
-    return this.flipRate * effects.flipMult(this.upgrades.flip ?? 0);
+    return this.flipRate * effects.flipMult(this.lvl('flip'));
   }
-  private get comboWindowMs(): number { return effects.comboWindowMs(this.upgrades.comboWindow ?? 0); }
-  private get ringRadius(): number { return effects.ringRadius(this.upgrades.ringMagnet ?? 0); }
+  private get comboWindowMs(): number { return effects.comboWindowMs(this.lvl('comboWindow')); }
+  private get ringRadius(): number { return effects.ringRadius(this.lvl('ringMagnet')); }
   private get coinMultiplier(): number {
-    return effects.flakeMult(this.upgrades.coin ?? 0);
+    return effects.flakeMult(this.lvl('coin'));
   }
 
   private buildCamera(): void {

@@ -22,7 +22,7 @@ export function showUpgrades(root: HTMLElement, profiles: ProfileService): Promi
           <h1>UPGRADES</h1>
           <div class="shop-balance" id="shop-balance">${displayFlakes(p.currency)} <span>${ICON_FLAKE}</span></div>
           <div class="upgrades-list" id="upgrades-list"></div>
-          <div class="row"><button id="upgrades-back">Back</button></div>
+          <div class="row"><button id="upgrades-back" data-back>Back</button></div>
         </div>
       `;
       const listEl = root.querySelector<HTMLElement>('#upgrades-list')!;

@@ -76,7 +76,7 @@ export function buildHUD(root: HTMLElement): HUDRefs {
             <li><span class="hp-icon">✦</span><span class="hp-text">Flip + spin in one jump = <b>cork</b> (×1.5)</span></li>
             <li><span class="hp-icon">+</span><span class="hp-text">Chain landings within 5 s — combo multiplier</span></li>
           </ul>
-          <p class="halfpipe-intro-hint">Tap to dismiss</p>
+          <button id="halfpipe-intro-ok" class="btn-go halfpipe-intro-ok" data-back>Got it!</button>
         </div>
       </div>
       <div class="dpad-left">
@@ -112,7 +112,7 @@ export function buildHUD(root: HTMLElement): HUDRefs {
         <h1 id="fell-title">You fell</h1>
         <div id="fell-stats"></div>
         <div class="list">
-          <button id="fell-ok" class="btn-go">Back to menu</button>
+          <button id="fell-ok" class="btn-go" data-back>Back to menu</button>
           <button id="fell-upgrades" class="btn-accent">Upgrades</button>
           <button id="fell-switch">Switch Style</button>
         </div>
@@ -155,16 +155,17 @@ export function buildHUD(root: HTMLElement): HUDRefs {
   };
 }
 
-/** Shows the half-pipe how-to card; resolves when the player taps it. */
+/** Shows the half-pipe how-to card; resolves on "Got it!" (or Back). */
 export function showHalfpipeIntro(hud: HUDRefs): Promise<void> {
   return new Promise((resolve) => {
     hud.halfpipeIntro.style.display = 'flex';
+    const ok = hud.halfpipeIntro.querySelector<HTMLButtonElement>('#halfpipe-intro-ok')!;
     const dismiss = () => {
       hud.halfpipeIntro.style.display = 'none';
-      hud.halfpipeIntro.removeEventListener('click', dismiss);
+      ok.removeEventListener('click', dismiss);
       resolve();
     };
-    hud.halfpipeIntro.addEventListener('click', dismiss);
+    ok.addEventListener('click', dismiss);
   });
 }
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler, Linking, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
@@ -116,6 +116,13 @@ function injectUpdateStatus(ref: React.RefObject<WebView | null>, status: string
 }
 
 async function runUpdateCheck(ref: React.RefObject<WebView | null>, autoReload: boolean): Promise<void> {
+  if (!Updates.isEnabled) { injectUpdateStatus(ref, 'unavailable'); return; }
+  // One check at a time; once an update is downloaded, polling stops
+  // (a manual check just shows it is ready).
+  if (!updateGate.beginCheck()) {
+    if (updateGate.hasDownloadedUpdate) injectUpdateStatus(ref, updateGate.isInRun ? 'deferred' : 'ready');
+    return;
+  }
   try {
     injectUpdateStatus(ref, 'checking');
     const result = await Updates.checkForUpdateAsync();
@@ -124,18 +131,23 @@ async function runUpdateCheck(ref: React.RefObject<WebView | null>, autoReload: 
       return;
     }
     injectUpdateStatus(ref, 'downloading');
-    await Updates.fetchUpdateAsync();
-    if (autoReload && updateGate.onUpdateReady() === 'defer') {
-      injectUpdateStatus(ref, 'ready');
+    const fetched = await Updates.fetchUpdateAsync();
+    if (!fetched.isNew && !fetched.isRollBackToEmbedded) {
+      injectUpdateStatus(ref, 'up-to-date');
       return;
     }
-    if (autoReload) {
+    const decision = updateGate.onUpdateReady();
+    if (autoReload && decision === 'reload-now') {
       await reloadNow(ref);
     } else {
-      injectUpdateStatus(ref, 'ready');
+      injectUpdateStatus(ref, updateGate.isInRun ? 'deferred' : 'ready');
     }
-  } catch {
-    injectUpdateStatus(ref, 'unavailable');
+  } catch (e) {
+    // Offline or a server hiccup: say so, and log the real reason.
+    injectUpdateStatus(ref, 'offline');
+    ref.current?.injectJavaScript(`try{console.error('[updates] check failed', ${JSON.stringify(String(e))});}catch(e){};true;`);
+  } finally {
+    updateGate.endCheck();
   }
 }
 
@@ -148,28 +160,41 @@ async function reloadNow(ref: React.RefObject<WebView | null>): Promise<void> {
     // immediately, otherwise its small playback buffer keeps emitting
     // sound for ~50–200 ms while the new bundle's MusicPlayer is
     // already starting — user hears the soundtrack twice.
+    // Let the page write any pending save, then stop the music.
     ref.current?.injectJavaScript(
-      `try{window.dispatchEvent(new Event('music-pause-before-reload'));}catch(e){};true;`
+      `try{window.__wtbBeforeReload&&window.__wtbBeforeReload();}catch(e){};try{window.dispatchEvent(new Event('music-pause-before-reload'));}catch(e){};true;`
     );
     // 200 ms delay (was 80) so the pause + src='' detachment in
     // hardStop has time to actually silence Android's MediaPlayer
     // before we tear down the JS context. Combined with the 250 ms
     // delay on the new bundle's music.start(), there's a 450 ms
     // total gap between old-audio-stop and new-audio-start.
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise(r => setTimeout(r, 400));
     await Updates.reloadAsync();
-  } catch {
-    injectUpdateStatus(ref, 'unavailable');
+  } catch (e) {
+    // Still on the old version: the update stays waiting, the music
+    // comes back, and the page hears why.
+    updateGate.reloadFailed();
+    injectUpdateStatus(ref, 'ready');
+    ref.current?.injectJavaScript(
+      `try{window.dispatchEvent(new Event('music-resume'));}catch(e){};try{console.error('[updates] reload failed', ${JSON.stringify(String(e))});}catch(e){};true;`
+    );
   }
 }
 
-function createMessageHandler(webviewRef: React.RefObject<WebView | null>) {
+function createMessageHandler(webviewRef: React.RefObject<WebView | null>, remount: () => void) {
   return function handleMessage(event: WebViewMessageEvent): void {
     const data = event.nativeEvent.data;
     if (data === 'orientation:landscape') {
-      void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => { /* unsupported */ });
     } else if (data === 'orientation:default') {
-      void ScreenOrientation.unlockAsync();
+      ScreenOrientation.unlockAsync().catch(() => { /* unsupported */ });
+    } else if (data === 'ui:idle' || data === 'ui:busy') {
+      // Idle = a screen a reload can't hurt (main menu / launch prompt).
+      if (updateGate.setIdle(data === 'ui:idle')) void reloadNow(webviewRef);
+    } else if (data === 'app:reload') {
+      // The page's Restart (after a fatal error): a fresh page.
+      remount();
     } else if (data === 'quit:app' || data === 'back:exit') {
       // back:exit = the page didn't handle a hardware Back (root screen).
       BackHandler.exitApp();
@@ -181,14 +206,23 @@ function createMessageHandler(webviewRef: React.RefObject<WebView | null>) {
       // Back on the menus with the run saved: apply a deferred update now.
       if (updateGate.setInRun(false)) void reloadNow(webviewRef);
     } else if (data === 'updates:apply') {
-      // Same path as the automatic reload: stop the music first, catch errors.
-      void reloadNow(webviewRef);
+      // "Restart now": never mid-run (it applies when the run ends).
+      if (updateGate.onApplyRequested() === 'reload-now') void reloadNow(webviewRef);
+      else injectUpdateStatus(webviewRef, 'deferred');
     }
   };
 }
 
 export default function App(): React.JSX.Element {
   const webviewRef = useRef<WebView>(null);
+  // Bumped to remount the WebView: its renderer died (low memory), or
+  // the page asked for a restart. A fresh page is never mid-run.
+  const [webKey, setWebKey] = useState(0);
+  const remount = useCallback(() => {
+    updateGate.pageReset();
+    ScreenOrientation.unlockAsync().catch(() => { /* unsupported */ });
+    setWebKey(k => k + 1);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -233,7 +267,7 @@ export default function App(): React.JSX.Element {
     <View style={styles.root}>
       <StatusBar hidden />
       <WebView
-        key={OTA_INFO.updateId ?? 'embedded'}
+        key={`${OTA_INFO.updateId ?? 'embedded'}-${webKey}`}
         ref={webviewRef}
         source={{ html: HTML_BUNDLE, baseUrl: `https://localhost/${OTA_INFO.updateId ?? 'embedded'}/` }}
         originWhitelist={['*']}
@@ -248,10 +282,13 @@ export default function App(): React.JSX.Element {
         scrollEnabled={false}
         overScrollMode="never"
         injectedJavaScriptBeforeContentLoaded={INJECTED_JS_BEFORE}
+        onLoadStart={() => { updateGate.pageReset(); }}
         onLoadEnd={() => {
           webviewRef.current?.injectJavaScript(INJECTED_JS_AFTER);
         }}
-        onMessage={createMessageHandler(webviewRef)}
+        onRenderProcessGone={() => { remount(); }}
+        onContentProcessDidTerminate={() => { remount(); }}
+        onMessage={createMessageHandler(webviewRef, remount)}
         onShouldStartLoadWithRequest={(req) => shouldLoadInWebView(req.url, (u) => Linking.openURL(u))}
         style={styles.webview}
       />

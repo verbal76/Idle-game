@@ -1,10 +1,4 @@
-type Action = 'jump' | 'flip';
-
-interface Bound {
-  el: HTMLElement;
-  onDown: (e: PointerEvent) => void;
-  onUp: (e: PointerEvent) => void;
-}
+import { bindHold, type HoldBinding } from './holdButton';
 
 /**
  * Hold-to-press tracking for the on-screen JUMP / FLIP buttons.
@@ -13,48 +7,17 @@ interface Bound {
 export class ActionButtons {
   jumpHeld = false;
   flipHeld = false;
-  private bindings: Bound[] = [];
+  private bindings: HoldBinding[];
 
   constructor(jumpEl: HTMLElement, flipEl: HTMLElement) {
-    this.bindings.push(this.bind(jumpEl, 'jump'));
-    this.bindings.push(this.bind(flipEl, 'flip'));
+    this.bindings = [
+      bindHold(jumpEl, (h) => { this.jumpHeld = h; }),
+      bindHold(flipEl, (h) => { this.flipHeld = h; }),
+    ];
   }
 
-  detach(): void {
-    for (const b of this.bindings) {
-      b.el.removeEventListener('pointerdown', b.onDown);
-      b.el.removeEventListener('pointerup', b.onUp);
-      b.el.removeEventListener('pointercancel', b.onUp);
-      b.el.removeEventListener('pointerleave', b.onUp);
-    }
-    this.bindings = [];
-  }
+  /** Releases both buttons (pause, backgrounding, focus loss). */
+  reset(): void { for (const b of this.bindings) b.release(); }
 
-  private bind(el: HTMLElement, action: Action): Bound {
-    let activeId: number | null = null;
-
-    const onDown = (e: PointerEvent) => {
-      if (activeId !== null) return;
-      activeId = e.pointerId;
-      el.setPointerCapture(e.pointerId);
-      el.classList.add('pressed');
-      if (action === 'jump') this.jumpHeld = true;
-      else this.flipHeld = true;
-    };
-
-    const onUp = (e: PointerEvent) => {
-      if (e.pointerId !== activeId) return;
-      activeId = null;
-      el.classList.remove('pressed');
-      if (action === 'jump') this.jumpHeld = false;
-      else this.flipHeld = false;
-    };
-
-    el.addEventListener('pointerdown', onDown);
-    el.addEventListener('pointerup', onUp);
-    el.addEventListener('pointercancel', onUp);
-    el.addEventListener('pointerleave', onUp);
-
-    return { el, onDown, onUp };
-  }
+  detach(): void { for (const b of this.bindings) b.detach(); }
 }

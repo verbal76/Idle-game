@@ -59,7 +59,7 @@ export function showStats(root: HTMLElement, p: SaveData): Promise<void> {
             ${milestoneRows}
           </section>
         </div>
-        <div class="row"><button id="stats-back">Back</button></div>
+        <div class="row"><button id="stats-back" data-back>Back</button></div>
       </div>
     `;
     root.querySelector<HTMLButtonElement>('#stats-back')!.addEventListener('click', () => resolve());

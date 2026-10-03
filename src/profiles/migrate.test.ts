@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { migrateSave } from './migrate';
+import { defaultUpgrades, loadSave, migrateSave } from './migrate';
 import type { SaveData } from './IndexedDbStore';
 
 function legacy(extra: Record<string, unknown> = {}): SaveData {
@@ -87,7 +87,9 @@ describe('migrateSave', () => {
     }));
     expect(d.name).toBe('Boarder');
     expect(d.currency).toBe(0);
-    expect(d.upgrades).toMatchObject({ speed: 3, jump: 0, turn: 2, charge: 0, spin: 20, coin: 0, grace: 4 });
+    // Levels above today's max are kept (a newer build may allow them);
+    // the game clamps what it uses (effectiveLevels).
+    expect(d.upgrades).toMatchObject({ speed: 3, jump: 0, turn: 2, charge: 0, spin: 30, coin: 0, grace: 9 });
     expect(d.settings).toEqual({ musicVolume: 1, sfxVolume: 0, haptics: true });
     expect(d.stats.downhill).toEqual({ bestDistance: 0, mostFlips: 4 });
     expect(d.stats.halfPipe).toEqual({ bestRunFlakes: 0, bestRingStreak: 0, bestCombo: 0 });
@@ -116,5 +118,48 @@ describe('migrateSave', () => {
     const once = migrateSave(legacy({ upgrades: { speed: 3, jump: 1, turn: 2, charge: 0, spin: 5, coin: 7 } }));
     const twice = migrateSave(structuredClone(once));
     expect(twice).toEqual(once);
+  });
+});
+
+describe('loadSave is total over anything storage returns (pre-release review)', () => {
+  const junk: unknown[] = [undefined, null, 5, 'x', [], {}, NaN, -1, 1e308, true, { nested: { deep: 1 } }];
+  const fields = ['name', 'currency', 'createdAtMs', 'lastPlayedMs', 'upgrades', 'settings', 'stats', 'milestones',
+    'unlocks', 'daily', 'pendingRun', 'seenHalfpipeIntro', 'bestHalfPipeScore', 'longestDownhillMeters'];
+
+  it('never throws and always yields finite, well-formed numbers', () => {
+    for (const f of fields) for (const v of junk) {
+      const d = loadSave({ ...legacy(), [f]: v });
+      expect(d, `${f}=${String(v)}`).not.toBeNull();
+      const json = JSON.stringify(d);
+      expect(json, `${f}=${String(v)}`).not.toMatch(/NaN|Infinity|null/);
+      expect(typeof d!.name).toBe('string');
+      expect(Number.isFinite(d!.currency)).toBe(true);
+      for (const k of Object.keys(defaultUpgrades())) expect(Number.isInteger((d!.upgrades as unknown as Record<string, unknown>)[k])).toBe(true);
+    }
+  });
+
+  it('a non-object or id-less record is rejected, not thrown on', () => {
+    for (const v of junk) expect(loadSave(v)).toBeNull();
+    expect(loadSave({ name: 'x' })).toBeNull();
+  });
+
+  it('a save from a newer build keeps what this build does not understand', () => {
+    const newer = legacy({
+      schemaVersion: 99,
+      upgrades: { speed: 25, jump: 1, newThing: 3 },
+      settings: { musicVolume: 0.5, sfxVolume: 0.5, haptics: true, colourblind: true },
+      stats: { downhill: { bestDistance: 10, mostFlips: 1, longestAir: 4 }, extra: { a: 1 } },
+      daily: { day: '2026-09-27', ids: ['a', 'b', 'c', 'd'], progress: [1, 2, 3, 4], done: [true, true, false, false], allPaid: false },
+      pendingRun: { mode: 'big-air', distanceMeters: 5 },
+    });
+    const d = migrateSave(newer) as unknown as Record<string, any>;
+    expect(d.schemaVersion).toBe(99);
+    expect(d.upgrades.speed).toBe(25);
+    expect(d.upgrades.newThing).toBe(3);
+    expect(d.settings.colourblind).toBe(true);
+    expect(d.stats.downhill.longestAir).toBe(4);
+    expect(d.stats.extra).toEqual({ a: 1 });
+    expect(d.daily.ids).toHaveLength(4);
+    expect(d.pendingRun.mode).toBe('big-air');
   });
 });

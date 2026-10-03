@@ -3,12 +3,14 @@ name: EAS Update (OTA)
 on:
   workflow_dispatch:
   push:
+    # The only lines allowed to publish to the live channel. (Other
+    # branches still carrying an old copy of this workflow can publish
+    # with that copy; see the 'never go backwards' guard below, which
+    # this copy enforces, and the README release section.)
     branches:
       - main
-      - Github-APK-Transition-snow
       # Gameplay-review series (authorized by the repo owner): every
-      # step ships as its own OTA checkpoint. Same mechanism as the
-      # snow branch above; unit tests still gate the publish.
+      # step ships as its own OTA checkpoint; tests still gate it.
       - claude/repo-gameplay-review-loq9rq
     paths-ignore:
       - 'package.json'
@@ -31,9 +33,11 @@ on:
 permissions:
   contents: read
 
+# One publish at a time across ALL branches (they share the live
+# channel), and never cancelled: a cancelled run would drop a release.
 concurrency:
-  group: eas-update-${{ github.ref }}
-  cancel-in-progress: true
+  group: eas-update-preview
+  cancel-in-progress: false
 
 jobs:
   route:
@@ -52,14 +56,28 @@ jobs:
         env:
           BEFORE: ${{ github.event.before }}
 
+  native-change-not-built:
+    # A native change on a branch the APK workflow doesn't build would
+    # otherwise ship nowhere with a green run. Say so loudly.
+    needs: route
+    if: needs.route.outputs.native == 'true' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "::error::This push changes the native build, so no OTA was published, and APKs are only built from main. Merge to main (APK build), then publish the matching OTA."
+          exit 1
+
   update:
     needs: route
     # JS-only pushes publish; a push that changes the native build leaves
     # it to the APK workflow (publish an OTA by hand after the APK is out).
     if: needs.route.outputs.native != 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for the 'never go backwards' guard
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -76,31 +94,48 @@ jobs:
         run: npm run test:smoke
         env:
           CHROMIUM_PATH: /usr/bin/google-chrome
-      - name: Verify html-bundle.ts has fresh CSS
+      - name: Page size budget
+        # The WebView receives the whole game as one HTML string; the
+        # Android Binder channel that carries it fails (black screen)
+        # somewhere above ~10 MB (see MusicPlayer.ts). Fail well before.
         run: |
-          BUNDLE='src/__generated__/html-bundle.ts'
-          echo "=== Bundle size ==="
-          wc -c "$BUNDLE"
-          echo ""
-          echo "=== gear-btn CSS rules (occurrence count) ==="
-          echo "transparent (new chromeless): $(grep -o 'background:transparent' "$BUNDLE" | wc -l)"
-          echo "#142038d1 (old chrome):        $(grep -o 'background:#142038d1' "$BUNDLE" | wc -l)"
-          echo ""
-          echo "=== gear-btn rule excerpt (first match) ==="
-          grep -o '\.gear-btn{[^}]*}' "$BUNDLE" | head -1
+          SIZE=$(wc -c < dist/index.html)
+          echo "dist/index.html: $SIZE bytes (budget 10500000)"
+          if [ "$SIZE" -gt 10500000 ]; then echo "::error::Page bundle $SIZE bytes is over the 10.5 MB budget"; exit 1; fi
+      - name: Never go backwards (refuse to replace the live update with older code)
+        # The live update must be an ancestor of this commit. Stops a push
+        # from a stale branch (or a re-run of an old commit) downgrading
+        # every player.
+        run: |
+          PROJECT="$(node -p "require('./app.json').expo.extra.eas.projectId")"
+          RUNTIME="$(node -p "require('./app.json').expo.version")"
+          CHANNEL="$(node -p "require('./app.json').expo.updates.requestHeaders['expo-channel-name']")"
+          curl -sS -m 30 "https://u.expo.dev/$PROJECT" \
+            -H "expo-platform: android" -H "expo-runtime-version: $RUNTIME" \
+            -H "expo-channel-name: $CHANNEL" -H "expo-protocol-version: 1" \
+            -H "accept: multipart/mixed" -o "$RUNNER_TEMP/live.txt" || true
+          LIVE="$(grep -oE '"commit":"[0-9a-f]{40}"' "$RUNNER_TEMP/live.txt" | head -1 | grep -oE '[0-9a-f]{40}' || true)"
+          if [ -z "$LIVE" ]; then echo "No commit stamped on the live update; nothing to compare."; exit 0; fi
+          echo "Live update was built from $LIVE"
+          if ! git cat-file -e "$LIVE^{commit}" 2>/dev/null || ! git merge-base --is-ancestor "$LIVE" "$GITHUB_SHA"; then
+            echo "::error::$GITHUB_SHA does not contain the live update's commit $LIVE; publishing would roll players back. Merge the live line first."
+            exit 1
+          fi
       - name: Publish OTA update
         # OTA_* vars are stamped into this update's manifest by
         # app.config.js (extra.ota) so the in-game Build / Update Info
         # can show the source commit and OTA name it is running.
         run: |
           set -o pipefail   # a failed publish must fail the step despite | tee
-          MSG="$(git log -1 --pretty=%s | head -c 100)"
+          SUBJECT="$(git log -1 --pretty=%s)"
+          # Cut by characters (not bytes, which can split a character).
+          MSG="$(printf '%s' "$SUBJECT" | node -e 'const a=[...require("fs").readFileSync(0,"utf8").trim()];process.stdout.write(a.length>100?a.slice(0,99).join("")+"…":a.join(""))')"
           export OTA_COMMIT="$GITHUB_SHA"
-          export OTA_MESSAGE="$MSG"
+          export OTA_MESSAGE="$SUBJECT"
           export OTA_LABEL="$(git log -1 --pretty=%s | grep -oE 'OTA #[0-9]+' | tail -1 || true)"
           export OTA_RUN="$GITHUB_RUN_NUMBER"
           export OTA_BRANCH="$GITHUB_REF_NAME"
-          npx eas-cli@latest update \
+          npx eas-cli@24.10.0 update \
             --branch preview \
             --platform android \
             --non-interactive \
@@ -113,7 +148,7 @@ jobs:
           NODE_ENV: production
       - name: Re-link channel preview → branch preview
         run: |
-          npx eas-cli@latest channel:edit preview \
+          npx eas-cli@24.10.0 channel:edit preview \
             --branch preview \
             --non-interactive
         env:

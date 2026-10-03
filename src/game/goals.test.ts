@@ -9,8 +9,10 @@ const profile = (): SaveData => migrateSave({
   bestHalfPipeScore: 0, longestDownhillMeters: 0,
   settings: { musicVolume: 1, sfxVolume: 1 }, stats: defaultStats(),
 } as unknown as SaveData);
+// A short but real run (60 m): runs under 50 m with nothing earned don't
+// count towards the run-count goals (isMeaningfulRun).
 const run = (over: Partial<RunStats> = {}): RunStats => ({
-  mode: 'downhill', distanceMeters: 0, flips: 0, spins: 0, coins: 0, rings: 0, bestCombo: 0, bestRingStreak: 0, ...over,
+  mode: 'downhill', distanceMeters: 60, flips: 0, spins: 0, coins: 0, rings: 0, bestCombo: 0, bestRingStreak: 0, ...over,
 });
 const NOON = new Date(2026, 8, 27, 12).getTime();
 const bank = (p: SaveData, r: RunStats, now = NOON) => { bankRun(p, r); return awardGoals(p, r, now); };
@@ -121,5 +123,42 @@ describe('goal payouts can\'t be farmed (release audit)', () => {
     p.milestones = ['runs-1', 'future-milestone'];
     bank(p, run());
     expect(p.milestones).toContain('future-milestone');
+  });
+});
+
+describe('empty runs and bad numbers (pre-release review)', () => {
+  it('50 runs abandoned at the start pay no run-count milestone or daily', () => {
+    const p = profile();
+    p.daily = { day: dayKey(NOON), ids: ['runs', 'ride', 'flips'], progress: [0, 0, 0], done: [false, false, false], allPaid: false };
+    let paid = 0;
+    for (let i = 0; i < 50; i++) paid += bank(p, run({ distanceMeters: 3 })).reduce((s, a) => s + a.reward, 0);
+    expect(paid).toBe(0);
+    expect(p.stats.lifetime.runs).toBe(0);
+    expect(p.daily!.progress[0]).toBe(0);
+  });
+
+  it('a short run that earned something still counts', () => {
+    const p = profile();
+    bank(p, run({ distanceMeters: 10, flips: 1 }));
+    expect(p.stats.lifetime.runs).toBe(1);
+  });
+
+  it('NaN, Infinity or negative run values never reach the balance or stats', () => {
+    const p = profile();
+    p.currency = 500;
+    p.milestones = MILESTONES.map(m => m.id);
+    bank(p, run({ coins: NaN, distanceMeters: Infinity, flips: -3, spins: NaN, earned: { distance: NaN, tricks: 1, rings: -1 } }));
+    expect(p.currency).toBe(500);
+    expect(JSON.stringify(p)).not.toMatch(/null|NaN/);
+    for (const v of Object.values(p.stats.lifetime)) expect(Number.isFinite(v)).toBe(true);
+  });
+
+  it('a daily dated far in the future is replaced by today\'s', () => {
+    const p = profile();
+    p.daily = { day: '2099-01-01', ids: ['runs', 'ride', 'flips'], progress: [3, 0, 0], done: [true, false, false], allPaid: false };
+    expect(dailyFor(p, NOON).day).toBe(dayKey(NOON));
+    // One day ahead (time zone change) is still kept.
+    p.daily.day = dayKey(NOON + 864e5);
+    expect(dailyFor(p, NOON).day).toBe(dayKey(NOON + 864e5));
   });
 });

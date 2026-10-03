@@ -12,7 +12,9 @@ export interface PurchasableUpgrade {
 
 /** Linear ramp: baseCost, baseCost + step, … per level already owned. */
 export function costForNext(def: PurchasableUpgrade, currentLevel: number): number {
-  if (def.costs) return def.costs[currentLevel];
+  // A level past the end of an explicit price list has no price: never
+  // purchasable (Infinity), rather than undefined → NaN in the balance.
+  if (def.costs) return def.costs[currentLevel] ?? Infinity;
   return def.baseCost + currentLevel * def.costStep;
 }
 
@@ -25,7 +27,8 @@ export function purchaseUpgrade(p: SaveData, def: PurchasableUpgrade): boolean {
   const level = p.upgrades[def.id] ?? 0;
   if (level >= def.maxLevel) return false;
   const cost = costForNext(def, level);
-  if (p.currency < cost) return false;
+  // Written so NaN in either value refuses the purchase.
+  if (!Number.isFinite(cost) || !(cost >= 0) || !(p.currency >= cost)) return false;
   p.currency = addFlakes(p.currency, -cost);
   p.upgrades[def.id] = level + 1;
   return true;

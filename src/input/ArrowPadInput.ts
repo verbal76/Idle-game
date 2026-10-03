@@ -1,69 +1,50 @@
+import { bindHold, type HoldBinding } from './holdButton';
+
 export interface StickValue { x: number; y: number }
 
-type Side = 'left' | 'right' | 'up';
-interface Bound {
-  el: HTMLElement;
-  onDown: (e: PointerEvent) => void;
-  onUp:   (e: PointerEvent) => void;
-}
-
 /**
- * Three-button D-pad replacement for the analog stick. LEFT/RIGHT drive
- * left.x = ±1 same as before; UP is exposed as a separate `upHeld` flag
- * for callers that want a "pull out of a turn" shortcut without coupling
- * it to the stick value (the carve / spin code still reads stick-X to
- * decide direction, and folding UP into stick-Y would break that).
+ * The steering pad: LEFT / RIGHT drive left.x = ±1, and the Deep carve
+ * button sets upHeld. A thumb that slides from one arrow onto the other
+ * switches direction without lifting (pointer capture would otherwise
+ * keep reporting the first arrow).
  */
 export class ArrowPadInput {
   readonly left: StickValue = { x: 0, y: 0 };
-  readonly right: StickValue = { x: 0, y: 0 };
   upHeld = false;
   private leftHeld = false;
   private rightHeld = false;
-  private bindings: Bound[] = [];
+  private bindings: HoldBinding[];
+  private readonly onMove: (e: PointerEvent) => void;
 
-  constructor(leftEl: HTMLElement, rightEl: HTMLElement, upEl?: HTMLElement) {
-    this.bindings.push(this.bind(leftEl, 'left'));
-    this.bindings.push(this.bind(rightEl, 'right'));
-    if (upEl) this.bindings.push(this.bind(upEl, 'up'));
+  constructor(private readonly leftEl: HTMLElement, private readonly rightEl: HTMLElement, upEl?: HTMLElement) {
+    const l = bindHold(leftEl, (h) => { this.leftHeld = h; this.recompute(); });
+    const r = bindHold(rightEl, (h) => { this.rightHeld = h; this.recompute(); });
+    this.bindings = [l, r];
+    if (upEl) this.bindings.push(bindHold(upEl, (h) => { this.upHeld = h; }));
+    // Slide between arrows: the moving pointer belongs to whichever
+    // arrow it is over.
+    this.onMove = (e: PointerEvent) => {
+      const from = e.pointerId === l.pointerId ? l : e.pointerId === r.pointerId ? r : null;
+      if (!from) return;
+      const toEl = from === l ? this.rightEl : this.leftEl;
+      const b = toEl.getBoundingClientRect();
+      if (e.clientX >= b.left && e.clientX <= b.right && e.clientY >= b.top && e.clientY <= b.bottom) {
+        // Hand the pointer over: the other arrow captures it.
+        from.release();
+        toEl.dispatchEvent(new PointerEvent('pointerdown', { pointerId: e.pointerId, bubbles: false }));
+      }
+    };
+    leftEl.addEventListener('pointermove', this.onMove);
+    rightEl.addEventListener('pointermove', this.onMove);
   }
+
+  /** Releases every button (pause, backgrounding, focus loss). */
+  reset(): void { for (const b of this.bindings) b.release(); }
 
   detach(): void {
-    for (const b of this.bindings) {
-      b.el.removeEventListener('pointerdown', b.onDown);
-      b.el.removeEventListener('pointerup', b.onUp);
-      b.el.removeEventListener('pointercancel', b.onUp);
-      b.el.removeEventListener('pointerleave', b.onUp);
-    }
-    this.bindings = [];
-  }
-
-  private bind(el: HTMLElement, side: Side): Bound {
-    let activeId: number | null = null;
-    const onDown = (e: PointerEvent) => {
-      if (activeId !== null) return;
-      activeId = e.pointerId;
-      el.setPointerCapture(e.pointerId);
-      el.classList.add('pressed');
-      if (side === 'left') this.leftHeld = true;
-      else if (side === 'right') this.rightHeld = true;
-      else this.upHeld = true;
-      this.recompute();
-    };
-    const onUp = (e: PointerEvent) => {
-      if (e.pointerId !== activeId) return;
-      activeId = null;
-      el.classList.remove('pressed');
-      if (side === 'left') this.leftHeld = false;
-      else if (side === 'right') this.rightHeld = false;
-      else this.upHeld = false;
-      this.recompute();
-    };
-    el.addEventListener('pointerdown', onDown);
-    el.addEventListener('pointerup', onUp);
-    el.addEventListener('pointercancel', onUp);
-    el.addEventListener('pointerleave', onUp);
-    return { el, onDown, onUp };
+    this.leftEl.removeEventListener('pointermove', this.onMove);
+    this.rightEl.removeEventListener('pointermove', this.onMove);
+    for (const b of this.bindings) b.detach();
   }
 
   private recompute(): void {

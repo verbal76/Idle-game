@@ -320,7 +320,7 @@ html, body {
   text-align: center;
   min-width: 240px;
 }
-.name-select .name-input {
+.name-input {
   font: inherit;
   font-size: 22px;
   font-weight: 700;
@@ -333,10 +333,6 @@ html, body {
   margin: 14px 0 4px 0;
   min-width: 240px;
   text-align: center;
-}
-.name-select button.primary {
-  background: rgba(60, 130, 80, 0.92);
-  border-color: rgba(160, 240, 180, 0.6);
 }
 .dpad-btn {
   width: 88px; height: 88px;
@@ -978,3 +974,57 @@ html, body { font-family: var(--font-ui); font-weight: 500; }
 @media (max-height: 420px) { .summary-total { font-size: 40px; } }
 @media (prefers-reduced-motion: reduce) { .summary-total { animation: none; } }
 #hud .top-bar { align-items: flex-start; }
+
+/* ════════════════════════════════════════════════════════════════════
+   Pre-release pass: stacking, readability, accessibility, new panels.
+   ════════════════════════════════════════════════════════════════════ */
+/* Overlays (pause, summary, settings, the half-pipe card) sit above the
+   in-run controls and trick callouts, so nothing pokes through them. */
+#hud > .fullscreen-panel { z-index: 10; }
+.status-banner {
+  position: fixed; z-index: 50; left: 50%; transform: translateX(-50%);
+  top: max(env(safe-area-inset-top, 0px), 8px);
+  max-width: calc(100% - 24px); padding: 8px 16px; border-radius: 999px;
+  font-family: var(--font-ui); font-weight: 700; font-size: 14px; text-align: center;
+  color: var(--ink); background: linear-gradient(180deg, #ffe08a, #ffc53d);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35); pointer-events: none;
+}
+.status-banner + .status-banner { top: calc(max(env(safe-area-inset-top, 0px), 8px) + 44px); }
+.form-error { color: #ffb3b6; font-weight: 700; text-align: center; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); }
+.field-label { font-weight: 700; }
+.confirm-copy, .fatal-copy { max-width: 32ch; text-align: center; line-height: 1.4; }
+.fatal-panel h1 { color: #ffd166; }
+.fatal-details { max-width: min(560px, 100%); opacity: 0.8; font-size: 12px; }
+.fatal-details pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 30vh; overflow: auto; text-align: left; }
+.fullscreen-panel h1:not(.title-bouncy), .fullscreen-panel > p { text-align: center; }
+.fullscreen-panel > p { max-width: 36ch; }
+
+/* Half-pipe card: fits the screen, an explicit "Got it!" button. */
+.halfpipe-intro-card { max-height: 100%; overflow-y: auto; display: flex; flex-direction: column; }
+.halfpipe-intro-ok { align-self: center; margin-top: 4px; }
+@media (orientation: landscape) and (max-height: 540px) {
+  .halfpipe-intro-card { max-width: min(760px, 96vw); padding: 12px 18px; }
+  .halfpipe-intro-card h1 { font-size: 22px; margin-bottom: 4px; }
+  .halfpipe-intro-list { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; font-size: 13px; line-height: 1.35; margin-bottom: 8px; }
+  .halfpipe-intro-list li { padding: 2px 0; }
+}
+
+/* Touch targets: 48 px minimum everywhere in the menus. */
+.fullscreen-panel button.btn-ghost, .fullscreen-panel .setting-row .toggle,
+.fullscreen-panel .bi-actions .toggle { min-height: 48px; }
+.setting-row input[type="range"] { height: 44px; min-height: 44px; }
+
+/* Contrast: white on the green buttons was ~2.2:1; dark ink reads at AA. */
+.fullscreen-panel button.btn-go, .fullscreen-panel button.primary,
+.fullscreen-panel button.btn-play.btn-alt { color: var(--ink); text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35); }
+
+/* Profile rows: name, stats and manage buttons. */
+.fullscreen-panel button.profile-edit-btn .ui-icon { width: 22px; height: 22px; }
+
+/* Reduced motion: every animation and transition collapses. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}

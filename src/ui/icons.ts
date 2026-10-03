@@ -28,3 +28,15 @@ export const ICON_RIGHT = svg('icon-steer', '<path fill="currentColor" d="M8.4 3
 
 /** Mountain: altitude left to ride. */
 export const ICON_ALT = svg('icon-alt', '<path fill="currentColor" d="M2 20l6.5-11 4 6.2 2.6-4.2L22 20z"/>');
+
+/** Pencil: rename / manage. */
+export const ICON_EDIT = svg('icon-edit', '<path fill="currentColor" d="M15.7 3.3a2.4 2.4 0 013.4 0l1.6 1.6a2.4 2.4 0 010 3.4L9.4 19.6 3.5 21l1.4-5.9zM6.6 16.7l-.5 2 2-.5L17.6 8.7l-1.4-1.4z"/>');
+
+/** Circular arrow: flips. */
+export const ICON_FLIP = svg('icon-flip', '<g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12a7.5 7.5 0 11-2.2-5.3"/><path d="M19.8 3.5v4.2h-4.2"/></g>');
+
+/** Horizontal spin arrows: spins. */
+export const ICON_SPIN = svg('icon-spin', '<g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="12" rx="9" ry="4.5"/><path d="M16.5 4.8l2.4 2.9-3.6.9"/></g>');
+
+/** Ring. */
+export const ICON_RING = svg('icon-ring', '<circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="3"/>');

@@ -66,3 +66,14 @@ export const UPGRADES: UpgradeDef[] = [
 export function effectPreview(def: UpgradeDef, level: number): string {
   return level >= def.maxLevel ? def.effect(level) : `${def.effect(level)} → ${def.effect(level + 1)}`;
 }
+
+const MAX_BY_ID = new Map(UPGRADES.map(u => [u.id, u.maxLevel]));
+/**
+ * The level the game actually applies: a whole number within this
+ * build's shop range. Saves may hold more (written by a newer build) or
+ * be damaged; physics never sees anything outside 0..maxLevel.
+ */
+export function effectiveLevel(id: UpgradeId, level: unknown): number {
+  const max = MAX_BY_ID.get(id) ?? 0;
+  return typeof level === 'number' && Number.isFinite(level) ? Math.min(max, Math.max(0, Math.floor(level))) : 0;
+}

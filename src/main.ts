@@ -21,11 +21,16 @@ import { bankRun, migrateDeviceRingBest, type BankResult } from './game/records'
 import { buildRunSummary } from './game/summary';
 import { runSummaryHtml } from './ui/RunSummary';
 import { clearPending, collectPending, hasCollectablePending, recordPending } from './game/pendingRun';
-import { installBackBridge, pushBackHandler } from './util/backButton';
+import { clickScreenBack, installBackBridge, pushBackHandler } from './util/backButton';
 import { showInterrupted } from './ui/Interrupted';
 import { createCallouts } from './ui/Callouts';
 import { graceCallout, trickCallout } from './game/callout';
 import { awardGoals, goalLines, type GoalAward } from './game/goals';
+import { showFatalError } from './ui/FatalError';
+import { statusBanner } from './ui/StatusBanner';
+import { MemoryStore } from './profiles/MemoryStore';
+import type { ProfileStore } from './profiles/IndexedDbStore';
+import { installTapGuard } from './ui/tapGuard';
 
 declare global {
   interface Window {
@@ -36,20 +41,33 @@ declare global {
 type RunMode = Exclude<MenuChoice, 'switch-profile' | 'upgrades' | 'stats' | 'settings' | 'quit'>;
 type RunNext = RunMode | 'upgrades' | null;
 
-function showError(prefix: string, err: unknown): void {
-  const msg = (err && (err as { stack?: string }).stack) || String(err);
-  const safe = String(msg).replace(/[&<>"']/g, ch =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[ch]!);
-  document.body.innerHTML =
-    `<pre style="color:#ffd1cc;background:#3a0d0d;padding:16px;white-space:pre-wrap;font:14px/1.4 monospace;height:100%;overflow:auto;margin:0">[${prefix}]\n${safe}</pre>`;
-}
-
-window.addEventListener('error', (e) => showError('window.error', e.error ?? e.message));
-// A rejected background promise (e.g. a save that IndexedDB refused) is
-// logged, not fatal: the game keeps running and the next save retries.
+// Error policy: only a failure to start is fatal (showFatalError). After
+// that, a stray error in a callback is logged (util/debug keeps the tail
+// for bug reports) and the game carries on; a fault inside a frame ends
+// the run cleanly (Game onFault); storage faults are retried by
+// ProfileService and shown as a banner.
+let booted = false;
+window.addEventListener('error', (e) => {
+  if (!booted) showFatalError('startup', e.error ?? e.message);
+});
 window.addEventListener('unhandledrejection', (e) => {
   console.error('[unhandledrejection]', e.reason);
 });
+
+/** IndexedDB, or (if the device refuses it) memory for this session only. */
+async function openStore(): Promise<{ store: ProfileStore; persistent: boolean }> {
+  const idb = new IndexedDbStore();
+  try {
+    await Promise.race([
+      idb.ready(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('IndexedDB open timed out')), 6000)),
+    ]);
+    return { store: idb, persistent: true };
+  } catch (e) {
+    console.error('[profiles] storage unavailable; progress kept for this session only', e);
+    return { store: new MemoryStore(), persistent: false };
+  }
+}
 
 // One WebGL engine + template set for the whole session; each run only
 // builds its own world on top (see scene/Stage.ts).
@@ -63,6 +81,11 @@ function setOrientation(mode: 'landscape' | 'default'): void {
   window.ReactNativeWebView?.postMessage(`orientation:${mode}`);
 }
 
+/** Tells the native shell whether a reload would interrupt anything. */
+function uiIdle(idle: boolean): void {
+  window.ReactNativeWebView?.postMessage(idle ? 'ui:idle' : 'ui:busy');
+}
+
 async function bootstrap(): Promise<void> {
   const screen = document.getElementById('screen') as HTMLElement;
   const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement;
@@ -71,14 +94,21 @@ async function bootstrap(): Promise<void> {
   setTimeout(() => { getStage(canvas); }, 300);
 
   installBackBridge();
-  const profiles = new ProfileService(new IndexedDbStore());
+  installTapGuard();
+  const { store, persistent } = await openStore();
+  const profiles = new ProfileService(store);
   await profiles.init();
+  if (!persistent) statusBanner('storage')('Saving isn\u2019t available on this device right now \u2014 progress lasts until you close the game.');
+  const saveBanner = statusBanner('save');
+  profiles.onStatus((s) => saveBanner(s === 'failing' ? 'Progress isn\u2019t saving \u2014 retrying\u2026' : null));
   // One-time: the old device-wide ring best becomes the active profile's.
   let storage: Storage | undefined;
   try { storage = window.localStorage; } catch { storage = undefined; }
   if (migrateDeviceRingBest(profiles.activeProfile, storage)) await profiles.save();
 
   window.addEventListener('pagehide', () => { void profiles.save(); });
+  // The native shell calls this just before it reloads for an update.
+  (window as unknown as { __wtbBeforeReload?: () => void }).__wtbBeforeReload = () => { void profiles.save(); };
 
   const music = new MusicPlayer();
   if (profiles.activeProfile) {
@@ -104,6 +134,8 @@ async function bootstrap(): Promise<void> {
 
   let pendingMode: RunMode | null = null;
   let promptedAtLoad = false;
+  // Started: from here on a stray error is logged, not fatal.
+  booted = true;
 
   while (true) {
     let mode: RunMode;
@@ -124,7 +156,9 @@ async function bootstrap(): Promise<void> {
         await showProfileSelect(screen, profiles, music);
         promptedAtLoad = true;
       } else if (!promptedAtLoad) {
+        uiIdle(true);
         const choice = await showContinuePrompt(screen, profiles);
+        uiIdle(false);
         promptedAtLoad = true;
         if (choice === 'new') {
           const name = await showNameSelect(screen);
@@ -151,7 +185,10 @@ async function bootstrap(): Promise<void> {
       }
       // No-op after the first time; covers installs with no profile at boot.
       if (migrateDeviceRingBest(profiles.activeProfile, storage)) await profiles.save();
+      // The main menu is where a downloaded update may apply (ui:idle).
+      uiIdle(true);
       const choice: MenuChoice = await showMainMenu(screen, profiles);
+      uiIdle(false);
       if (choice === 'switch-profile') {
         await showProfileSelect(screen, profiles, music);
         continue;
@@ -172,7 +209,9 @@ async function bootstrap(): Promise<void> {
       if (choice === 'quit') {
         await profiles.save();
         window.ReactNativeWebView?.postMessage('quit:app');
-        return;
+        // Android may only background the app: keep the menu alive so
+        // it still works when the player comes back.
+        continue;
       }
       mode = choice;
     }
@@ -184,6 +223,7 @@ async function bootstrap(): Promise<void> {
     try {
       const next = await runSession(screen, canvas, mode, profiles, music);
       if (next === 'upgrades') {
+        setOrientation('default');
         await showUpgrades(screen, profiles);
         await profiles.save();
       } else if (next) {
@@ -217,7 +257,9 @@ async function runSession(
     const upgrades = profiles.activeProfile!.upgrades
       ?? { speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0, ringMagnet: 0, comboWindow: 0, grace: 0 };
 
-    hud.switchBtn.textContent = mode === 'half-pipe' ? 'Switch to Downhill' : 'Switch to Half-pipe';
+    const other = mode === 'half-pipe' ? 'Downhill' : 'Half-pipe';
+    hud.switchBtn.textContent = `Switch to ${other}`;
+    hud.fellSwitchBtn.textContent = `Ride ${other}`;
 
     let crashed = false;
     const callout = createCallouts(hud.hud);
@@ -265,6 +307,9 @@ async function runSession(
         hud.hud.classList.add('run-over');
       },
       onFell: () => showRunSummary('You fell'),
+      // A bug inside a frame: end the run cleanly (banked, summary shown)
+      // instead of leaving a frozen screen.
+      onFault: () => { crashed = true; hud.hud.classList.add('run-over'); showRunSummary('Run ended'); },
       onChargeChange: (charge) => {
         const v = String(charge);
         hud.jumpBtn.style.setProperty('--charge', v);
@@ -305,34 +350,45 @@ async function runSession(
     };
     const pendingTimer = setInterval(savePending, 2000);
 
+    // Held controls are released whenever the run stops taking input,
+    // so a release that never arrived can't leave a button stuck.
+    const releaseControls = () => { dpad.reset(); buttons.reset(); };
     const openPause = () => {
       if (crashed || finished) return;
       savePending();
+      releaseControls();
       game.pause();
       hud.pauseMenu.style.display = 'flex';
     };
     const closePause = () => {
       hud.pauseMenu.style.display = 'none';
+      releaseControls();
       game.resume();
     };
     const isShown = (el: HTMLElement) => el.style.display === 'flex';
+    const anyOverlay = () => isShown(hud.pauseMenu) || isShown(hud.settingsOverlay) || isShown(hud.halfpipeIntro) || isShown(hud.fellOverlay);
 
-    // Backgrounding the app pauses the run (and saves the mirror).
+    // Backgrounding the app (or losing focus) pauses the run and saves
+    // the mirror.
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') {
         savePending();
-        if (!isShown(hud.pauseMenu) && !isShown(hud.settingsOverlay) && !isShown(hud.halfpipeIntro)) openPause();
+        releaseControls();
+        if (!anyOverlay()) openPause();
       }
     };
+    const onBlur = () => { releaseControls(); };
     document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('blur', onBlur);
     window.addEventListener('pagehide', savePending);
 
-    // Android Back: open the pause menu; Back again resumes. On the fell
-    // screen it goes back to the menu. Sub-panels swallow it.
+    // Android Back: an open sub-panel (Settings, Upgrades, About, the
+    // half-pipe card) takes its own Back; the fell screen goes to the
+    // menu; otherwise Back toggles the pause menu.
     const popBack = pushBackHandler(() => {
       if (finished) return false;
+      if (isShown(hud.settingsOverlay) || isShown(hud.halfpipeIntro)) return clickScreenBack(hud.hud) || true;
       if (isShown(hud.fellOverlay)) { finish(null); return true; }
-      if (isShown(hud.settingsOverlay) || isShown(hud.halfpipeIntro)) return true;
       if (isShown(hud.pauseMenu)) { closePause(); return true; }
       openPause();
       return true;
@@ -373,6 +429,7 @@ async function runSession(
       finished = true;
       clearInterval(pendingTimer);
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('blur', onBlur);
       window.removeEventListener('pagehide', savePending);
       popBack();
 
@@ -386,24 +443,29 @@ async function runSession(
     hud.pauseBtn.addEventListener('click', openPause);
     hud.resumeBtn.addEventListener('click', closePause);
 
+    // The HUD gear: Settings over the live run, which is paused while it
+    // is open and resumes only if it was riding before.
     hud.settingsBtn.addEventListener('click', async () => {
-      if (crashed) return;
+      if (crashed || finished || anyOverlay()) return;
+      savePending();
+      releaseControls();
       game.pause();
       hud.settingsOverlay.style.display = 'flex';
       await showSettings(hud.settingsOverlay, music, profiles);
       hud.settingsOverlay.style.display = 'none';
       hud.settingsOverlay.innerHTML = '';
-      game.resume();
+      if (!finished && !crashed) game.resume();
     });
-    hud.switchBtn.addEventListener('click', () => {
-      finish(mode === 'half-pipe' ? 'downhill' : 'half-pipe');
-    });
-    // Quitting shows the same summary as a fall (the run stays paused).
-    hud.quitBtn.addEventListener('click', () => {
+    // Ending a run any way (Quit, or switching style) shows what it
+    // earned first; the summary's own buttons go on from there.
+    const endRun = () => {
+      if (crashed || finished) return;
       crashed = true;
       hud.hud.classList.add('run-over');
       showRunSummary('Run over');
-    });
+    };
+    hud.switchBtn.addEventListener('click', endRun);
+    hud.quitBtn.addEventListener('click', endRun);
     hud.fellOkBtn.addEventListener('click', () => finish(null));
     hud.fellSwitchBtn.addEventListener('click', () => {
       finish(mode === 'half-pipe' ? 'downhill' : 'half-pipe');
@@ -436,4 +498,4 @@ async function runSession(
   });
 }
 
-bootstrap().catch((err) => showError('bootstrap', err));
+bootstrap().catch((err) => showFatalError('bootstrap', err));

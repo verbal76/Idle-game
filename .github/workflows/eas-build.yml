@@ -34,9 +34,6 @@ on:
   push:
     branches:
       - main
-      # Test-fire branch for the GitHub-hosted-build transition.
-      # Remove from this list once merged to main.
-      - Github-APK-Transition-snow
     paths:
       - 'package.json'
       - 'package-lock.json'
@@ -58,9 +55,11 @@ permissions:
   # release + upload the APK as an asset.
   contents: write
 
+# Never cancelled: a later push that routes OTA-only would otherwise
+# drop a native change that was still building.
 concurrency:
-  group: apk-build-${{ github.ref }}
-  cancel-in-progress: true
+  group: apk-build
+  cancel-in-progress: false
 
 jobs:
   route:
