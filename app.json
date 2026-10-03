@@ -3,7 +3,7 @@
     "name": "Where's the Bottom?",
     "slug": "snow",
     "owner": "hot-attic-games",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "orientation": "default",
     "backgroundColor": "#0b1320",
     "userInterfaceStyle": "dark",

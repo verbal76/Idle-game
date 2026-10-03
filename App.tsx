@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BackHandler, Linking, Platform, StyleSheet, View } from 'react-native';
+import { BackHandler, Linking, Platform, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Asset } from 'expo-asset';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as Updates from 'expo-updates';
@@ -280,35 +281,37 @@ export default function App(): React.JSX.Element {
   }, []);
 
   return (
-    <View style={styles.root}>
-      <StatusBar hidden />
-      <WebView
-        key={`${OTA_INFO.updateId ?? 'embedded'}-${webKey}`}
-        ref={webviewRef}
-        source={{ html: HTML_BUNDLE, baseUrl: `https://localhost/${OTA_INFO.updateId ?? 'embedded'}/` }}
-        originWhitelist={['*']}
-        javaScriptEnabled
-        domStorageEnabled
-        cacheEnabled={false}
-        allowFileAccess
-        allowFileAccessFromFileURLs
-        mediaPlaybackRequiresUserAction={false}
-        scalesPageToFit={false}
-        bounces={false}
-        scrollEnabled={false}
-        overScrollMode="never"
-        injectedJavaScriptBeforeContentLoaded={INJECTED_JS_BEFORE}
-        onLoadStart={() => { updateGate.pageReset(); }}
-        onLoadEnd={() => {
-          webviewRef.current?.injectJavaScript(INJECTED_JS_AFTER);
-        }}
-        onRenderProcessGone={() => { remount(); }}
-        onContentProcessDidTerminate={() => { remount(); }}
-        onMessage={createMessageHandler(webviewRef, remount)}
-        onShouldStartLoadWithRequest={(req) => shouldLoadInWebView(req.url, (u) => Linking.openURL(u))}
-        style={styles.webview}
-      />
-    </View>
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.root} edges={['top', 'right', 'bottom', 'left']}>
+        <StatusBar hidden />
+        <WebView
+          key={`${OTA_INFO.updateId ?? 'embedded'}-${webKey}`}
+          ref={webviewRef}
+          source={{ html: HTML_BUNDLE, baseUrl: `https://localhost/${OTA_INFO.updateId ?? 'embedded'}/` }}
+          originWhitelist={['*']}
+          javaScriptEnabled
+          domStorageEnabled
+          cacheEnabled={false}
+          allowFileAccess
+          allowFileAccessFromFileURLs
+          mediaPlaybackRequiresUserAction={false}
+          scalesPageToFit={false}
+          bounces={false}
+          scrollEnabled={false}
+          overScrollMode="never"
+          injectedJavaScriptBeforeContentLoaded={INJECTED_JS_BEFORE}
+          onLoadStart={() => { updateGate.pageReset(); }}
+          onLoadEnd={() => {
+            webviewRef.current?.injectJavaScript(INJECTED_JS_AFTER);
+          }}
+          onRenderProcessGone={() => { remount(); }}
+          onContentProcessDidTerminate={() => { remount(); }}
+          onMessage={createMessageHandler(webviewRef, remount)}
+          onShouldStartLoadWithRequest={(req) => shouldLoadInWebView(req.url, (u) => Linking.openURL(u))}
+          style={styles.webview}
+        />
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 
