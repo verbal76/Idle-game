@@ -5,7 +5,7 @@ import { Stage } from './Stage';
 import { installBrowserGlobals } from '../test/gameHarness';
 import type { UpgradeLevels } from '../profiles/IndexedDbStore';
 
-vi.mock('@babylonjs/core', () => import('../test/headlessBabylon').then(m => m.babylonMock()));
+vi.mock('./babylon', () => import('../test/headlessBabylon').then(m => m.babylonMock()));
 vi.mock('./loadStl', () => import('../test/headlessBabylon').then(m => m.loadStlMock()));
 
 type G = {

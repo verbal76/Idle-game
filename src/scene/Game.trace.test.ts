@@ -11,7 +11,7 @@ import { Game } from './Game';
 import { Stage } from './Stage';
 import { defaultScript, installBrowserGlobals, traceRow, type ScriptedInput, type TraceRow } from '../test/gameHarness';
 
-vi.mock('@babylonjs/core', () => import('../test/headlessBabylon').then(m => m.babylonMock()));
+vi.mock('./babylon', () => import('../test/headlessBabylon').then(m => m.babylonMock()));
 vi.mock('./loadStl', () => import('../test/headlessBabylon').then(m => m.loadStlMock()));
 
 const FRAMES = 1800; // 30 s of riding per mode

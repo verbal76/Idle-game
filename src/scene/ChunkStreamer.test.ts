@@ -1,12 +1,12 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { Vector3 } from '@babylonjs/core';
+import { Vector3 } from './babylon';
 import { Stage } from './Stage';
 import { Terrain } from './Terrain';
 import { ChunkStreamer, type ChunkData } from './ChunkStreamer';
 import { SeedRng } from '../world/SeedRng';
 import { installBrowserGlobals } from '../test/gameHarness';
 
-vi.mock('@babylonjs/core', () => import('../test/headlessBabylon').then(m => m.babylonMock()));
+vi.mock('./babylon', () => import('../test/headlessBabylon').then(m => m.babylonMock()));
 vi.mock('./loadStl', () => import('../test/headlessBabylon').then(m => m.loadStlMock()));
 
 const SEED = 123456789n;

@@ -2,14 +2,15 @@
 // (no GPU) with stub textures, for tests that exercise Game, Stage and
 // the world modules. Usage in a test file:
 //
-//   vi.mock('@babylonjs/core', () => import('../test/headlessBabylon').then(m => m.babylonMock()));
+//   vi.mock('./babylon', () => import('../test/headlessBabylon').then(m => m.babylonMock()));
 //   vi.mock('./loadStl', () => import('../test/headlessBabylon').then(m => m.loadStlMock()));
 import { vi } from 'vitest';
+import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
 import { readAssetAsBuffer } from './gameHarness';
 
 export async function babylonMock() {
-  const actual = await vi.importActual<typeof import('@babylonjs/core')>('@babylonjs/core');
-  class HeadlessEngine extends actual.NullEngine {
+  const actual = await vi.importActual<typeof import('../scene/babylon')>('../scene/babylon');
+  class HeadlessEngine extends NullEngine {
     constructor() { super({ renderHeight: 256, renderWidth: 256, textureSize: 256, deterministicLockstep: false, lockstepMaxSteps: 1 }); }
     override runRenderLoop(): void { /* tests drive tick() manually */ }
     // A fixed 60 Hz frame unless a test sets another (frame-rate tests).
@@ -22,10 +23,10 @@ export async function babylonMock() {
     set: () => true,
   });
   class StubTexture extends actual.Texture {
-    constructor(_url: unknown, scene: import('@babylonjs/core').Scene) { super(null, scene); }
+    constructor(_url: unknown, scene: import('../scene/babylon').Scene) { super(null, scene); }
   }
   class StubDynamicTexture extends actual.Texture {
-    constructor(_name: unknown, _opts: unknown, scene: import('@babylonjs/core').Scene) { super(null, scene); }
+    constructor(_name: unknown, _opts: unknown, scene: import('../scene/babylon').Scene) { super(null, scene); }
     getContext() { return fakeCtx; }
     update() {}
   }

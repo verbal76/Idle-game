@@ -1,6 +1,6 @@
 import {
   AbstractMesh, Color3, Mesh, MeshBuilder, Scene, StandardMaterial, Texture, TransformNode
-} from '@babylonjs/core';
+} from './babylon';
 import objText from '../assets/character.obj?raw';
 // Kenney template dressed as the menu-art rider (scripts/make-rider-texture.mjs).
 import textureUrl from '../assets/rider-texture.png';

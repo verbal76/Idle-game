@@ -1,4 +1,4 @@
-import { Mesh, Scene, VertexData } from '@babylonjs/core';
+import { Mesh, Scene, VertexData } from './babylon';
 
 // Binary STL header / triangle layout (Wavefront-adjacent file format
 // Kenney exports for low-poly rocks):

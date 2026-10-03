@@ -1,4 +1,4 @@
-import { Mesh, MeshBuilder, Scene, TransformNode, VertexBuffer, VertexData } from '@babylonjs/core';
+import { Mesh, MeshBuilder, Scene, TransformNode, VertexBuffer, VertexData } from './babylon';
 import type { SeedRng } from '../world/SeedRng';
 import type { SceneAssets } from './SceneAssets';
 import { HP } from './halfPipeGeometry';

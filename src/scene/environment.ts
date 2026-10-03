@@ -1,7 +1,7 @@
 import {
   Color3, Color4, DynamicTexture, Mesh, MeshBuilder, ParticleSystem, Scene,
   StandardMaterial, TrailMesh, TransformNode, Vector3,
-} from '@babylonjs/core';
+} from './babylon';
 import { mkMat } from './SceneAssets';
 
 // Low-poly cones framing the valley. The anchor follows the rider (no

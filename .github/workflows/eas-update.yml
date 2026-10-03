@@ -111,8 +111,8 @@ jobs:
         # somewhere above ~10 MB (see MusicPlayer.ts). Fail well before.
         run: |
           SIZE=$(wc -c < dist/index.html)
-          echo "dist/index.html: $SIZE bytes (budget 10500000)"
-          if [ "$SIZE" -gt 10500000 ]; then echo "::error::Page bundle $SIZE bytes is over the 10.5 MB budget"; exit 1; fi
+          echo "dist/index.html: $SIZE bytes (budget 7500000)"
+          if [ "$SIZE" -gt 7500000 ]; then echo "::error::Page bundle $SIZE bytes is over the 7.5 MB budget"; exit 1; fi
       - name: Never go backwards (refuse to replace the live update with older code)
         # The live update must be an ancestor of this commit. Stops a push
         # from a stale branch (or a re-run of an old commit) downgrading

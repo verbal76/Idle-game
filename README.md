@@ -111,7 +111,7 @@ When PR #64 is merged, take the live line's `eas-update.yml` and
 **OTA route** (`.github/workflows/eas-update.yml`, the normal case, any
 change under `src/`, `App.tsx`, `index.html`, `scripts/`):
 route -> lint -> unit tests -> `web:build` -> smoke -> page-size budget
-(10.5 MB) -> **ancestry guard** (the live update's source commit must be
+(7.5 MB) -> **ancestry guard** (the live update's source commit must be
 an ancestor of this commit: no rollbacks) -> publish to EAS branch
 `preview` -> channel re-link -> **delivery check** (asks the update
 server what an installed APK asks and requires the new update). One

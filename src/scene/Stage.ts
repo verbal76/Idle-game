@@ -1,4 +1,4 @@
-import { Color3, Color4, Engine, Scene } from '@babylonjs/core';
+import { Color3, Color4, Engine, Scene } from './babylon';
 import { SceneAssets } from './SceneAssets';
 
 type Disposable = { dispose(): void; isDisposed?: () => boolean };

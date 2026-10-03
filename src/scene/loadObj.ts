@@ -1,4 +1,4 @@
-import { Mesh, Scene, VertexData } from '@babylonjs/core';
+import { Mesh, Scene, VertexData } from './babylon';
 
 // Minimal Wavefront OBJ parser tailored for the Kenney character mesh:
 // supports v / vt / vn / g / f directives and the v/vt/vn face-index

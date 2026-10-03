@@ -1,4 +1,4 @@
-import { AbstractMesh, MeshBuilder, Scene, TransformNode, Vector3, type Mesh } from '@babylonjs/core';
+import { AbstractMesh, MeshBuilder, Scene, TransformNode, Vector3, type Mesh } from './babylon';
 import { SeedRng } from '../world/SeedRng';
 import type { SceneAssets } from './SceneAssets';
 import type { GameMode, Terrain } from './Terrain';

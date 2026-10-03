@@ -1,4 +1,4 @@
-import { Color3, Mesh, MeshBuilder, Scene, StandardMaterial } from '@babylonjs/core';
+import { Color3, Mesh, MeshBuilder, Scene, StandardMaterial } from './babylon';
 import { loadObjByMaterial } from './loadObj';
 import { decodeDataUrlToBuffer, meshBounds, parseStl } from './loadStl';
 import { HP } from './halfPipeGeometry';

@@ -1,7 +1,7 @@
 import {
   Engine, Scene, TargetCamera, HemisphericLight, DirectionalLight,
   Vector3, Color3, MeshBuilder, Mesh, ParticleSystem, TrailMesh, TransformNode,
-} from '@babylonjs/core';
+} from './babylon';
 import type { StickValue } from '../input/ArrowPadInput';
 import type { UpgradeLevels } from '../profiles/IndexedDbStore';
 import { soundFx } from '../audio/SoundFx';
