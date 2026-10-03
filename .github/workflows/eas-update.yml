@@ -1,16 +1,17 @@
 name: EAS Update (OTA)
 
-# Path-routed: this workflow handles JS-only changes, eas-build.yml
-# handles native changes. The two path lists are complementary so
-# every push to main fires roughly one of the two (a mixed JS+native
-# push fires both, which is fine — the APK rebuild covers it
-# eventually).
-
 on:
   workflow_dispatch:
   push:
+    # The only lines allowed to publish to the live channel. (Other
+    # branches still carrying an old copy of this workflow can publish
+    # with that copy; see the 'never go backwards' guard below, which
+    # this copy enforces, and the README release section.)
     branches:
       - main
+      # Gameplay-review series (authorized by the repo owner): every
+      # step ships as its own OTA checkpoint; tests still gate it.
+      - claude/repo-gameplay-review-loq9rq
     paths-ignore:
       - 'package.json'
       - 'package-lock.json'
@@ -24,67 +25,162 @@ on:
       - 'assets/adaptive-icon.png'
       - 'assets/splash-icon.png'
       - '.github/workflows/**'
+      - '.github/scripts/**'
       - 'README.md'
+      - 'MOBILE_GAME_DEV_RULES.md'
       - '.gitignore'
 
 permissions:
   contents: read
 
+# One publish at a time across ALL branches (they share the live
+# channel), and never cancelled: a cancelled run would drop a release.
 concurrency:
-  group: eas-update-${{ github.ref }}
-  cancel-in-progress: true
+  group: eas-update-preview
+  cancel-in-progress: false
 
 jobs:
-  update:
+  route:
+    # One-at-a-time rule: decides whether this push is native (APK) or
+    # JS-only (OTA). eas-build.yml and eas-update.yml run the same script
+    # on the same commit range, so a push can never start both.
     runs-on: ubuntu-latest
+    outputs:
+      native: ${{ steps.route.outputs.native }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: route
+        run: bash .github/scripts/release-route.sh
+        env:
+          BEFORE: ${{ github.event.before }}
+
+  native-change-not-built:
+    # A native change on a branch the APK workflow doesn't build would
+    # otherwise ship nowhere with a green run. Say so loudly.
+    needs: route
+    if: needs.route.outputs.native == 'true' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "::error::This push changes the native build, so no OTA was published, and APKs are only built from main. Merge to main (APK build), then publish the matching OTA."
+          exit 1
+
+  update:
+    needs: route
+    # JS-only pushes publish; a push that changes the native build leaves
+    # it to the APK workflow (publish an OTA by hand after the APK is out).
+    if: needs.route.outputs.native != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for the 'never go backwards' guard
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      # No cache: 'npm' / npm ci because package-lock.json is in
-      # .gitignore — those modes require a committed lock file. We
-      # keep `npx eas-cli@latest` (still saves ~25 s vs the global
-      # install) but drop the rest of the speedup until we either
-      # commit a lock file or switch to a different cache key.
       - run: npm install --no-audit --no-fund
+      - name: Unit tests (block the OTA on any failure)
+        run: npm test
       - name: Regenerate html-bundle.ts (CRITICAL for OTA correctness)
-        # eas-update bundles the React Native app via Metro on this
-        # runner — and the WebView app's compiled bundle lives in
-        # src/__generated__/html-bundle.ts as a string constant
-        # imported by App.tsx. Without this step, Metro picks up
-        # whatever stale html-bundle.ts is in git and ships THAT,
-        # so OTA-only feature changes (game logic in src/scene/
-        # Game.ts, About panel additions, version.ts bumps) never
-        # reach the device. PR #46 silently dropped this step when
-        # reverting npm ci → npm install, which is why every OTA
-        # from #5 through #7 has been re-uploading the same frozen
-        # bundle from PR #34's commit (11c2966). Don't delete this
-        # again. EAS Build's post-install hook regenerates the
-        # bundle on the EAS build VM, so APKs are unaffected; this
-        # step is the OTA-side equivalent.
         run: npm run web:build
         env:
           NODE_ENV: production
-      - name: Publish OTA update
-        # Publish to the EAS branch literally named "preview" so the
-        # channel "preview" (declared in eas.json's preview build profile)
-        # picks up the update on the installed APK. Message is the head
-        # commit subject so the EAS dashboard correlates updates with
-        # specific commits. npx eas-cli@latest skips the global install
-        # step entirely (was ~25 s); cache: 'npm' on setup-node makes
-        # npm ci a cache hit on the second push onward (~60 s saved).
+      - name: Smoke test the built game (block the OTA on any failure)
+        # Same headless end-to-end check CI runs: boots dist/index.html
+        # in Chrome and rides both modes before anything is published.
+        run: npm run test:smoke
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
+      - name: Page size budget
+        # The WebView receives the whole game as one HTML string; the
+        # Android Binder channel that carries it fails (black screen)
+        # somewhere above ~10 MB (see MusicPlayer.ts). Fail well before.
         run: |
-          MSG="$(git log -1 --pretty=%s | head -c 100)"
-          npx eas-cli@latest update \
+          SIZE=$(wc -c < dist/index.html)
+          echo "dist/index.html: $SIZE bytes (budget 10500000)"
+          if [ "$SIZE" -gt 10500000 ]; then echo "::error::Page bundle $SIZE bytes is over the 10.5 MB budget"; exit 1; fi
+      - name: Never go backwards (refuse to replace the live update with older code)
+        # The live update must be an ancestor of this commit. Stops a push
+        # from a stale branch (or a re-run of an old commit) downgrading
+        # every player.
+        run: |
+          PROJECT="$(node -p "require('./app.json').expo.extra.eas.projectId")"
+          RUNTIME="$(node -p "require('./app.json').expo.version")"
+          CHANNEL="$(node -p "require('./app.json').expo.updates.requestHeaders['expo-channel-name']")"
+          curl -sS -m 30 "https://u.expo.dev/$PROJECT" \
+            -H "expo-platform: android" -H "expo-runtime-version: $RUNTIME" \
+            -H "expo-channel-name: $CHANNEL" -H "expo-protocol-version: 1" \
+            -H "accept: multipart/mixed" -o "$RUNNER_TEMP/live.txt" || true
+          LIVE="$(grep -oE '"commit":"[0-9a-f]{40}"' "$RUNNER_TEMP/live.txt" | head -1 | grep -oE '[0-9a-f]{40}' || true)"
+          if [ -z "$LIVE" ]; then echo "No commit stamped on the live update; nothing to compare."; exit 0; fi
+          echo "Live update was built from $LIVE"
+          if ! git cat-file -e "$LIVE^{commit}" 2>/dev/null || ! git merge-base --is-ancestor "$LIVE" "$GITHUB_SHA"; then
+            echo "::error::$GITHUB_SHA does not contain the live update's commit $LIVE; publishing would roll players back. Merge the live line first."
+            exit 1
+          fi
+      - name: Publish OTA update
+        # OTA_* vars are stamped into this update's manifest by
+        # app.config.js (extra.ota) so the in-game Build / Update Info
+        # can show the source commit and OTA name it is running.
+        run: |
+          set -o pipefail   # a failed publish must fail the step despite | tee
+          SUBJECT="$(git log -1 --pretty=%s)"
+          # Cut by characters (not bytes, which can split a character).
+          MSG="$(printf '%s' "$SUBJECT" | node -e 'const a=[...require("fs").readFileSync(0,"utf8").trim()];process.stdout.write(a.length>100?a.slice(0,99).join("")+"…":a.join(""))')"
+          export OTA_COMMIT="$GITHUB_SHA"
+          export OTA_MESSAGE="$SUBJECT"
+          export OTA_LABEL="$(git log -1 --pretty=%s | grep -oE 'OTA #[0-9]+' | tail -1 || true)"
+          export OTA_RUN="$GITHUB_RUN_NUMBER"
+          export OTA_BRANCH="$GITHUB_REF_NAME"
+          npx eas-cli@24.10.0 update \
             --branch preview \
             --platform android \
             --non-interactive \
-            --message "$MSG"
+            --message "$MSG" 2>&1 | tee "$RUNNER_TEMP/eas-update.log"
+          ANDROID_ID="$(grep -oE 'Android update ID +[0-9a-f-]{36}' "$RUNNER_TEMP/eas-update.log" | grep -oE '[0-9a-f-]{36}' | head -1)"
+          if [ -z "$ANDROID_ID" ]; then echo "::error::Could not read the Android update ID from eas update output"; exit 1; fi
+          echo "ANDROID_UPDATE_ID=$ANDROID_ID" >> "$GITHUB_ENV"
         env:
-          # Token name flexibility: prefer EXPO_TOKEN, fall back to the
-          # SNOWBOARD / SNOW secret names already in this repo. NODE_ENV
-          # set so eas-cli's underlying Metro bundling runs in production
-          # mode (minified + dead-code-stripped).
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
           NODE_ENV: production
+      - name: Re-link channel preview → branch preview
+        run: |
+          npx eas-cli@24.10.0 channel:edit preview \
+            --branch preview \
+            --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
+      - name: Verify the installed APK will receive this update
+        # Asks the update server exactly what an installed APK asks
+        # (its project, runtime version and channel header, all read
+        # from app.json - the same values prebuild bakes into the APK)
+        # and requires the answer to be the update just published,
+        # carrying this commit. Fails the run otherwise.
+        run: |
+          node -e "const e=require('./app.json').expo; if (!e.runtimeVersion || e.runtimeVersion.policy!=='appVersion') { console.error('runtimeVersion policy changed; update this check'); process.exit(1); }"
+          PROJECT="$(node -p "require('./app.json').expo.extra.eas.projectId")"
+          RUNTIME="$(node -p "require('./app.json').expo.version")"
+          CHANNEL="$(node -p "require('./app.json').expo.updates.requestHeaders['expo-channel-name']")"
+          echo "Asking u.expo.dev/$PROJECT as android / runtime $RUNTIME / channel $CHANNEL for update $ANDROID_UPDATE_ID"
+          for i in $(seq 1 12); do
+            curl -sS -m 30 "https://u.expo.dev/$PROJECT" \
+              -H "expo-platform: android" \
+              -H "expo-runtime-version: $RUNTIME" \
+              -H "expo-channel-name: $CHANNEL" \
+              -H "expo-protocol-version: 1" \
+              -H "accept: multipart/mixed" -o "$RUNNER_TEMP/manifest.txt" || true
+            SERVED="$(grep -oE '"id":"[0-9a-f-]{36}"' "$RUNNER_TEMP/manifest.txt" | head -1 | grep -oE '[0-9a-f-]{36}' || true)"
+            echo "attempt $i: served update ${SERVED:-none}"
+            if [ "$SERVED" = "$ANDROID_UPDATE_ID" ] && grep -q "$GITHUB_SHA" "$RUNNER_TEMP/manifest.txt"; then
+              echo "OK: runtime $RUNTIME / channel $CHANNEL now serves $ANDROID_UPDATE_ID (commit $GITHUB_SHA)"
+              grep -oE '"(runtimeVersion|createdAt)":"[^"]*"' "$RUNNER_TEMP/manifest.txt" | head -2
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::The update server did not serve $ANDROID_UPDATE_ID to runtime $RUNTIME / channel $CHANNEL"
+          head -c 2000 "$RUNNER_TEMP/manifest.txt"
+          exit 1

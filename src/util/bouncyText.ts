@@ -9,11 +9,7 @@
 // menu screen. Positioning + sizing comes from the host element's
 // CSS so this util doesn't care about layout.
 
-function escapeHtml(ch: string): string {
-  return (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>
-  )[ch] ?? ch;
-}
+import { escapeHtml } from './escapeHtml';
 
 export function bouncyTextHtml(s: string): string {
   return s.split('').map((c, i) => {

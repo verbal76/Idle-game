@@ -1,12 +1,16 @@
 import { MusicPlayer } from '../audio/MusicPlayer';
+import { soundFx } from '../audio/SoundFx';
+import { haptics } from '../util/haptics';
 import { ProfileService } from '../profiles/ProfileService';
 import { showAbout } from './About';
 import { openBugReport, openFeatureRequest } from '../util/bugReport';
+import { escapeHtml } from '../util/escapeHtml';
+import { buildInfoHtml, wireBuildInfo } from './BuildInfoPanel';
 
 // State machine for the OTA update flow. Native side posts these via
 // CustomEvent('update-status'); the Settings panel listens and updates
 // the inline label + button label.
-type UpdateStatus = 'idle' | 'checking' | 'up-to-date' | 'downloading' | 'ready' | 'reloading' | 'unavailable';
+type UpdateStatus = 'idle' | 'checking' | 'up-to-date' | 'downloading' | 'ready' | 'deferred' | 'reloading' | 'offline' | 'unavailable';
 
 declare global {
   interface Window {
@@ -21,12 +25,14 @@ const STATUS_LABEL: Record<UpdateStatus, string> = {
   'up-to-date':   'Up to date',
   downloading:    'Downloading…',
   ready:          'Update ready — restart now',
+  deferred:       'Update downloaded — it installs when this run ends',
   reloading:      'Restarting…',
-  unavailable:    'Updates unavailable (dev build)',
+  offline:        'Couldn\u2019t check for updates. Are you online?',
+  unavailable:    'Updates aren\u2019t available in this build',
 };
 
 // Single-purpose settings shell: routes to the About panel, holds the
-// music volume control, and exposes a manual update check.
+// music / sound-effect volume and vibration controls, and exposes a manual update check.
 export function showSettings(
   root: HTMLElement,
   music: MusicPlayer,
@@ -47,6 +53,8 @@ export function showSettings(
     const render = () => {
       const profile = profiles.activeProfile;
       const initialVol = Math.round(music.getVolume() * 100);
+      const initialSfx = Math.round(soundFx.getVolume() * 100);
+      const hapticsOn = haptics.isEnabled();
       root.innerHTML = `
         <div class="fullscreen-panel">
           <h1>Settings</h1>
@@ -55,15 +63,25 @@ export function showSettings(
             <input type="range" id="music-vol" min="0" max="100" value="${initialVol}" />
             <span class="setting-val" id="music-vol-val">${initialVol}%</span>
           </div>
+          <div class="setting-row">
+            <label for="sfx-vol" class="setting-label">Sound effects</label>
+            <input type="range" id="sfx-vol" min="0" max="100" value="${initialSfx}" />
+            <span class="setting-val" id="sfx-vol-val">${initialSfx}%</span>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label">Vibration</span>
+            <button id="haptics-toggle" class="toggle" aria-pressed="${hapticsOn}">${hapticsOn ? 'On' : 'Off'}</button>
+          </div>
           <p class="muted" id="music-now">Now playing: ${escapeHtml(music.currentTitle())}</p>
           <div class="list">
-            <button id="music-skip">Skip track</button>
-            <button id="updates-check">Check for updates</button>
+            <button id="music-skip" class="btn-ghost">Skip track</button>
+            <button id="updates-check" class="btn-ghost">Check for updates</button>
             <p class="muted" id="updates-status"></p>
-            <button id="settings-about">About / Build info</button>
-            <button id="settings-bug">🐞 Send bug report</button>
-            <button id="settings-feature">💡 Send feature request</button>
-            <button id="settings-back">Back</button>
+            <button id="settings-about" class="btn-ghost">About / Build info</button>
+            <button id="settings-bug" class="btn-ghost">Send bug report</button>
+            <button id="settings-feature" class="btn-ghost">Send feature request</button>
+            ${buildInfoHtml()}
+            <button id="settings-back" class="btn-go" data-back>Back</button>
           </div>
         </div>
       `;
@@ -94,6 +112,33 @@ export function showSettings(
         }
       });
       slider.addEventListener('change', flushSave);
+
+      const sfxSlider = root.querySelector<HTMLInputElement>('#sfx-vol')!;
+      const sfxLabel = root.querySelector<HTMLElement>('#sfx-vol-val')!;
+      sfxSlider.addEventListener('input', () => {
+        const v = Number(sfxSlider.value) / 100;
+        soundFx.setVolume(v);
+        sfxLabel.textContent = `${sfxSlider.value}%`;
+        if (profile) {
+          profile.settings.sfxVolume = v;
+          queueSave();
+        }
+      });
+      const hapticsBtn = root.querySelector<HTMLButtonElement>('#haptics-toggle')!;
+      hapticsBtn.addEventListener('click', () => {
+        const on = !haptics.isEnabled();
+        haptics.setEnabled(on);
+        hapticsBtn.textContent = on ? 'On' : 'Off';
+        hapticsBtn.setAttribute('aria-pressed', String(on));
+        if (on) haptics.play('trick');
+        if (profile) {
+          profile.settings.haptics = on;
+          flushSave();
+        }
+      });
+
+      // Preview at the chosen level when the drag ends.
+      sfxSlider.addEventListener('change', () => { soundFx.play('trick'); flushSave(); });
 
       const skipBtn = root.querySelector<HTMLButtonElement>('#music-skip')!;
       const nowLabel = root.querySelector<HTMLElement>('#music-now')!;
@@ -130,7 +175,9 @@ export function showSettings(
       });
       paintUpdateRow();
 
+      const unwireInfo = wireBuildInfo(root);
       root.querySelector<HTMLButtonElement>('#settings-about')!.addEventListener('click', async () => {
+        unwireInfo();
         await showAbout(root);
         render();
       });
@@ -141,6 +188,7 @@ export function showSettings(
         openFeatureRequest();
       });
       root.querySelector<HTMLButtonElement>('#settings-back')!.addEventListener('click', () => {
+        unwireInfo();
         flushSave();
         window.removeEventListener('update-status', onUpdateStatus);
         resolve();
@@ -148,10 +196,4 @@ export function showSettings(
     };
     render();
   });
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, ch => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>
-  )[ch]!);
 }

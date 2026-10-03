@@ -33,6 +33,12 @@ jobs:
       # No cache: 'npm' / npm ci — package-lock.json is .gitignored
       # so both modes fail "Dependencies lock file is not found".
       - run: npm install --no-audit --no-fund
+      - run: npm test
       - run: npm run web:build
         env:
           NODE_ENV: production
+      # End-to-end smoke: boots the built game in headless Chrome and
+      # rides both modes. The hosted runner ships Google Chrome.
+      - run: npm run test:smoke
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome

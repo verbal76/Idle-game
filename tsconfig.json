@@ -3,6 +3,7 @@
   "compilerOptions": {
     "strict": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
     "skipLibCheck": true,
@@ -14,5 +15,5 @@
     "useDefineForClassFields": true,
     "resolveJsonModule": true
   },
-  "include": ["src", "App.tsx", "index.js", "vite.config.ts"]
+  "include": ["src", "App.tsx", "index.js", "vite.config.ts", "vitest.config.ts"]
 }

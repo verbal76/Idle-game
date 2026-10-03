@@ -2,7 +2,8 @@ import {
   AbstractMesh, Color3, Mesh, MeshBuilder, Scene, StandardMaterial, Texture, TransformNode
 } from '@babylonjs/core';
 import objText from '../assets/character.obj?raw';
-import textureUrl from '../assets/character-texture.png';
+// Kenney template dressed as the menu-art rider (scripts/make-rider-texture.mjs).
+import textureUrl from '../assets/rider-texture.png';
 import { loadObjGroups } from './loadObj';
 
 export interface RiderRig {
@@ -108,7 +109,9 @@ export function buildRider(scene: Scene): RiderRig {
   charMat.diffuseTexture = new Texture(textureUrl, scene);
   charMat.specularColor = new Color3(0, 0, 0);
   charMat.backFaceCulling = false;
-  const pantsMat  = mat(scene, 'rider-pants',  new Color3(0.10, 0.18, 0.32));
+  // Ochre-yellow snow pants (the menu-art rider), a shade darker than the
+  // jacket so the legs still separate from the body.
+  const pantsMat  = mat(scene, 'rider-pants',  new Color3(0.80, 0.56, 0.07));
   const bootMat   = mat(scene, 'rider-boot',   new Color3(0.12, 0.10, 0.10));
 
   const isLeg = (name: string) => name === 'leg-left' || name === 'leg-right';

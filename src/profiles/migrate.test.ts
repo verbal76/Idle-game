@@ -1,0 +1,165 @@
+import { describe, expect, it } from 'vitest';
+import { defaultUpgrades, loadSave, migrateSave } from './migrate';
+import type { SaveData } from './IndexedDbStore';
+
+function legacy(extra: Record<string, unknown> = {}): SaveData {
+  return {
+    id: 'p1', name: 'Frosty', createdAtMs: 1, lastPlayedMs: 2, currency: 137,
+    unlocks: [], bestHalfPipeScore: 0, longestDownhillMeters: 812,
+    settings: { musicVolume: 0.4, sfxVolume: 1 },
+    ...extra,
+  } as unknown as SaveData;
+}
+
+describe('migrateSave', () => {
+  it('backfills upgrades on a pre-upgrades save without touching progress', () => {
+    const d = migrateSave(legacy());
+    expect(d.upgrades).toEqual({ speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0, ringMagnet: 0, comboWindow: 0, grace: 0 });
+    expect(d.currency).toBe(137);
+    expect(d.longestDownhillMeters).toBe(812);
+    expect(d.settings.musicVolume).toBe(0.4);
+  });
+
+  it('keeps earned levels, backfills later upgrades, and drops the dead magnet key', () => {
+    const d = migrateSave(legacy({ upgrades: { speed: 4, jump: 2, magnet: 0 } }));
+    expect(d.upgrades).toEqual({ speed: 4, jump: 2, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0, ringMagnet: 0, comboWindow: 0, grace: 0 });
+    expect('magnet' in d.upgrades).toBe(false);
+  });
+
+  it('adds the half-pipe intro flag unseen, and keeps it once seen (#8)', () => {
+    expect(migrateSave(legacy()).seenHalfpipeIntro).toBe(false);
+    expect(migrateSave(legacy({ seenHalfpipeIntro: true })).seenHalfpipeIntro).toBe(true);
+  });
+
+  it('adds stats seeded from legacy records, without losing them (#7)', () => {
+    const d = migrateSave(legacy({ longestDownhillMeters: 812, bestHalfPipeScore: 4 }));
+    expect(d.stats.downhill).toEqual({ bestDistance: 812, mostFlips: 0 });
+    expect(d.stats.halfPipe).toEqual({ bestRunFlakes: 4, bestRingStreak: 0, bestCombo: 0 });
+    expect(d.stats.lifetime.runs).toBe(0);
+  });
+
+  it('backfills new stats keys without touching existing ones', () => {
+    const d = migrateSave(legacy({ stats: { downhill: { bestDistance: 50 }, halfPipe: { bestRingStreak: 9 } } }));
+    expect(d.stats.downhill).toEqual({ bestDistance: 50, mostFlips: 0 });
+    expect(d.stats.halfPipe.bestRingStreak).toBe(9);
+    expect(d.stats.lifetime).toEqual({ runs: 0, distance: 0, flips: 0, spins: 0, rings: 0, flakesEarned: 0 });
+  });
+
+  it('splits Air Control: Flip Speed starts at the old Air Control level (#19)', () => {
+    const d = migrateSave(legacy({ upgrades: { speed: 1, jump: 0, turn: 0, charge: 0, spin: 7, coin: 3 } }));
+    expect(d.upgrades.spin).toBe(7);
+    expect(d.upgrades.flip).toBe(7);
+    expect(d.upgrades.coin).toBe(3);
+    // Once split they're independent: a later load doesn't re-copy.
+    d.upgrades.flip = 9;
+    expect(migrateSave(d).upgrades.flip).toBe(9);
+    d.upgrades.spin = 12;
+    expect(migrateSave(d).upgrades.flip).toBe(9);
+  });
+
+  it('adds an empty milestone list, keeping any already paid (#22)', () => {
+    expect(migrateSave(legacy({})).milestones).toEqual([]);
+    const d = migrateSave(legacy({}));
+    d.milestones = ['runs-1'];
+    expect(migrateSave(d).milestones).toEqual(['runs-1']);
+  });
+
+  it('keeps the chosen volumes and defaults a missing SFX volume to 100% (#26)', () => {
+    expect(migrateSave(legacy({})).settings).toEqual({ musicVolume: 0.4, sfxVolume: 1, haptics: true });
+    expect(migrateSave(legacy({ settings: { musicVolume: 0.2 } })).settings).toEqual({ musicVolume: 0.2, sfxVolume: 1, haptics: true });
+    expect(migrateSave(legacy({ settings: { musicVolume: 0.2, sfxVolume: 0.3 } })).settings.sfxVolume).toBe(0.3);
+  });
+
+  it('vibration defaults on, and an "off" choice is kept (#27)', () => {
+    expect(migrateSave(legacy({})).settings.haptics).toBe(true);
+    expect(migrateSave(legacy({ settings: { musicVolume: 1, sfxVolume: 1, haptics: false } })).settings.haptics).toBe(false);
+  });
+
+  it('repairs a damaged record without touching valid progress (release audit)', () => {
+    const d = migrateSave(legacy({
+      name: '', currency: undefined,
+      upgrades: { speed: 3, jump: -2, turn: 2.7, charge: 'x', spin: 30, coin: NaN, grace: 9 },
+      settings: { musicVolume: 3, sfxVolume: -1, haptics: 'yes' },
+      stats: { downhill: { bestDistance: '120', mostFlips: 4 }, halfPipe: null, lifetime: { runs: 5, distance: null, flips: Infinity } },
+      milestones: ['runs-1', 7, null],
+      daily: { day: '2026-09-27', ids: ['ride'], progress: [0], done: [false], allPaid: false },
+      pendingRun: { mode: 'downhill', distanceMeters: 80, flips: 'two', spins: 1, coins: NaN, rings: 0, bestCombo: 0, bestRingStreak: 0, runId: 'r', savedAtMs: 5 },
+    }));
+    expect(d.name).toBe('Boarder');
+    expect(d.currency).toBe(0);
+    // Levels above today's max are kept (a newer build may allow them);
+    // the game clamps what it uses (effectiveLevels).
+    expect(d.upgrades).toMatchObject({ speed: 3, jump: 0, turn: 2, charge: 0, spin: 30, coin: 0, grace: 9 });
+    expect(d.settings).toEqual({ musicVolume: 1, sfxVolume: 0, haptics: true });
+    expect(d.stats.downhill).toEqual({ bestDistance: 0, mostFlips: 4 });
+    expect(d.stats.halfPipe).toEqual({ bestRunFlakes: 0, bestRingStreak: 0, bestCombo: 0 });
+    expect(d.stats.lifetime).toMatchObject({ runs: 5, distance: 0, flips: 0 });
+    expect(d.milestones).toEqual(['runs-1']);
+    expect(d.daily).toBeUndefined();                                   // malformed daily dropped
+    expect(d.pendingRun).toMatchObject({ mode: 'downhill', distanceMeters: 80, flips: 0, coins: 0, spins: 1 });
+    const numbers = JSON.stringify(d);
+    expect(numbers).not.toMatch(/null|NaN/);
+  });
+
+  it('drops a pending run that is not a run at all', () => {
+    expect(migrateSave(legacy({ pendingRun: { mode: 'moon' } })).pendingRun).toBeUndefined();
+    expect(migrateSave(legacy({ pendingRun: null })).pendingRun).toBeUndefined();
+  });
+
+  it('a healthy current save passes through unchanged', () => {
+    const good = migrateSave(legacy({ currency: 12.5, upgrades: { speed: 3, jump: 1, turn: 2, charge: 0, spin: 5, flip: 4, coin: 7, ringMagnet: 1, comboWindow: 2, grace: 1 } }));
+    good.daily = { day: '2026-09-27', ids: ['ride', 'runs', 'flips'], progress: [100, 1, 2], done: [false, false, false], allPaid: false };
+    good.milestones = ['runs-1'];
+    const again = migrateSave(structuredClone(good));
+    expect(again).toEqual(good);
+  });
+
+  it('is idempotent', () => {
+    const once = migrateSave(legacy({ upgrades: { speed: 3, jump: 1, turn: 2, charge: 0, spin: 5, coin: 7 } }));
+    const twice = migrateSave(structuredClone(once));
+    expect(twice).toEqual(once);
+  });
+});
+
+describe('loadSave is total over anything storage returns (pre-release review)', () => {
+  const junk: unknown[] = [undefined, null, 5, 'x', [], {}, NaN, -1, 1e308, true, { nested: { deep: 1 } }];
+  const fields = ['name', 'currency', 'createdAtMs', 'lastPlayedMs', 'upgrades', 'settings', 'stats', 'milestones',
+    'unlocks', 'daily', 'pendingRun', 'seenHalfpipeIntro', 'bestHalfPipeScore', 'longestDownhillMeters'];
+
+  it('never throws and always yields finite, well-formed numbers', () => {
+    for (const f of fields) for (const v of junk) {
+      const d = loadSave({ ...legacy(), [f]: v });
+      expect(d, `${f}=${String(v)}`).not.toBeNull();
+      const json = JSON.stringify(d);
+      expect(json, `${f}=${String(v)}`).not.toMatch(/NaN|Infinity|null/);
+      expect(typeof d!.name).toBe('string');
+      expect(Number.isFinite(d!.currency)).toBe(true);
+      for (const k of Object.keys(defaultUpgrades())) expect(Number.isInteger((d!.upgrades as unknown as Record<string, unknown>)[k])).toBe(true);
+    }
+  });
+
+  it('a non-object or id-less record is rejected, not thrown on', () => {
+    for (const v of junk) expect(loadSave(v)).toBeNull();
+    expect(loadSave({ name: 'x' })).toBeNull();
+  });
+
+  it('a save from a newer build keeps what this build does not understand', () => {
+    const newer = legacy({
+      schemaVersion: 99,
+      upgrades: { speed: 25, jump: 1, newThing: 3 },
+      settings: { musicVolume: 0.5, sfxVolume: 0.5, haptics: true, colourblind: true },
+      stats: { downhill: { bestDistance: 10, mostFlips: 1, longestAir: 4 }, extra: { a: 1 } },
+      daily: { day: '2026-09-27', ids: ['a', 'b', 'c', 'd'], progress: [1, 2, 3, 4], done: [true, true, false, false], allPaid: false },
+      pendingRun: { mode: 'big-air', distanceMeters: 5 },
+    });
+    const d = migrateSave(newer) as unknown as Record<string, any>;
+    expect(d.schemaVersion).toBe(99);
+    expect(d.upgrades.speed).toBe(25);
+    expect(d.upgrades.newThing).toBe(3);
+    expect(d.settings.colourblind).toBe(true);
+    expect(d.stats.downhill.longestAir).toBe(4);
+    expect(d.stats.extra).toEqual({ a: 1 });
+    expect(d.daily.ids).toHaveLength(4);
+    expect(d.pendingRun.mode).toBe('big-air');
+  });
+});

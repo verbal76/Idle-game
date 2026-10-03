@@ -7,7 +7,11 @@
     "start": "expo start",
     "web:build": "node scripts/write-build-info.mjs && tsc && vite build && node scripts/embed-html.mjs && node scripts/make-icon.mjs",
     "web:dev": "vite",
-    "eas-build-post-install": "npm run web:build"
+    "eas-build-post-install": "npm run web:build",
+    "test": "vitest run",
+    "test:smoke": "node scripts/smoke.mjs",
+    "check": "tsc && vitest run",
+    "perf:runstart": "node scripts/perf-runstart.mjs"
   },
   "dependencies": {
     "expo": "~51.0.39",
@@ -25,9 +29,11 @@
     "@babylonjs/loaders": "^7.39.0",
     "@types/react": "~18.2.79",
     "idb": "^8.0.0",
+    "playwright-core": "^1.63.0",
     "pngjs": "^7.0.0",
     "typescript": "~5.3.3",
     "vite": "^5.4.10",
-    "vite-plugin-singlefile": "^2.0.3"
+    "vite-plugin-singlefile": "^2.0.3",
+    "vitest": "^2.1.9"
   }
 }

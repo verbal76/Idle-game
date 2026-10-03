@@ -1,11 +1,17 @@
-import React, { useEffect, useRef } from 'react';
-import { BackHandler, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { BackHandler, Linking, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { Asset } from 'expo-asset';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as Updates from 'expo-updates';
+import { requireOptionalNativeModule } from 'expo';
 import { HTML_BUNDLE } from './src/__generated__/html-bundle';
+import { UpdateGate } from './src/shell/updateGate';
+import { shouldLoadInWebView } from './src/shell/navigation';
+
+// A downloaded OTA never reloads mid-run; it waits for the page's run:end.
+const updateGate = new UpdateGate();
 
 interface OtaInfo {
   updateId: string | null;
@@ -13,16 +19,41 @@ interface OtaInfo {
   channel: string | null;
   createdAt: string | null;
   isEmbeddedLaunch: boolean | null;
+  isEmergencyLaunch: boolean | null;
+  // From the app config baked into the installed APK, so they describe
+  // the native build even while an OTA is running.
+  nativeAppVersion: string | null;
+  nativeVersionCode: number | null;
+  // What the publishing workflow stamped into this update's manifest
+  // (app.config.js -> extra.ota): commit, label, message, run, branch.
+  otaMeta: Record<string, unknown> | null;
 }
 
-// Native-side music tracks. The MP3s live in src/assets/music/ and are
-// bundled into the APK by Metro via require() (so they ship as native
-// assets, NOT inlined into the html-bundle.ts that the WebView loads).
-// Asset.fromModule() resolves to a file:// URI synchronously when the
-// asset is already on disk (production APK); the URI gets injected
-// into the WebView so HTMLAudioElement on the web side streams from
-// it without going through the Binder IPC channel that limits
-// source.html size.
+// The APK's embedded app config (expo-constants' native module).
+function readNativeConfig(): { version: string | null; versionCode: number | null } {
+  try {
+    const mod = requireOptionalNativeModule<{ manifest?: unknown }>('ExponentConstants');
+    const raw = mod?.manifest;
+    const cfg = (typeof raw === 'string' ? JSON.parse(raw) : raw) as { version?: unknown; android?: { versionCode?: unknown } } | undefined;
+    return {
+      version: typeof cfg?.version === 'string' ? cfg.version : null,
+      versionCode: typeof cfg?.android?.versionCode === 'number' ? cfg.android.versionCode : null,
+    };
+  } catch {
+    return { version: null, versionCode: null };
+  }
+}
+
+function readOtaMeta(): Record<string, unknown> | null {
+  try {
+    const m = Updates.manifest as { extra?: { expoClient?: { extra?: { ota?: unknown } } } } | undefined;
+    const ota = m?.extra?.expoClient?.extra?.ota;
+    return ota && typeof ota === 'object' ? (ota as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
 const MUSIC_TRACKS: { module: number; title: string }[] = [
   { module: require('./src/assets/music/Powder_Parade.mp3'),      title: 'Powder Parade' },
   { module: require('./src/assets/music/Trail_Snack_Parade.mp3'), title: 'Trail Snack Parade' },
@@ -30,49 +61,37 @@ const MUSIC_TRACKS: { module: number; title: string }[] = [
 ];
 
 function readOtaInfo(): OtaInfo {
-  // Each field is guarded — in dev / Expo Go, several of these throw
-  // or return null. The About panel surfaces what's available and
-  // labels the rest as "n/a" rather than crashing the app.
   const safe = <T,>(fn: () => T, fallback: T): T => {
     try { return fn(); } catch { return fallback; }
   };
   const created = safe(() => Updates.createdAt, null);
+  const native = readNativeConfig();
   return {
     updateId:        safe(() => Updates.updateId ?? null, null),
     runtimeVersion:  safe(() => Updates.runtimeVersion ?? null, null),
     channel:         safe(() => Updates.channel ?? null, null),
     createdAt:       created instanceof Date ? created.toISOString() : null,
     isEmbeddedLaunch: safe(() => Updates.isEmbeddedLaunch ?? null, null),
+    isEmergencyLaunch: safe(() => Updates.isEmergencyLaunch ?? null, null),
+    nativeAppVersion: native.version,
+    nativeVersionCode: native.versionCode,
+    otaMeta: readOtaMeta(),
   };
 }
 
 const OTA_INFO = readOtaInfo();
 
-// Synchronously resolve the localUri of each bundled MP3. Asset.fromModule
-// is sync; for assets baked into the APK at build time, localUri is
-// available immediately (no network round-trip). For Expo Go / dev
-// builds the URI may be a Metro http:// URL, which the WebView can also
-// stream. downloadAsync runs as a no-op safety net in the useEffect
-// below (it's a no-op when localUri is already set).
 const RESOLVED_MUSIC_URLS = MUSIC_TRACKS.map((t) => {
   const a = Asset.fromModule(t.module);
   return { url: a.localUri ?? a.uri, title: t.title };
 });
 
-// Pre-content injection: window.__OTA__ AND window.__MUSIC_URLS__ both
-// land before any web JS runs, so MusicPlayer reads them at module
-// construction without needing a CustomEvent round-trip. The
-// 'music-urls' / 'ota-info' events still fire from the post-load
-// re-injection as belt-and-suspenders for the Android cold-start race.
 const INJECTED_JS_BEFORE = `
   window.__OTA__ = ${JSON.stringify(OTA_INFO)};
   window.__MUSIC_URLS__ = ${JSON.stringify(RESOLVED_MUSIC_URLS)};
   true;
 `;
 
-// Re-injected after onLoadEnd as a backup for the early-injection race.
-// Sets window.__OTA__ + window.__MUSIC_URLS__ if the early shot missed
-// AND dispatches custom events so any UI already mounted refreshes.
 const INJECTED_JS_AFTER = `
   (function() {
     var ota = ${JSON.stringify(OTA_INFO)};
@@ -85,8 +104,6 @@ const INJECTED_JS_AFTER = `
   true;
 `;
 
-// Inject a minimal status update to the web side so Settings can show
-// "Up to date" / "Downloading…" / "Update ready — restart now?".
 function injectUpdateStatus(ref: React.RefObject<WebView | null>, status: string): void {
   const js = `
     (function() {
@@ -98,9 +115,14 @@ function injectUpdateStatus(ref: React.RefObject<WebView | null>, status: string
   ref.current?.injectJavaScript(js);
 }
 
-// Run an explicit Updates check + fetch + (optionally) reload. Surfaces
-// status to the web side so the Settings UI / a banner can react.
 async function runUpdateCheck(ref: React.RefObject<WebView | null>, autoReload: boolean): Promise<void> {
+  if (!Updates.isEnabled) { injectUpdateStatus(ref, 'unavailable'); return; }
+  // One check at a time; once an update is downloaded, polling stops
+  // (a manual check just shows it is ready).
+  if (!updateGate.beginCheck()) {
+    if (updateGate.hasDownloadedUpdate) injectUpdateStatus(ref, updateGate.isInRun ? 'deferred' : 'ready');
+    return;
+  }
   try {
     injectUpdateStatus(ref, 'checking');
     const result = await Updates.checkForUpdateAsync();
@@ -109,57 +131,99 @@ async function runUpdateCheck(ref: React.RefObject<WebView | null>, autoReload: 
       return;
     }
     injectUpdateStatus(ref, 'downloading');
-    await Updates.fetchUpdateAsync();
-    if (autoReload) {
-      injectUpdateStatus(ref, 'reloading');
-      await Updates.reloadAsync();
-    } else {
-      injectUpdateStatus(ref, 'ready');
+    const fetched = await Updates.fetchUpdateAsync();
+    if (!fetched.isNew && !fetched.isRollBackToEmbedded) {
+      injectUpdateStatus(ref, 'up-to-date');
+      return;
     }
-  } catch {
-    // checkForUpdateAsync throws in Expo Go and on certain network
-    // errors. Treat as up-to-date so the manual button doesn't get
-    // stuck on "checking".
-    injectUpdateStatus(ref, 'unavailable');
+    const decision = updateGate.onUpdateReady();
+    if (autoReload && decision === 'reload-now') {
+      await reloadNow(ref);
+    } else {
+      injectUpdateStatus(ref, updateGate.isInRun ? 'deferred' : 'ready');
+    }
+  } catch (e) {
+    // Offline or a server hiccup: say so, and log the real reason.
+    injectUpdateStatus(ref, 'offline');
+    ref.current?.injectJavaScript(`try{console.error('[updates] check failed', ${JSON.stringify(String(e))});}catch(e){};true;`);
+  } finally {
+    updateGate.endCheck();
   }
 }
 
-/**
- * Bridges WebView → native orientation lock. The web side posts:
- *   'orientation:landscape' — lock landscape (in-game)
- *   'orientation:default'   — unlock to system default (menus)
- *   'quit:app'              — close the app on Android
- *   'updates:check'         — manual update check from Settings
- *   'updates:apply'         — reload now (after a downloaded update)
- */
-function createMessageHandler(webviewRef: React.RefObject<WebView | null>) {
+async function reloadNow(ref: React.RefObject<WebView | null>): Promise<void> {
+  try {
+    injectUpdateStatus(ref, 'reloading');
+    // Stop audio in the old WebView context BEFORE the bundle swap.
+    // MusicPlayer's hardStop listener calls audio.pause() AND
+    // audio.src='' to detach from the underlying Android MediaPlayer
+    // immediately, otherwise its small playback buffer keeps emitting
+    // sound for ~50–200 ms while the new bundle's MusicPlayer is
+    // already starting — user hears the soundtrack twice.
+    // Let the page write any pending save, then stop the music.
+    ref.current?.injectJavaScript(
+      `try{window.__wtbBeforeReload&&window.__wtbBeforeReload();}catch(e){};try{window.dispatchEvent(new Event('music-pause-before-reload'));}catch(e){};true;`
+    );
+    // 200 ms delay (was 80) so the pause + src='' detachment in
+    // hardStop has time to actually silence Android's MediaPlayer
+    // before we tear down the JS context. Combined with the 250 ms
+    // delay on the new bundle's music.start(), there's a 450 ms
+    // total gap between old-audio-stop and new-audio-start.
+    await new Promise(r => setTimeout(r, 400));
+    await Updates.reloadAsync();
+  } catch (e) {
+    // Still on the old version: the update stays waiting, the music
+    // comes back, and the page hears why.
+    updateGate.reloadFailed();
+    injectUpdateStatus(ref, 'ready');
+    ref.current?.injectJavaScript(
+      `try{window.dispatchEvent(new Event('music-resume'));}catch(e){};try{console.error('[updates] reload failed', ${JSON.stringify(String(e))});}catch(e){};true;`
+    );
+  }
+}
+
+function createMessageHandler(webviewRef: React.RefObject<WebView | null>, remount: () => void) {
   return function handleMessage(event: WebViewMessageEvent): void {
     const data = event.nativeEvent.data;
     if (data === 'orientation:landscape') {
-      void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => { /* unsupported */ });
     } else if (data === 'orientation:default') {
-      void ScreenOrientation.unlockAsync();
-    } else if (data === 'quit:app') {
-      // Quit Game button on the main menu — close the app on Android.
-      // exitApp is a no-op on iOS by design (Apple HIG forbids self-
-      // termination), but this build is android-only per app.json.
+      ScreenOrientation.unlockAsync().catch(() => { /* unsupported */ });
+    } else if (data === 'ui:idle' || data === 'ui:busy') {
+      // Idle = a screen a reload can't hurt (main menu / launch prompt).
+      if (updateGate.setIdle(data === 'ui:idle')) void reloadNow(webviewRef);
+    } else if (data === 'app:reload') {
+      // The page's Restart (after a fatal error): a fresh page.
+      remount();
+    } else if (data === 'quit:app' || data === 'back:exit') {
+      // back:exit = the page didn't handle a hardware Back (root screen).
       BackHandler.exitApp();
     } else if (data === 'updates:check') {
       void runUpdateCheck(webviewRef, /* autoReload */ false);
+    } else if (data === 'run:start') {
+      updateGate.setInRun(true);
+    } else if (data === 'run:end') {
+      // Back on the menus with the run saved: apply a deferred update now.
+      if (updateGate.setInRun(false)) void reloadNow(webviewRef);
     } else if (data === 'updates:apply') {
-      void Updates.reloadAsync();
+      // "Restart now": never mid-run (it applies when the run ends).
+      if (updateGate.onApplyRequested() === 'reload-now') void reloadNow(webviewRef);
+      else injectUpdateStatus(webviewRef, 'deferred');
     }
   };
 }
 
 export default function App(): React.JSX.Element {
   const webviewRef = useRef<WebView>(null);
+  // Bumped to remount the WebView: its renderer died (low memory), or
+  // the page asked for a restart. A fresh page is never mid-run.
+  const [webKey, setWebKey] = useState(0);
+  const remount = useCallback(() => {
+    updateGate.pageReset();
+    ScreenOrientation.unlockAsync().catch(() => { /* unsupported */ });
+    setWebKey(k => k + 1);
+  }, []);
 
-  // Expo Go / dev-server case: Asset.fromModule's localUri is null
-  // until downloadAsync runs (the asset has to be fetched from Metro).
-  // The synchronous URL list in INJECTED_JS_BEFORE captured `a.uri`
-  // (Metro URL) as a fallback so playback works immediately; once
-  // downloadAsync completes, re-inject with the canonical localUri.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -175,34 +239,24 @@ export default function App(): React.JSX.Element {
         const js = `(function(){var u=${JSON.stringify(resolved)};window.__MUSIC_URLS__=u;try{window.dispatchEvent(new CustomEvent('music-urls',{detail:u}));}catch(e){}})();true;`;
         webviewRef.current?.injectJavaScript(js);
       } catch {
-        // Asset resolution failed (rare). Player relies on the
-        // synchronous URL list from the early injection above.
+        /* Asset resolution failed (rare) */
       }
     })();
     return () => { cancelled = true; };
   }, []);
 
-  // Auto check + fetch + reload on launch, then a 90 s poll for the
-  // rest of the session. Runs in the background so a slow network
-  // never blocks startup. fallbackToCacheTimeout in app.json (3000 ms)
-  // isn't enough for the ~20 MiB OTA to download before launch — this
-  // fires AFTER the WebView is up and gives the OTA the full session
-  // to fetch. autoReload=true means we restart the app the moment the
-  // update is ready, so the user sees the new build mid-session
-  // instead of having to kill + relaunch.
-  //
-  // The 90 s interval handles the case where the user opens the app
-  // BEFORE the EAS workflow finished publishing the new bundle: the
-  // first check returns "up to date", and without polling the user
-  // would have to manually press the Settings → Check for Updates
-  // button (or cold-restart) to see the bundle once it lands. Polling
-  // every 90 s catches it within at most one and a half minutes of
-  // the workflow completing.
-  //
-  // Trade-off: a fresh OTA arriving mid-game reloads the app, which
-  // interrupts the current run. Acceptable per user request; the
-  // alternative ("ready - tap to reload" banner) is what the
-  // explicit Check for Updates button already does.
+  // Hardware Back goes to the page first (pause menu in a run); the page
+  // posts back:exit when nothing on screen wants it.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      webviewRef.current?.injectJavaScript(
+        `try{if(window.__wtbBack){window.__wtbBack();}else{window.ReactNativeWebView.postMessage('back:exit');}}catch(e){};true;`
+      );
+      return true;
+    });
+    return () => sub.remove();
+  }, []);
+
   useEffect(() => {
     const t = setTimeout(() => { void runUpdateCheck(webviewRef, /* autoReload */ true); }, 1500);
     const i = setInterval(() => { void runUpdateCheck(webviewRef, /* autoReload */ true); }, 90 * 1000);
@@ -213,15 +267,13 @@ export default function App(): React.JSX.Element {
     <View style={styles.root}>
       <StatusBar hidden />
       <WebView
+        key={`${OTA_INFO.updateId ?? 'embedded'}-${webKey}`}
         ref={webviewRef}
-        source={{ html: HTML_BUNDLE, baseUrl: 'https://localhost/' }}
+        source={{ html: HTML_BUNDLE, baseUrl: `https://localhost/${OTA_INFO.updateId ?? 'embedded'}/` }}
         originWhitelist={['*']}
         javaScriptEnabled
         domStorageEnabled
-        // file:// URIs from Asset.downloadAsync() need this on Android
-        // for HTMLAudioElement to load them when the page origin is
-        // https://localhost/. Default is false; flip it on so audio
-        // streams without rebuilding the bundle.
+        cacheEnabled={false}
         allowFileAccess
         allowFileAccessFromFileURLs
         mediaPlaybackRequiresUserAction={false}
@@ -230,13 +282,14 @@ export default function App(): React.JSX.Element {
         scrollEnabled={false}
         overScrollMode="never"
         injectedJavaScriptBeforeContentLoaded={INJECTED_JS_BEFORE}
+        onLoadStart={() => { updateGate.pageReset(); }}
         onLoadEnd={() => {
-          // Belt-and-suspenders: re-inject after load so the web side
-          // picks up window.__OTA__ even if the early injection lost
-          // the race on Android cold start.
           webviewRef.current?.injectJavaScript(INJECTED_JS_AFTER);
         }}
-        onMessage={createMessageHandler(webviewRef)}
+        onRenderProcessGone={() => { remount(); }}
+        onContentProcessDidTerminate={() => { remount(); }}
+        onMessage={createMessageHandler(webviewRef, remount)}
+        onShouldStartLoadWithRequest={(req) => shouldLoadInWebView(req.url, (u) => Linking.openURL(u))}
         style={styles.webview}
       />
     </View>

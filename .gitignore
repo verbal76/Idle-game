@@ -20,6 +20,4 @@ assets/adaptive-icon.png
 android/
 ios/
 
-# Legacy Unity scaffold (commit beac810). Tracked but inert.
-# Will be cleaned up incrementally; do not delete from history.
 package-lock.json

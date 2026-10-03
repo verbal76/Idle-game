@@ -1,5 +1,6 @@
 import { ProfileService } from '../profiles/ProfileService';
 import { bouncyTextHtml } from '../util/bouncyText';
+import { escapeHtml } from '../util/escapeHtml';
 
 // Confirmation prompt shown at app load when there's a saved active
 // profile. Two paths: continue as the saved profile, or kick straight
@@ -16,12 +17,12 @@ export function showContinuePrompt(root: HTMLElement, profiles: ProfileService):
     const p = profiles.activeProfile!;
     const lastPlayed = p.lastPlayedMs ? new Date(p.lastPlayedMs).toLocaleString() : 'unknown';
     root.innerHTML = `
-      <div class="fullscreen-panel menu-bg menu-bg-stacked">
+      <div class="fullscreen-panel menu-bg menu-bg-stacked splash-bg">
         <h1 class="title-bouncy">${bouncyTextHtml("Where's the Bottom?")}</h1>
         <p class="muted">Last player: ${escapeHtml(p.name)}</p>
         <p class="muted">Last played: ${escapeHtml(lastPlayed)}</p>
         <div class="list">
-          <button id="continue">Continue as ${escapeHtml(p.name)}</button>
+          <button id="continue" class="btn-go">Continue as ${escapeHtml(p.name)}</button>
           <button id="new-profile">New Profile</button>
         </div>
       </div>
@@ -29,10 +30,4 @@ export function showContinuePrompt(root: HTMLElement, profiles: ProfileService):
     root.querySelector<HTMLButtonElement>('#continue')!.addEventListener('click', () => resolve('continue'));
     root.querySelector<HTMLButtonElement>('#new-profile')!.addEventListener('click', () => resolve('new'));
   });
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, ch => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>
-  )[ch]!);
 }

@@ -1,5 +1,8 @@
 import { BUILD_INFO } from '../__generated__/build-info';
 import { BUILD_VERSION, OTA_VERSION } from '../version';
+import { escapeHtml } from '../util/escapeHtml';
+import { clean } from '../shell/buildInfo';
+import './BuildInfoPanel';   // declares window.__OTA__
 
 interface OtaInfo {
   updateId: string | null;
@@ -9,16 +12,16 @@ interface OtaInfo {
   isEmbeddedLaunch: boolean | null;
 }
 
-declare global {
-  interface Window { __OTA__?: OtaInfo }
-}
-
 const NA = 'n/a';
 
 function readOta(): OtaInfo {
-  return window.__OTA__ ?? {
-    updateId: null, runtimeVersion: null, channel: null,
-    createdAt: null, isEmbeddedLaunch: null,
+  const o = window.__OTA__;
+  return {
+    updateId: clean(o?.updateId),
+    runtimeVersion: clean(o?.runtimeVersion),
+    channel: clean(o?.channel),
+    createdAt: clean(o?.createdAt),
+    isEmbeddedLaunch: typeof o?.isEmbeddedLaunch === 'boolean' ? o.isEmbeddedLaunch : null,
   };
 }
 
@@ -51,7 +54,7 @@ function buildText(ota: OtaInfo): string {
     `branch:        ${BUILD_INFO.branch}${BUILD_INFO.dirty ? ' (dirty)' : ''}`,
     `commit:        ${BUILD_INFO.commit}`,
     `built:         ${BUILD_INFO.builtAt}`,
-    `app:           ${BUILD_INFO.appVersion} (versionCode ${BUILD_INFO.androidVersionCode ?? NA})`,
+    `app.json:      ${BUILD_INFO.appVersion} (versionCode ${BUILD_INFO.androidVersionCode ?? NA}) when this bundle was built`,
     `runtime:       ${ota.runtimeVersion ?? NA}`,
     `channel:       ${ota.channel ?? NA}`,
     `ota updateId:  ${ota.updateId ?? NA}`,
@@ -82,8 +85,8 @@ export function showAbout(root: HTMLElement): Promise<void> {
             ${row('Commit', BUILD_INFO.commitShort, true)}
             ${row('Full SHA', BUILD_INFO.commit, true)}
             ${row('Built', BUILD_INFO.builtAt, true)}
-            ${row('App version', BUILD_INFO.appVersion)}
-            ${row('Android versionCode', String(BUILD_INFO.androidVersionCode ?? NA))}
+            ${row('app.json version (bundle build)', BUILD_INFO.appVersion)}
+            ${row('app.json versionCode (bundle build)', String(BUILD_INFO.androidVersionCode ?? NA))}
             ${row('Runtime', ota.runtimeVersion ?? NA)}
             ${row('Channel', ota.channel ?? NA)}
             ${row('OTA updateId', ota.updateId ?? NA, true)}
@@ -93,7 +96,7 @@ export function showAbout(root: HTMLElement): Promise<void> {
           ${stale ? `<p class="about-warn">⚠ OTA is older than the embedded bundle — launcher fell back to embedded.</p>` : ''}
           <div class="row">
             <button id="about-copy">Copy</button>
-            <button id="about-back">Back</button>
+            <button id="about-back" data-back>Back</button>
           </div>
         </div>
       `;
@@ -125,10 +128,4 @@ export function showAbout(root: HTMLElement): Promise<void> {
     window.addEventListener('ota-info', onOtaInfo);
     render();
   });
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, ch => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>
-  )[ch]!);
 }
