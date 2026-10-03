@@ -1,90 +1,24 @@
 name: EAS Update (OTA)
 
-# Path-routed: this workflow handles JS-only changes, eas-build.yml
-# handles native changes. The two path lists are complementary so
-# every push to main fires roughly one of the two (a mixed JS+native
-# push fires both, which is fine — the APK rebuild covers it
-# eventually).
+# DISABLED ON THIS BRANCH ON PURPOSE.
+#
+# main is behind the live release line (claude/repo-gameplay-review-loq9rq,
+# draft PR #64). Every installed APK listens to the single "preview" EAS
+# channel, so publishing from this branch would roll every player back to
+# old code. The real publishing workflow (tests, smoke, size budget,
+# "never go backwards" ancestry guard, delivery check) lives on the live
+# line and takes over when that line is merged here.
+#
+# When merging the live line into main, take the live line's version of
+# .github/workflows/eas-update.yml and eas-build.yml.
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - 'package.json'
-      - 'package-lock.json'
-      - 'app.json'
-      - 'eas.json'
-      - 'babel.config.js'
-      - 'metro.config.js'
-      - 'android/**'
-      - 'ios/**'
-      - 'assets/icon.png'
-      - 'assets/adaptive-icon.png'
-      - 'assets/splash-icon.png'
-      - '.github/workflows/**'
-      - 'README.md'
-      - '.gitignore'
-
-permissions:
-  contents: read
-
-concurrency:
-  group: eas-update-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
-  update:
+  disabled:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      # No cache: 'npm' / npm ci because package-lock.json is in
-      # .gitignore — those modes require a committed lock file. We
-      # keep `npx eas-cli@latest` (still saves ~25 s vs the global
-      # install) but drop the rest of the speedup until we either
-      # commit a lock file or switch to a different cache key.
-      - run: npm install --no-audit --no-fund
-      - name: Regenerate html-bundle.ts (CRITICAL for OTA correctness)
-        # eas-update bundles the React Native app via Metro on this
-        # runner — and the WebView app's compiled bundle lives in
-        # src/__generated__/html-bundle.ts as a string constant
-        # imported by App.tsx. Without this step, Metro picks up
-        # whatever stale html-bundle.ts is in git and ships THAT,
-        # so OTA-only feature changes (game logic in src/scene/
-        # Game.ts, About panel additions, version.ts bumps) never
-        # reach the device. PR #46 silently dropped this step when
-        # reverting npm ci → npm install, which is why every OTA
-        # from #5 through #7 has been re-uploading the same frozen
-        # bundle from PR #34's commit (11c2966). Don't delete this
-        # again. EAS Build's post-install hook regenerates the
-        # bundle on the EAS build VM, so APKs are unaffected; this
-        # step is the OTA-side equivalent.
-        run: npm run web:build
-        env:
-          NODE_ENV: production
-      - name: Publish OTA update
-        # Publish to the EAS branch literally named "preview" so the
-        # channel "preview" (declared in eas.json's preview build profile)
-        # picks up the update on the installed APK. Message is the head
-        # commit subject so the EAS dashboard correlates updates with
-        # specific commits. npx eas-cli@latest skips the global install
-        # step entirely (was ~25 s); cache: 'npm' on setup-node makes
-        # npm ci a cache hit on the second push onward (~60 s saved).
-        run: |
-          MSG="$(git log -1 --pretty=%s | head -c 100)"
-          npx eas-cli@latest update \
-            --branch preview \
-            --platform android \
-            --non-interactive \
-            --message "$MSG"
-        env:
-          # Token name flexibility: prefer EXPO_TOKEN, fall back to the
-          # SNOWBOARD / SNOW secret names already in this repo. NODE_ENV
-          # set so eas-cli's underlying Metro bundling runs in production
-          # mode (minified + dead-code-stripped).
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
-          NODE_ENV: production
+      - run: |
+          echo "::error::OTA publishing is disabled on this branch: it is older than the live release line and would downgrade installed players. Publish from claude/repo-gameplay-review-loq9rq (or from main after that line is merged)."
+          exit 1

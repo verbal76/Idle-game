@@ -1,74 +1,17 @@
-name: EAS Build (Android APK)
+name: APK Build (GitHub-hosted)
 
-# Path-routed: fires on push to main when the diff touches anything
-# that affects native code (deps, app.json, eas.json, native dirs,
-# bundler config, app icons). Complement of eas-update.yml's
-# paths-ignore list — together they cover every file in the repo, so
-# every push fires roughly one of the two. workflow_dispatch on the
-# Actions tab still lets you kick a build manually with a profile
-# choice (development / preview / production).
+# DISABLED ON THIS BRANCH ON PURPOSE (see eas-update.yml here).
+# An APK built from this stale branch would become the newest GitHub
+# Release and ship old native + embedded code. The real APK workflow
+# lives on the live release line and takes over when it is merged.
 
 on:
   workflow_dispatch:
-    inputs:
-      profile:
-        type: choice
-        description: 'EAS build profile'
-        default: preview
-        options:
-          - development
-          - preview
-          - production
-  push:
-    branches:
-      - main
-    paths:
-      - 'package.json'
-      - 'package-lock.json'
-      - 'app.json'
-      - 'eas.json'
-      - 'babel.config.js'
-      - 'metro.config.js'
-      - 'android/**'
-      - 'ios/**'
-      - 'assets/icon.png'
-      - 'assets/adaptive-icon.png'
-      - 'assets/splash-icon.png'
-      - '.github/workflows/eas-build.yml'
-
-permissions:
-  contents: read
 
 jobs:
-  build:
+  disabled:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      # No cache: 'npm' / npm ci — see eas-update.yml for the same
-      # reason (package-lock.json is .gitignored).
-      - run: npm install --no-audit --no-fund
-      - id: profile
-        # Manual workflow_dispatch supplies a profile via inputs.
-        # Path-triggered pushes don't, so default to preview.
-        run: |
-          if [ -n "${{ github.event.inputs.profile }}" ]; then
-            echo "name=${{ github.event.inputs.profile }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "name=preview" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Trigger EAS Build
-        # npx eas-cli@latest skips the global install (~25 s); cache:
-        # 'npm' + npm ci makes the dep install a cache hit on second
-        # push onward (~60 s saved).
-        run: |
-          npx eas-cli@latest build --platform android \
-            --profile ${{ steps.profile.outputs.name }} \
-            --non-interactive --no-wait
-        env:
-          # Token name flexibility: prefers EXPO_TOKEN, then falls back
-          # to SNOWBOARD or SNOW (the names already in this repo's
-          # secret store).
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
+      - run: |
+          echo "::error::APK builds are disabled on this branch: it is older than the live release line. Build from the live line, or from main after it is merged."
+          exit 1
