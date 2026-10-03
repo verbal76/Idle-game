@@ -65,9 +65,9 @@ def main():
         print('== effective permissions (aapt2)')
         print(sh([os.path.join(bt, 'aapt2'), 'dump', 'permissions', apk]))
         print('== signing (public data only)')
-        for line in sh([os.path.join(bt, 'apksigner'), 'verify', '--print-certs', apk]).splitlines():
-            if re.search(r'Signer #1 certificate (DN|SHA-256)', line) or 'Verifies' in line:
-                print(line)
+        signer = sh([os.path.join(bt, 'apksigner'), 'verify', '--print-certs', '-v', apk]).splitlines()
+        shown = [l for l in signer if re.search(r'Signer #1 certificate (DN|SHA-256 digest)|^Verifies|v[0-9.]+ scheme', l)]
+        print('\n'.join(shown) if shown else '(apksigner gave no certificate lines) ' + ' | '.join(signer[:3]))
     if manifest and os.path.exists(manifest):
         print('== merged manifest permissions / flags')
         text = open(manifest, encoding='utf-8').read()
