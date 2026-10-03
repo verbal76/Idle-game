@@ -1119,3 +1119,17 @@ details.build-details[open] > summary::after { border-top-color: transparent; bo
 }
 @keyframes applying-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .applying-spinner { animation-duration: 3s; } }
+
+/* Back up & restore saves */
+.backup-card {
+  display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 14px 16px;
+  width: min(480px, 100%); box-sizing: border-box;
+  background: var(--card); border: 2px solid var(--card-edge); border-radius: 16px;
+}
+.backup-card h2 { margin: 0; font-size: 16px; }
+.backup-paste, .backup-card textarea.about-fallback { width: 100%; min-height: 96px; box-sizing: border-box; }
+.backup-link { text-align: center; text-decoration: underline; padding: 10px; min-height: 24px; }
+.backup-rows { margin: 0; padding-left: 18px; font-size: 14px; }
+.backup-rows li { margin: 4px 0; }
+/* The hidden attribute must win over component display rules. */
+[hidden] { display: none !important; }

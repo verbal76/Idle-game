@@ -485,7 +485,8 @@ async function main() {
         b.click(); b.click(); b.click();
       });
       await page.waitForFunction(() => document.querySelector('.upgrade-level')?.textContent?.includes('1/20'));
-      await page.waitForTimeout(700);                       // past the balance tick-down (#28)
+      // past the balance tick-down (#28): wait for the state, not the clock
+      await page.waitForFunction(() => document.getElementById('shop-balance')?.textContent?.trim() === '0', null, { timeout: 5000 }).catch(() => {});
       const text = await page.textContent('.fullscreen-panel');
       const shop = (await page.textContent('#shop-balance')).trim();
       if (shop !== '0') fail(`expected 0 ❄ after one purchase, got: ${shop}`);
@@ -1135,6 +1136,65 @@ async function main() {
       await page.waitForSelector('#studio-splash', { state: 'detached', timeout: 6000 });
       const again = await page.evaluate((png) => !!window.__hag.showStudioSplash({ logoUrl: png, durationMs: 400 }), png);
       if (again) fail('studio card replayed within one page load');
+    });
+
+    await step('Back up & restore saves: copy, damaged/edited/truncated pastes refused, restore after a wipe-like change', async () => {
+      await page.waitForSelector('#downhill');
+      const profilesInDb = () => page.evaluate(() => new Promise((res, rej) => {
+        const r = indexedDB.open('boarder');
+        r.onerror = () => rej(r.error);
+        r.onsuccess = () => { const g = r.result.transaction('profiles').objectStore('profiles').getAll(); g.onsuccess = () => { r.result.close(); res(g.result.map(p => ({ id: p.id, name: p.name, currency: p.currency }))); }; };
+      }));
+      const setCurrency = (id, currency) => page.evaluate(([id, currency]) => new Promise((res, rej) => {
+        const r = indexedDB.open('boarder');
+        r.onerror = () => rej(r.error);
+        r.onsuccess = () => {
+          const tx = r.result.transaction('profiles', 'readwrite'); const st = tx.objectStore('profiles');
+          const g = st.get(id); g.onsuccess = () => { const p = g.result; p.currency = currency; st.put(p); };
+          tx.oncomplete = () => { r.result.close(); res(true); };
+        };
+      }), [id, currency]);
+      await page.evaluate(() => {
+        window.__copied = null;
+        Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (t) => { window.__copied = t; } }, configurable: true });
+      });
+      await page.click('#menu-settings');
+      await page.click('#settings-backup');
+      await page.waitForSelector('#backup-copy');
+      await page.click('#backup-copy');
+      await page.waitForFunction(() => window.__copied);
+      const text = await page.evaluate(() => window.__copied);
+      const env = JSON.parse(text);
+      if (env.format !== 'hotattic-wtb-save' || env.app !== 'com.hotatticgames.snow' || !env.profiles.length) fail(`backup envelope: ${text.slice(0, 200)}`);
+      const before = await profilesInDb();
+      const target = before[0];
+      const paste = async (value) => { await page.fill('#restore-text', value); await page.click('#restore-check'); };
+      const errText = async () => { await page.waitForSelector('#restore-error', { state: 'visible' }); return page.textContent('#restore-error'); };
+      // Refused: junk, truncated, edited. Nothing changes, no restore button.
+      await paste('hello');
+      if (!/does not look like a backup/i.test(await errText())) fail('junk paste not refused');
+      await paste(text.slice(0, text.length - 40));
+      if (!/cut off|damaged/i.test(await errText())) fail('truncated paste not refused');
+      await paste(text.replace(/"currency": [0-9.]+/, '"currency": 777777'));
+      if (!/checksum/i.test(await errText())) fail('edited paste not refused');
+      if (await page.isVisible('#restore-apply')) fail('restore offered for a refused backup');
+      // The device moves ahead of the backup, then the backup is restored.
+      await setCurrency(target.id, target.currency + 99999);
+      await paste(text);
+      await page.waitForSelector('#restore-apply', { state: 'visible' });
+      const preview = await page.textContent('#restore-preview');
+      if (!preview.includes(target.name) || !/more progress than the backup/.test(preview)) fail(`restore preview: ${preview}`);
+      if ((await page.textContent('#restore-apply')).trim() !== 'Replace anyway') fail('an older backup must say Replace anyway');
+      const mid = (await profilesInDb()).find(p => p.id === target.id);
+      if (mid.currency !== target.currency + 99999) fail('check changed data before the player confirmed');
+      await page.click('#restore-apply');
+      await page.waitForFunction(() => /Restored/.test(document.getElementById('restore-done')?.textContent ?? ''));
+      const after = (await profilesInDb()).find(p => p.id === target.id);
+      if (after.currency !== target.currency) fail(`restored currency ${after.currency} != ${target.currency}`);
+      await page.click('#backup-back');
+      await page.waitForSelector('#settings-back');
+      await page.click('#settings-back');
+      await page.waitForSelector('#downhill');
     });
 
     await step('HUD controls never overlap each other (graphics/UI audit)', async () => {

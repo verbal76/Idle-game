@@ -3,6 +3,7 @@ import { soundFx } from '../audio/SoundFx';
 import { haptics } from '../util/haptics';
 import { ProfileService } from '../profiles/ProfileService';
 import { showAbout } from './About';
+import { showBackup } from './Backup';
 import { openBugReport, openFeatureRequest } from '../util/bugReport';
 import { escapeHtml } from '../util/escapeHtml';
 import { safeAsync } from '../util/safeAsync';
@@ -77,6 +78,7 @@ export function showSettings(
             <button id="music-skip" class="btn-ghost">Skip track</button>
             <button id="updates-check" class="btn-ghost">Check for updates</button>
             <p class="muted" id="updates-status"></p>
+            <button id="settings-backup" class="btn-ghost">Back up &amp; restore saves</button>
             <button id="settings-about" class="btn-ghost">About</button>
             <button id="settings-bug" class="btn-ghost">Send bug report</button>
             <button id="settings-feature" class="btn-ghost">Send feature request</button>
@@ -174,6 +176,10 @@ export function showSettings(
       });
       paintUpdateRow();
 
+      root.querySelector<HTMLButtonElement>('#settings-backup')!.addEventListener('click', safeAsync(async () => {
+        await showBackup(root, profiles);
+        render();
+      }));
       root.querySelector<HTMLButtonElement>('#settings-about')!.addEventListener('click', safeAsync(async () => {
         await showAbout(root);
         render();

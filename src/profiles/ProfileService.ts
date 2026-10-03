@@ -137,6 +137,30 @@ export class ProfileService {
     await this.store.delete(id);
   }
 
+  /**
+   * Stores validated profiles from a backup (see backup.ts), replacing any
+   * stored under the same id and keeping every other profile. The active
+   * profile, if replaced, is swapped in memory too so a queued save can't
+   * write the old one back. Resolves with what changed; a store failure
+   * throws with nothing half-reported (profiles already written stay).
+   */
+  async importProfiles(incoming: SaveData[], activeId: string | null): Promise<{ added: number; replaced: number }> {
+    await this.queue;
+    let added = 0, replaced = 0;
+    for (const raw of incoming) {
+      const p = loadSave(raw);
+      if (!p) continue;
+      const existed = !!(await this.store.get(p.id));
+      await this.store.put(p);
+      if (this.active?.id === p.id) this.active = p;
+      if (existed) replaced++; else added++;
+    }
+    if (!this.active && activeId && incoming.some(p => p.id === activeId)) {
+      try { await this.setActive(activeId); } catch (e) { console.error('[profiles] activate after import', e); }
+    }
+    return { added, replaced };
+  }
+
   private succeeded(): void {
     this.failures = 0;
     this.clearRetry();
