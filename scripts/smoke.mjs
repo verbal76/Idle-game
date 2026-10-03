@@ -157,24 +157,33 @@ async function main() {
       await page.waitForTimeout(ms);
       await page.mouse.up();
     };
+    // Real mouse press at a position across the steering strip (0 = far left, 1 = far right).
+    const holdStrip = async (frac, ms) => {
+      const box = await page.locator('#steer-strip').boundingBox();
+      if (!box) fail('#steer-strip not on screen');
+      await page.mouse.move(box.x + box.width * frac, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.waitForTimeout(ms);
+      await page.mouse.up();
+    };
     const ride = async (mode) => {
       await page.click(`#${mode}`);
       await page.setViewportSize(LANDSCAPE);
       await page.waitForSelector('#hud');
       const intro = page.locator('#halfpipe-intro');
       if (await intro.isVisible().catch(() => false)) await page.click('#halfpipe-intro-ok');
-      // #15: the up button is labelled and drawn as Deep carve.
-      const up = await page.evaluate(() => {
-        const b = document.getElementById('dpad-up');
-        return { label: b.getAttribute('aria-label'), svg: !!b.querySelector('svg'), text: b.textContent.trim() };
-      });
-      if (up.label !== 'Deep carve' || !up.svg || up.text !== 'CARVE') fail(`deep carve button: ${JSON.stringify(up)}`);
+      // One steering strip replaces LEFT / RIGHT / CARVE.
+      const strip = await page.evaluate(() => ({
+        label: document.getElementById('steer-strip')?.getAttribute('aria-label') ?? '',
+        old: ['dpad-left', 'dpad-right', 'dpad-up'].filter(id => document.getElementById(id)),
+      }));
+      if (!/carve/i.test(strip.label) || strip.old.length) fail(`steering strip: ${JSON.stringify(strip)}`);
       const before = await page.textContent('#score');
       await rode(15);
       // Charge + release a jump, then steer. Real mouse input so
       // setPointerCapture sees a live pointer.
       await hold('#jump', 400);
-      await hold('#dpad-left', 600);
+      await holdStrip(0.15, 600);
       await page.waitForFunction((b) => document.getElementById('score').textContent !== b, before, { timeout: 15000 })
         .catch(() => fail(`${mode}: HUD score never changed (${before})`));
       await page.click('#pause');
@@ -999,6 +1008,65 @@ async function main() {
       await page.waitForSelector('#downhill');
     });
 
+    await step('steering strip: progressive steering, outer-zone carve, two-thumb multi-touch', async () => {
+      await page.click('#downhill');
+      await page.setViewportSize(LANDSCAPE);
+      await page.waitForSelector('#hud');
+      await page.waitForFunction(() => !(window.__tapsLocked && window.__tapsLocked()), null, { polling: 30 }).catch(() => {});
+      const read = () => page.evaluate(() => {
+        const i = window.__wtb.game.input;
+        return { x: i.leftStick().x, carve: !!i.forwardHeld(), jump: i.jumpHeld(), flip: i.flipHeld() };
+      });
+      // Synthetic pointer events carry distinct pointer ids (two thumbs).
+      const fire = (sel, type, id, frac) => page.evaluate(([sel, type, id, frac]) => {
+        const el = document.querySelector(sel);
+        const r = el.getBoundingClientRect();
+        el.dispatchEvent(new PointerEvent(type, { pointerId: id, bubbles: true, clientX: r.left + r.width * (frac ?? 0.5), clientY: r.top + r.height / 2 }));
+      }, [sel, type, id, frac]);
+      const near = (v, lo, hi, what) => { if (!(v >= lo && v <= hi)) fail(`strip: ${what} was ${v}, wanted ${lo}..${hi}`); };
+      let s = await read();
+      near(s.x, 0, 0, 'idle x');
+      await fire('#steer-strip', 'pointerdown', 11, 0.5);
+      s = await read(); near(s.x, 0, 0, 'centre x'); if (s.carve) fail('strip: carve at centre');
+      await fire('#steer-strip', 'pointermove', 11, 0.6);
+      const light = (await read()).x; near(light, 0.01, 0.4, 'light right');
+      await fire('#steer-strip', 'pointermove', 11, 0.78);
+      const strong = (await read()).x; near(strong, light + 0.05, 1, 'stronger right');
+      s = await read(); if (s.carve) fail('strip: carve before the outer zone');
+      await fire('#steer-strip', 'pointermove', 11, 0.97);
+      s = await read(); near(s.x, 1, 1, 'full right'); if (!s.carve) fail('strip: outer right did not carve');
+      // Hysteresis: back to just inside the engage line keeps carve, further in lets go.
+      await fire('#steer-strip', 'pointermove', 11, 0.5 + 0.5 * 0.72);
+      s = await read(); if (!s.carve) fail('strip: carve dropped inside the hysteresis band');
+      await fire('#steer-strip', 'pointermove', 11, 0.5 + 0.5 * 0.55);
+      s = await read(); if (s.carve) fail('strip: carve stuck after moving inward');
+      // Crossing the centre flips direction.
+      await fire('#steer-strip', 'pointermove', 11, 0.2);
+      s = await read(); if (!(s.x < 0)) fail('strip: left of centre did not steer left');
+      // The right thumb: JUMP + FLIP together with steering/carve, independent pointers.
+      await fire('#steer-strip', 'pointermove', 11, 0.02);
+      await fire('#jump', 'pointerdown', 12);
+      s = await read(); if (!(s.carve && s.x < 0 && s.jump)) fail(`strip: carve + jump ${JSON.stringify(s)}`);
+      await fire('#flip', 'pointerdown', 13);
+      s = await read(); if (!(s.carve && s.flip && s.jump)) fail(`strip: carve + jump + flip ${JSON.stringify(s)}`);
+      await fire('#jump', 'pointerup', 12);
+      await fire('#flip', 'pointerup', 13);
+      s = await read(); if (!(s.carve && !s.jump && !s.flip)) fail(`strip: releasing the right thumb cancelled steering ${JSON.stringify(s)}`);
+      await fire('#jump', 'pointerdown', 12);
+      await fire('#steer-strip', 'pointerup', 11);
+      s = await read(); if (!(s.x === 0 && !s.carve && s.jump)) fail(`strip: releasing steering cancelled jump or stuck ${JSON.stringify(s)}`);
+      await fire('#jump', 'pointerup', 12);
+      // Cancel returns to neutral too.
+      await fire('#steer-strip', 'pointerdown', 14, 0.95);
+      s = await read(); if (!s.carve) fail('strip: second touch did not carve');
+      await fire('#steer-strip', 'pointercancel', 14);
+      s = await read(); if (!(s.x === 0 && !s.carve)) fail(`strip: cancel left steering ${JSON.stringify(s)}`);
+      await page.click('#pause');
+      await quitRun();
+      await page.setViewportSize(PORTRAIT);
+      await page.waitForSelector('#downhill');
+    });
+
     await step('HUD controls never overlap each other (graphics/UI audit)', async () => {
       // Portrait had FLIP on top of the right steering button.
       await page.click('#downhill');
@@ -1007,7 +1075,7 @@ async function main() {
         await page.setViewportSize({ width, height });
         await page.waitForTimeout(150);
         const hits = await page.evaluate(() => {
-          const ids = ['dpad-up', 'dpad-left', 'dpad-right', 'flip', 'jump', 'pause', 'hud-settings', 'jump-charge-bar'];
+          const ids = ['steer-strip', 'flip', 'jump', 'pause', 'hud-settings', 'jump-charge-bar'];
           const r = Object.fromEntries(ids.map(id => [id, document.getElementById(id).getBoundingClientRect()]));
           const out = [];
           for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {

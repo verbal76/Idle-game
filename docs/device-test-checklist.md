@@ -5,7 +5,8 @@ OTA. Settings > About > Build & update details shows the running update.
 Report anything off with Send report (Settings or the error screen).
 
 ## Downhill
-- [ ] Hold-to-steer, Carve, Jump (tap and hold), Flip: controls feel direct, nothing sticks.
+- [ ] Steering strip: tiny corrections near the centre, harder turns further out, outer ends carve (no flicker), nothing sticks. Jump/Flip with a steering or carving thumb.
+- [ ] Black ramps: ride up, jump onto, hit sides/corners at speed: no clipping through.
 - [ ] Take kickers/cliffs: no jump without a take-off; no automatic second jump on landing.
 - [ ] Land flips and spins clean and bad: bail + summary look right.
 - [ ] Hit a tree/rock: crash screen, rider lies on the snow.

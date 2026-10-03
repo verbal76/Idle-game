@@ -2,7 +2,7 @@ import {
   Engine, Scene, TargetCamera, HemisphericLight, DirectionalLight,
   Vector3, Color3, MeshBuilder, Mesh, ParticleSystem, TrailMesh, TransformNode,
 } from './babylon';
-import type { StickValue } from '../input/ArrowPadInput';
+import type { StickValue } from '../input/SteerStrip';
 import type { UpgradeLevels } from '../profiles/IndexedDbStore';
 import { soundFx } from '../audio/SoundFx';
 import { haptics } from '../util/haptics';
@@ -14,6 +14,7 @@ import type { RunStats } from '../game/records';
 import { segmentHitsCircle, segmentHitsRect } from '../game/collision';
 import { judgeLanding, type LandingOutcome } from '../game/tricks';
 import { effectiveLevel, effects, type UpgradeId } from '../game/upgrades';
+import { rampSpan } from '../game/ramp';
 import { DEEP_CARVE_RESPONSE, leanLimit, physicalLeanLimit } from '../game/carve';
 import type { SceneAssets } from './SceneAssets';
 import type { Stage } from './Stage';
@@ -26,6 +27,8 @@ import { buildBackgroundMountains, buildSky, buildSnowDust, buildSnowTrail, spaw
 // phone screen (was 13 m back / 6.5 m up, which left a ~40 px rider).
 const CAM_RADIUS = 9.5;
 const CAM_HEIGHT = 4.6;
+// A step up bigger than this, met sideways, is a ramp's wall rather than slope.
+const RAMP_WALL_STEP = 0.3;
 
 export type { GameMode } from './Terrain';
 
@@ -422,7 +425,7 @@ export class Game {
       rp.y + CAM_RADIUS * sinS + height * cosS,
       rp.z - CAM_RADIUS * cosS + height * sinS,
     );
-    const groundAt = (x: number, z: number) => this.groundY + this.terrain.surfaceY(x, z) + this.terrain.pipeOffsetY(x);
+    const groundAt = (x: number, z: number) => this.groundAt(x, z);
     // Behind a cliff lip the rider already dropped off, the snow under
     // the camera is far higher: stay above it.
     const floor = Math.max(groundAt(d.x, d.z), groundAt(rp.x, rp.z)) + 1.5;
@@ -520,6 +523,50 @@ export class Game {
     this.setRiderVisible(true);
   }
 
+
+  /** Height the rider stands at over (x, z): the snow, or a ramp's top when over one. */
+  private groundAt(x: number, z: number): number {
+    const snow = this.groundY + this.terrain.surfaceY(x, z) + this.terrain.pipeOffsetY(x);
+    const ramp = this.mode === 'downhill' ? this.streamer.rampAt(x, z) : null;
+    return ramp ? Math.max(snow, ramp.y + this.groundY) : snow;
+  }
+
+  // Ramp contact found this frame (see stepRamps).
+  private rampWallHit = false;
+  private rampLaunch = 0;
+  private rampExited = false;
+
+  /**
+   * Downhill ramps are solid wedges (game/ramp.ts). After the frame's
+   * movement: a rider who came in through a ramp's SIDE below its top has
+   * hit its wall (pushed back out; it crashes like any obstacle); one who
+   * leaves over the LIP is launched with the kicker's power; one who rides
+   * off a side edge simply drops. Entering over the low front tip just
+   * rides up, since the surface starts at the snow.
+   */
+  private stepRamps(): void {
+    this.rampWallHit = false;
+    this.rampLaunch = 0;
+    this.rampExited = false;
+    if (this.mode !== 'downhill') return;
+    const p = this.rider.root.position;
+    const now = this.streamer.rampAt(p.x, p.z);
+    const prev = this.streamer.rampAt(this.stepFromX, this.stepFromZ);
+    if (now && !(prev && prev.ramp === now.ramp)) {
+      const { zFront } = rampSpan(now.ramp);
+      const throughSide = this.stepFromZ >= zFront;
+      if (throughSide && now.y + this.groundY - p.y > RAMP_WALL_STEP) {
+        this.rampWallHit = true;
+        p.x = this.stepFromX;            // stopped at the wall, not inside it
+        return;
+      }
+    }
+    if (prev && !(now && now.ramp === prev.ramp)) {
+      this.rampExited = true;
+      if (p.z > rampSpan(prev.ramp).zLip) this.rampLaunch = prev.power;   // over the lip
+    }
+  }
+
   private tick(): void {
     if (!this.running) {
       if (this.pausedRenders < 3) { this.pausedRenders++; this.scene.render(); }
@@ -547,9 +594,7 @@ export class Game {
       this.speed *= Math.max(0, 1 - 1.2 * dt);
       this.rider.root.position.z += this.speed * dt;
 
-      const newGround = this.groundY
-        + this.terrain.surfaceY(this.rider.root.position.x, this.rider.root.position.z)
-        + this.terrain.pipeOffsetY(this.rider.root.position.x);
+      const newGround = this.groundAt(this.rider.root.position.x, this.rider.root.position.z);
 
       // A bailed rider sliding off a cliff falls rather than snapping down
       // (the camera would otherwise chase them through the cliff face).
@@ -705,9 +750,7 @@ export class Game {
         this.rider.body.rotation.x = this.flipRotation;
       }
 
-      const groundLevel = this.groundY
-        + this.terrain.surfaceY(this.rider.root.position.x, this.rider.root.position.z)
-        + this.terrain.pipeOffsetY(this.rider.root.position.x);
+      const groundLevel = this.groundAt(this.rider.root.position.x, this.rider.root.position.z);
       if (this.rider.root.position.y <= groundLevel) {
         if (this.touchDown(groundLevel)) { this.scene.render(); return; }
       }
@@ -768,17 +811,27 @@ export class Game {
       }
     }
 
+    this.stepRamps();
+
     if (this.grounded) {
-      const groundLevel = this.groundY
-        + this.terrain.surfaceY(this.rider.root.position.x, this.rider.root.position.z)
-        + this.terrain.pipeOffsetY(this.rider.root.position.x);
+      const groundLevel = this.groundAt(this.rider.root.position.x, this.rider.root.position.z);
       // Riding over a cliff edge launches the rider (exact terrain test;
-      // skipped on the landing frame).
-      const droppedOffCliff = !this.justLanded
+      // skipped on the landing frame, and while on a ramp, which carries
+      // the rider to its own lip).
+      const onRamp = this.mode === 'downhill'
+        && (this.streamer.rampAt(this.stepFromX, this.stepFromZ) !== null
+          || this.streamer.rampAt(this.rider.root.position.x, this.rider.root.position.z) !== null);
+      const droppedOffCliff = !this.justLanded && !onRamp
         && this.terrain.cliffBetween(this.stepFromZ, this.rider.root.position.z);
+      // Left a ramp: over the lip (kicked) or off its side (just drops).
+      const leftRamp = this.rampExited && this.rider.root.position.y - groundLevel > 0.05;
       if (droppedOffCliff) {
         this.grounded = false;
         this.clearJumpCharge();
+      } else if (leftRamp) {
+        this.grounded = false;
+        this.clearJumpCharge();
+        this.verticalVelocity = this.state === 'normal' ? this.rampLaunch : 0;
       } else {
         this.rider.root.position.y = groundLevel;
       }
@@ -805,9 +858,7 @@ export class Game {
       this.terrain.extendAhead(this.rider.root.position.z + 50);
     }
     {
-      const groundLevel = this.groundY
-        + this.terrain.surfaceY(this.rider.root.position.x, this.rider.root.position.z)
-        + this.terrain.pipeOffsetY(this.rider.root.position.x);
+      const groundLevel = this.groundAt(this.rider.root.position.x, this.rider.root.position.z);
       // Safety net: never let the rider end up buried below the surface.
       // An airborne rider caught here (moving into rising ground) lands
       // properly: judged, paid, board settled.
@@ -840,7 +891,7 @@ export class Game {
       if (this.grounded) {
         const rx = this.rider.root.position.x;
         const rz = this.rider.root.position.z;
-        const surfY = this.groundY + this.terrain.surfaceY(rx, rz) + this.terrain.pipeOffsetY(rx);
+        const surfY = this.groundAt(rx, rz);
         this.trailAnchor.position.set(rx, surfY + 0.02, rz);
         if (this.trailBroken) {
           this.trailAnchor.computeWorldMatrix(true);
@@ -1069,9 +1120,23 @@ export class Game {
       }
     }
 
+    if (this.rampWallHit && !invulnerable) {
+      this.rampWallHit = false;
+      // Same rule as any obstacle: Grace turns it into a bail.
+      if (this.gracesLeft > 0) {
+        this.gracesUsed++;
+        this.callbacks.onGrace?.(this.gracesLeft);
+        this.startBail();
+        return;
+      }
+      this.fall();
+      return;
+    }
+
     for (const chunk of this.streamer.nearby(r.x, r.z)) {
       if (this.grounded && !invulnerable) {
         for (const k of chunk.kickers) {
+          if (k.solid) continue;            // solid ramps launch at their lip (stepRamps)
           if (segmentHitsRect(this.stepFromX, this.stepFromZ, r.x, r.z, k.x, k.z, k.width / 2, 1.6)) {
             this.verticalVelocity = k.power;
             this.grounded = false;
@@ -1111,7 +1176,7 @@ export class Game {
     this.rider.body.rotation.z = Math.PI / 2;
     // Lie on the snow, not frozen in mid-air.
     const rp = this.rider.root.position;
-    rp.y = this.groundY + this.terrain.surfaceY(rp.x, rp.z) + this.terrain.pipeOffsetY(rp.x);
+    rp.y = this.groundAt(rp.x, rp.z);
     this.pausedRenders = 0;
     const distanceMeters = Math.floor(this.rider.root.position.z);
     this.fallTimeout = setTimeout(() => {

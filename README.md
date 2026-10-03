@@ -20,10 +20,9 @@ Two modes, picked from the main menu:
 
 | Control | What it does |
 | --- | --- |
-| ◀ ▶ | Steer; in the air, spin the board |
-| **CARVE** (curved arrow) | Hold for a deeper, tighter carve (~40% more lean) |
+| **Steering strip** (left thumb) | Touch anywhere on it: near the centre notch is a gentle correction, further out turns harder, the outer ends **carve** (deeper, tighter, ~40% more lean). In the air, spin the board |
 | **JUMP** | Hold to charge, release to jump (charge bar on the right) |
-| **FLIP** | Front flip; **FLIP + CARVE** = back flip |
+| **FLIP** | Front flip; **FLIP while carving** = back flip |
 | ⏸ / Android Back | Pause (Back again resumes). Backgrounding the app pauses too |
 
 ### Tricks and payouts
@@ -218,7 +217,7 @@ src/
   ui/                    DOM screens: menus, HUD, upgrades, stats, settings,
                          run summary, run interrupted, callouts, about
   audio/                 Music player, synthesized sound effects
-  input/                 On-screen arrow pad and action buttons
+  input/                 Steering strip (progressive steering + carve) and action buttons
   shell/updateGate.ts    "Don't reload mid-run" logic used by App.tsx
   shell/buildInfo.ts     The one source of build/update info: metadata -> rows (About, bug reports)
   util/                  Back button stack, haptics, escaping, helpers

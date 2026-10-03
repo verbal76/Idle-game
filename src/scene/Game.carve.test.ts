@@ -31,3 +31,31 @@ describe('deep carve in play (#5)', () => {
     }, 60_000);
   }
 });
+
+// The strip hands the game a fractional stick value: the lean follows it.
+function leanAt(stick: number): number {
+  vi.useFakeTimers({ now: 1_700_000_000_000, toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout'] });
+  const game = new Game(new Stage({} as HTMLCanvasElement), 'downhill', {
+    leftStick: () => ({ x: stick, y: 0 }), jumpHeld: () => false, flipHeld: () => false,
+    forwardHeld: () => false,
+  }, {}, { speed: 0, jump: 0, turn: 0, charge: 0, spin: 0, flip: 0, coin: 0, ringMagnet: 0, comboWindow: 0, grace: 0 });
+  game.start();
+  const g = game as unknown as { tick(): void; edgeAngle: number };
+  for (let f = 0; f < 120; f++) { vi.advanceTimersByTime(1000 / 60); g.tick(); }
+  const lean = g.edgeAngle;
+  game.dispose();
+  vi.useRealTimers();
+  return lean;
+}
+
+describe('analog steering in play', () => {
+  beforeAll(() => installBrowserGlobals());
+  it('a gentler stick leans less, full stick leans most, sides mirror', () => {
+    const light = Math.abs(leanAt(0.2)), mid = Math.abs(leanAt(0.5)), full = Math.abs(leanAt(1));
+    expect(light).toBeGreaterThan(0);
+    expect(mid).toBeGreaterThan(light * 1.5);
+    expect(full).toBeGreaterThan(mid * 1.3);
+    expect(leanAt(-0.5)).toBeCloseTo(-leanAt(0.5), 6);
+    expect(leanAt(0)).toBe(0);
+  }, 60_000);
+});

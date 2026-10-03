@@ -10,7 +10,7 @@ import { showStats } from './ui/Stats';
 import { showSettings } from './ui/Settings';
 import { showContinuePrompt } from './ui/ContinuePrompt';
 import { buildHUD, showHalfpipeIntro } from './ui/HUD';
-import { ArrowPadInput } from './input/ArrowPadInput';
+import { SteerStrip } from './input/SteerStrip';
 import { soundFx } from './audio/SoundFx';
 import { haptics } from './util/haptics';
 import { ActionButtons } from './input/ActionButtons';
@@ -248,7 +248,7 @@ async function runSession(
   return new Promise<RunNext>((resolve) => {
     screen.innerHTML = '';
     const hud = buildHUD(screen);
-    const dpad = new ArrowPadInput(hud.leftBtn, hud.rightBtn, hud.upBtn);
+    const steer = new SteerStrip(hud.steerStrip);
     const buttons = new ActionButtons(hud.jumpBtn, hud.flipBtn);
     const wake = () => {
       soundFx.resume();
@@ -265,10 +265,10 @@ async function runSession(
     let crashed = false;
     const callout = createCallouts(hud.hud);
     const game = new Game(getStage(canvas), mode, {
-      leftStick: () => dpad.left,
+      leftStick: () => steer.left,
       jumpHeld: () => buttons.jumpHeld,
       flipHeld: () => buttons.flipHeld,
-      forwardHeld: () => dpad.upHeld,
+      forwardHeld: () => steer.upHeld,
     }, {
       onHud: (h) => hud.setReadout(h),
       onTrick: (t) => {
@@ -353,7 +353,7 @@ async function runSession(
 
     // Held controls are released whenever the run stops taking input,
     // so a release that never arrived can't leave a button stuck.
-    const releaseControls = () => { dpad.reset(); buttons.reset(); };
+    const releaseControls = () => { steer.reset(); buttons.reset(); };
     const openPause = () => {
       if (crashed || finished) return;
       savePending();
@@ -436,7 +436,7 @@ async function runSession(
 
       bankNow();                       // Switch Style skips the summary
       game.dispose();
-      dpad.detach();
+      steer.detach();
       buttons.detach();
       resolve(next);
     };

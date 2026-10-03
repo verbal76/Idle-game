@@ -3,13 +3,16 @@ import { SeedRng } from '../world/SeedRng';
 import type { SceneAssets } from './SceneAssets';
 import type { GameMode, Terrain } from './Terrain';
 import { HP } from './halfPipeGeometry';
+import { rampTopAt, type SolidRamp } from '../game/ramp';
 
 export interface ChunkData {
   ground?: Mesh;
   features: AbstractMesh[];
   // radius overrides the 1.5 m default obstacle hit-box.
   rocks: Array<{ x: number; z: number; radius?: number }>;
-  kickers: Array<{ x: number; z: number; width: number; power: number }>;
+  // `solid` marks a downhill kicker whose wedge the rider rides on and
+  // cannot ride into (game/ramp.ts); others are launch zones only.
+  kickers: Array<{ x: number; z: number; width: number; power: number; solid?: SolidRamp }>;
   rings?: Array<{ x: number; y: number; z: number; mesh: AbstractMesh; collected: boolean; missed: boolean }>;
   boosts?: Array<{ x: number; z: number; halfX: number; halfZ: number }>;
   cx: number;
@@ -83,6 +86,24 @@ export class ChunkStreamer {
         this.chunks.delete(key);
       }
     }
+  }
+
+  /** The solid wedge for a downhill kicker (same placement as spawnRamp). */
+  private solidRamp(x: number, z: number, width: number): SolidRamp {
+    return { x, z, width, baseY: this.terrain.surfaceY(x, z), tilt: this.terrain.activeSlope };
+  }
+
+  /** The solid ramp under (x, z) and the height of its top there, if any. */
+  rampAt(x: number, z: number): { ramp: SolidRamp; power: number; y: number } | null {
+    let best: { ramp: SolidRamp; power: number; y: number } | null = null;
+    for (const chunk of this.nearby(x, z)) {
+      for (const k of chunk.kickers) {
+        if (!k.solid) continue;
+        const y = rampTopAt(k.solid, x, z);
+        if (y !== null && (!best || y > best.y)) best = { ramp: k.solid, power: k.power, y };
+      }
+    }
+    return best;
   }
 
   /** Chunks in the 3×3 block around (x, z): all that can touch the rider. */
@@ -209,8 +230,8 @@ export class ChunkStreamer {
           const lx = rng.rangeFloat(floorLxMin, floorLxMax);
           const lz = oz + rng.rangeFloat(-half + 4, half - 4);
           const w = isMega ? 14 : 10;
-          features.push(...this.spawnRamp(lx, this.terrain.surfaceY(lx, lz), lz, w, this.terrain.activeSlope, `kicker-${cx}-${cz}`));
-          kickers.push({ x: lx, z: lz, width: w, power: isMega ? 10.0 : 5.0 });
+          features.push(...this.spawnRamp(lx, this.terrain.surfaceY(lx, lz), lz, w, this.terrain.activeSlope, `kicker-${cx}-${cz}`, true));
+          kickers.push({ x: lx, z: lz, width: w, power: isMega ? 10.0 : 5.0, solid: this.solidRamp(lx, lz, w) });
         }
       }
 
@@ -238,8 +259,8 @@ export class ChunkStreamer {
             rocks.push({ x: lx, z: lz, radius: variant.radius });
           } else {
             const w = 10;
-            features.push(...this.spawnRamp(lx, this.terrain.surfaceY(lx, lz), lz, w, this.terrain.activeSlope, `kicker-line-${cx}-${cz}-${i}`));
-            kickers.push({ x: lx, z: lz, width: w, power: 6.0 });
+            features.push(...this.spawnRamp(lx, this.terrain.surfaceY(lx, lz), lz, w, this.terrain.activeSlope, `kicker-line-${cx}-${cz}-${i}`, true));
+            kickers.push({ x: lx, z: lz, width: w, power: 6.0, solid: this.solidRamp(lx, lz, w) });
           }
         }
       }
@@ -287,8 +308,8 @@ export class ChunkStreamer {
         const rampX = rng.rangeFloat(-12, 12);
         const rampBaseY = this.terrain.surfaceY(rampX, rampZ);
         const w = 12;
-        features.push(...this.spawnRamp(rampX, rampBaseY, rampZ, w, this.terrain.activeSlope, `cliff-ramp-${cx}-${cz}-${i}`));
-        kickers.push({ x: rampX, z: rampZ, width: w, power: 12.0 });
+        features.push(...this.spawnRamp(rampX, rampBaseY, rampZ, w, this.terrain.activeSlope, `cliff-ramp-${cx}-${cz}-${i}`, true));
+        kickers.push({ x: rampX, z: rampZ, width: w, power: 12.0, solid: this.solidRamp(rampX, rampZ, w) });
       }
     }
 
@@ -463,15 +484,31 @@ export class ChunkStreamer {
   // Ramp = three instanced sub-meshes under one anchor. Yawed -90° so the
   // OBJ's rising +X faces downhill, pitched to sit flat on the slope, and
   // squashed vertically so a wide ramp stays rider-height.
-  private spawnRamp(x: number, baseY: number, z: number, width: number, slopeTilt: number, name: string): AbstractMesh[] {
+  //
+  // Downhill ramps (`flat`) pitch an outer node about the world X axis
+  // AFTER the inner node's yaw. Babylon applies Euler angles as roll,
+  // pitch, yaw, so the single-node version used for the half-pipe pitches
+  // about the ramp's own length axis, which banks it sideways (one side
+  // buried, the other raised). The half-pipe keeps that look for now: its
+  // rings are placed against it.
+  private spawnRamp(x: number, baseY: number, z: number, width: number, slopeTilt: number, name: string, flat = false): AbstractMesh[] {
     const sxz = width / 1.14;
     const sy = sxz * 0.4;
     const anchor = new TransformNode(`ramp-${name}`, this.scene);
     anchor.position.set(x, baseY, z);
     anchor.scaling.set(sxz, sy, sxz);
     anchor.rotation.y = -Math.PI / 2;
-    anchor.rotation.x = slopeTilt;
     const out: AbstractMesh[] = [];
+    if (flat) {
+      const pitch = new TransformNode(`ramp-pitch-${name}`, this.scene);
+      pitch.position.set(x, baseY, z);
+      pitch.rotation.x = slopeTilt;
+      anchor.position.set(0, 0, 0);
+      anchor.parent = pitch;
+      out.push(pitch as unknown as AbstractMesh);
+    } else {
+      anchor.rotation.x = slopeTilt;
+    }
     for (const sub of [this.assets.rampTemplate.concrete, this.assets.rampTemplate.metal, this.assets.rampTemplate.roof]) {
       const inst = sub.createInstance(`${sub.name}-${name}`);
       inst.parent = anchor;

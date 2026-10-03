@@ -8,9 +8,7 @@ export interface HUDRefs {
   pauseBtn: HTMLButtonElement;
   settingsBtn: HTMLButtonElement;
   settingsOverlay: HTMLElement;
-  leftBtn: HTMLElement;
-  rightBtn: HTMLElement;
-  upBtn: HTMLElement;
+  steerStrip: HTMLElement;
   jumpBtn: HTMLElement;
   flipBtn: HTMLElement;
   comboBar: HTMLElement;
@@ -70,8 +68,8 @@ export function buildHUD(root: HTMLElement): HUDRefs {
             <li><span class="hp-icon hp-icon-strip">${ICON_STRIP}</span><span class="hp-text"><b>Yellow strips</b> in the trough — speed boost</span></li>
             <li><span class="hp-icon hp-icon-ring">${ICON_RING}</span><span class="hp-text"><b>Magenta rings</b> — flip-through bonus + streak (miss one and the streak resets)</span></li>
             <li><span class="hp-icon">${ICON_LIP}</span><span class="hp-text"><b>Hit the lip</b> — bounces you back into the bowl</span></li>
-            <li><span class="hp-icon">${ICON_CARVE}</span><span class="hp-text"><b>Hold Deep carve</b> (curved arrow) — tighter, deeper carve</span></li>
-            <li><span class="hp-icon">${ICON_FLIP}</span><span class="hp-text"><b>FLIP</b> = front flip, <b>FLIP + Deep carve</b> = back flip (+25%)</span></li>
+            <li><span class="hp-icon">${ICON_CARVE}</span><span class="hp-text"><b>Slide the steering all the way out</b> — deep carve, a tighter turn</span></li>
+            <li><span class="hp-icon">${ICON_FLIP}</span><span class="hp-text"><b>FLIP</b> = front flip, <b>FLIP while carving</b> = back flip (+25%)</span></li>
             <li><span class="hp-icon">${ICON_SPIN}</span><span class="hp-text">Steer in the air to spin; land within 30° — backward rides switch (+50% spin)</span></li>
             <li><span class="hp-icon">${ICON_STAR}</span><span class="hp-text">Flip + spin in one jump = <b>cork</b> (×1.5)</span></li>
             <li><span class="hp-icon">${ICON_CHAIN}</span><span class="hp-text">Chain landings within 5 s — combo multiplier</span></li>
@@ -79,17 +77,17 @@ export function buildHUD(root: HTMLElement): HUDRefs {
           <button id="halfpipe-intro-ok" class="btn-go halfpipe-intro-ok" data-back>Got it!</button>
         </div>
       </div>
-      <div class="dpad-left">
-        <button class="dpad-btn up" id="dpad-up" aria-label="Deep carve">
-          <svg class="carve-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M5 19 C5 10 11 5.5 18 8" />
-            <path d="M13.5 4.5 L18.5 8 L13 11" />
-          </svg>
-          <span class="dpad-caption">CARVE</span>
-        </button>
-        <div class="dpad-row">
-          <button class="dpad-btn left" id="dpad-left" aria-label="Steer left">${ICON_LEFT}</button>
-          <button class="dpad-btn right" id="dpad-right" aria-label="Steer right">${ICON_RIGHT}</button>
+      <div class="steer-wrap">
+        <div class="steer-strip" id="steer-strip" role="group" aria-label="Steering: slide left or right, all the way out to carve">
+          <div class="steer-track" aria-hidden="true">
+            <span class="steer-zone zone-left">${ICON_CARVE}</span>
+            <span class="steer-zone zone-right">${ICON_CARVE}</span>
+            <span class="steer-chev chev-left">${ICON_LEFT}</span>
+            <span class="steer-chev chev-right">${ICON_RIGHT}</span>
+            <span class="steer-notch"></span>
+            <span class="steer-fill"></span>
+            <span class="steer-thumb"></span>
+          </div>
         </div>
       </div>
       <div class="actions-right">
@@ -126,9 +124,7 @@ export function buildHUD(root: HTMLElement): HUDRefs {
     pauseBtn:        root.querySelector<HTMLButtonElement>('#pause')!,
     settingsBtn:     root.querySelector<HTMLButtonElement>('#hud-settings')!,
     settingsOverlay: root.querySelector<HTMLElement>('#settings-overlay')!,
-    leftBtn:         root.querySelector<HTMLElement>('#dpad-left')!,
-    rightBtn:        root.querySelector<HTMLElement>('#dpad-right')!,
-    upBtn:           root.querySelector<HTMLElement>('#dpad-up')!,
+    steerStrip:      root.querySelector<HTMLElement>('#steer-strip')!,
     jumpBtn:         root.querySelector<HTMLElement>('#jump')!,
     flipBtn:         root.querySelector<HTMLElement>('#flip')!,
     comboBar:        root.querySelector<HTMLElement>('#combo-bar')!,
