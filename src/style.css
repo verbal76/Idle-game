@@ -850,7 +850,7 @@ html, body { font-family: var(--font-ui); font-weight: 500; }
 }
 .steer-strip {
   position: relative; touch-action: none; user-select: none; -webkit-user-select: none;
-  width: min(clamp(220px, 38vw, 400px), calc(100vw - var(--actions-w) - var(--edge) * 3));
+  width: min(clamp(176px, 27vw, 270px), calc(100vw - var(--actions-w) - var(--edge) * 3));
   height: var(--strip-h);
   border-radius: calc(var(--strip-h) / 2);
 }
