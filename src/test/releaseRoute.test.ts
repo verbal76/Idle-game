@@ -57,6 +57,12 @@ describe('release routing: APK or OTA, never both', () => {
     const w = commit({ '.github/workflows/eas-build.yml': 'x', '.github/workflows/eas-update.yml': 'y', 'src/a.ts': 'w' }, 'workflow edit');
     expect(route(git('rev-parse', `${w}^`), w)).toBe('false');
   });
+  it('[build-apk] in the commit message builds the APK even for a JS-only push', () => {
+    const forced = commit({ 'src/a.ts': 'force' }, 'Rebuild the APK [build-apk]');
+    expect(route(git('rev-parse', `${forced}^`), forced)).toBe('true');
+    const plain = commit({ 'src/a.ts': 'plain' }, 'JS only');
+    expect(route(git('rev-parse', `${plain}^`), plain)).toBe('false');
+  });
   it('a merge-sized push with JS + devDependencies + native goes APK only', () => {
     expect(route(base, native)).toBe('true');
   });

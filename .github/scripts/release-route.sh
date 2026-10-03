@@ -111,4 +111,12 @@ if printf '%s\n' "$FILES" | grep -qx 'package-lock.json' && git cat-file -e "$BA
   fi
 fi
 
+# A commit that says [build-apk] builds the APK even when nothing native
+# changed (re-run a build, or build from a hold branch where manual dispatch
+# is unavailable). It never skips the runtime-bump guard above.
+if git log -1 --format=%B "$HEAD_SHA" | grep -qF '[build-apk]'; then
+  emit true "forced by [build-apk] in the commit message"
+  exit 0
+fi
+
 emit false "JS-only change"

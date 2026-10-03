@@ -17,6 +17,10 @@ describe('release workflows (pre-release review)', () => {
     expect(update + build).not.toMatch(/Github-APK-Transition-snow/);
   });
 
+  it('GitHub Releases (public distribution) come from main only; other branches leave workflow artifacts', () => {
+    expect(build).toMatch(/if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'\n\s+uses: softprops\/action-gh-release/);
+  });
+
   it('refuses to publish code older than the live update', () => {
     expect(update).toMatch(/merge-base --is-ancestor "\$LIVE" "\$GITHUB_SHA"/);
     expect(update).toMatch(/fetch-depth: 0/);

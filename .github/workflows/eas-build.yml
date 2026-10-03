@@ -34,6 +34,10 @@ on:
   push:
     branches:
       - main
+      # Migration line (held, not live): manual dispatch is not available to
+      # the automation here, so a commit whose message contains [build-apk]
+      # builds an APK (release-route.sh). Artifact only: no GitHub Release.
+      - claude/hold-api36-migration
     paths:
       - 'package.json'
       - 'package-lock.json'
@@ -49,6 +53,8 @@ on:
       # is the only way an icon-art change triggers a rebuild.
       - 'src/assets/menu-bg.png'
       - '.github/workflows/eas-build.yml'
+      - '.github/scripts/release-route.sh'
+      - 'docs/api36-migration.md'
 
 permissions:
   # softprops/action-gh-release needs write access to publish the
@@ -200,7 +206,9 @@ jobs:
       # (workflow_dispatch) runs skip this and just leave the APK
       # as a workflow artifact you can download from the run page.
       - name: Publish GitHub Release
-        if: github.event_name == 'push'
+        # Releases are public distribution: main only. Migration builds are
+        # workflow artifacts only.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: snow-build-${{ github.run_number }}
