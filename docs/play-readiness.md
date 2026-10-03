@@ -26,8 +26,8 @@ Source (read 2026-10-03): https://developer.android.com/google/play/requirements
 - An extension to 2026-11-01 can be requested in Play Console.
 
 Required target API: 36
-Build target API: 35
-Play API compliant: NO
+Build target API: 36
+Play API compliant: YES
 
 ## Remediation class: CLASS B (substantial stack migration). NOT PERFORMED.
 

@@ -3,7 +3,7 @@
     "name": "Where's the Bottom?",
     "slug": "snow",
     "owner": "hot-attic-games",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "orientation": "default",
     "backgroundColor": "#0b1320",
     "userInterfaceStyle": "dark",
@@ -52,8 +52,8 @@
         "expo-build-properties",
         {
           "android": {
-            "compileSdkVersion": 35,
-            "targetSdkVersion": 35
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36
           }
         }
       ]
