@@ -12,7 +12,7 @@
 | --- | --- |
 | OTA update | Kept (same origin, same app). |
 | New APK installed over the old one, SAME package ID and SAME signing key | Kept (an in-place update). Migration test builds use the existing debug keystore for exactly this reason. |
-| Expo / React Native / react-native-webview upgrade | Expected to be kept: the origin comes from `baseUrl` in JS and the WebView data directory is owned by Android, not by these libraries. NOT proven until a migrated APK is installed over the current one on a real phone (PHYSICAL TEST REQUIRED, see below). |
+| Expo / React Native / react-native-webview upgrade (the API 36 migration APK, docs/api36-migration.md) | Expected to be kept: the origin (`https://localhost`) comes from `baseUrl` in JS, `package.json`/app code never touches the WebView profile directory, and the package ID and debug certificate (SHA-256 `fac61745dc09…3b9c`) are unchanged. NOT proven until a migrated APK is installed over the current one on a real phone (PHYSICAL TEST REQUIRED): install over the top, open it, check the profiles. |
 | Android System WebView update | Kept (Android's own storage format). |
 | Different signing key (debug to upload/Play key) | LOST. Android refuses an in-place update with a different signature, so the old app must be uninstalled, and uninstalling deletes the app's data. Android Auto Backup might restore it on some phones (the app does not turn it off), but that is not something to rely on: size-limited, account-dependent, and unverified here. |
 | Uninstall / "clear data" | LOST. |
