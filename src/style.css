@@ -16,10 +16,6 @@ html, body {
   position: fixed; inset: 0; width: 100vw; height: 100vh; outline: none; display: block;
 }
 #renderCanvas::after { content: ''; }
-.vignette {
-  position: fixed; inset: 0; pointer-events: none; z-index: 1;
-  background: radial-gradient(ellipse at center, transparent 55%, rgba(11, 19, 32, 0.45) 100%);
-}
 #screen { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
 #screen > * { pointer-events: auto; }
 

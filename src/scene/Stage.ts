@@ -18,6 +18,11 @@ export class Stage {
   constructor(canvas: HTMLCanvasElement) {
     this.engine = new Engine(canvas, true, { stencil: true });
     this.scene = new Scene(this.engine);
+    // Nothing in the game picks meshes with the pointer: skip the
+    // per-move ray casts Babylon does by default.
+    this.scene.skipPointerMovePicking = true;
+    this.scene.skipPointerDownPicking = true;
+    this.scene.skipPointerUpPicking = true;
     // Bright alpine day (matches the menu art): pale blue haze.
     this.scene.clearColor = new Color4(0.62, 0.80, 0.97, 1);
     this.scene.fogEnabled = true;

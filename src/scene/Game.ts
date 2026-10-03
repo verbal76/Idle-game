@@ -1,5 +1,5 @@
 import {
-  Engine, Scene, FollowCamera, HemisphericLight, DirectionalLight,
+  Engine, Scene, TargetCamera, HemisphericLight, DirectionalLight,
   Vector3, Color3, MeshBuilder, Mesh, ParticleSystem, TrailMesh, TransformNode,
 } from '@babylonjs/core';
 import type { StickValue } from '../input/ArrowPadInput';
@@ -87,7 +87,7 @@ export class Game {
   private mode: GameMode;
   private upgrades: UpgradeLevels;
   private assets: SceneAssets;
-  private readonly beforeRender = () => this.clampCameraAboveGround();
+  private readonly beforeRender = () => this.updateCamera();
   private terrain!: Terrain;
   private streamer!: ChunkStreamer;
 
@@ -113,15 +113,14 @@ export class Game {
   private speed = 0;
   private verticalVelocity = 0;
   private grounded = true;
-  // Cliff detection: a frame-to-frame surface drop above CLIFF_STEP_M
-  // means the rider rode off a lip and should fall, not snap down.
-  private prevGroundLevel: number | null = null;
-  // The wall/floor seam can step several metres without being a cliff.
-  private prevWasOnWall = false;
   // Skip cliff detection on the frame after landing, so landing just
   // short of a lip doesn't pop the rider back into the air.
   private justLanded = false;
-  private readonly CLIFF_STEP_M = 1.0;
+  private lipFeedbackUntil = 0;
+  // Sideways roll that keeps the rider square to the half-pipe wall.
+  private wallRoll = 0;
+  // The snow trail was interrupted (airborne / bail) and restarts on landing.
+  private trailBroken = false;
   // Persisted so wall gravity accumulates into a real return velocity.
   private wallReturnVel = 0;
   private jumpCharge = 0;
@@ -199,7 +198,7 @@ export class Game {
   private trailAnchor?: TransformNode;
   private mountainAnchor!: TransformNode;
   private followTarget!: Mesh;
-  private camera!: FollowCamera;
+  private camera!: TargetCamera;
 
   // Terrain, chunks and idle animation each get their own stream so the
   // world never depends on how gameplay or spawning interleave.
@@ -287,7 +286,25 @@ export class Game {
     this.rider.board.computeWorldMatrix(true);
     if (this.trail) this.trail.start();
   }
-  pause(): void { this.running = false; }
+  pause(): void {
+    this.running = false;
+    // A charge held into the pause must not fire on resume.
+    this.clearJumpCharge();
+    this.pausedRenders = 0;
+  }
+  /** Drops any jump charge and waits for a fresh press (non-jump takeoffs, landings, pause). */
+  private clearJumpCharge(): void {
+    this.jumpCharge = 0;
+    this.jumpReleaseRequired = true;
+    if (this.lastReportedCharge !== 0) {
+      this.lastReportedCharge = 0;
+      this.callbacks.onChargeChange?.(0);
+    }
+  }
+  // While stopped (paused, crashed, summary up) the frame doesn't change:
+  // render a few frames to settle, then stop drawing until something
+  // changes (resize) or the run resumes.
+  private pausedRenders = 0;
   private faulted = false;
   private fault(e: unknown): void {
     this.faulted = true;
@@ -297,6 +314,8 @@ export class Game {
     this.callbacks.onFault?.(e);
   }
   resume(): void { if (!this.fellAlready) this.running = true; }
+  /** Draw the next stopped frames again (e.g. the canvas was resized). */
+  redraw(): void { this.pausedRenders = 0; }
   /** Called after the player spends in the pause-menu shop. */
   setBankSnapshot(bank: number): void { this.bankAtStart = bank; }
 
@@ -359,56 +378,82 @@ export class Game {
     const follow = MeshBuilder.CreateBox('follow-target', { size: 0.001 }, this.scene);
     follow.isVisible = false;
     this.followTarget = follow;
-    // Start the follow target (and camera) at the rider so frame 1 isn't
-    // a lerp from the origin.
     follow.position.copyFrom(this.rider.root.position);
 
-    const rp = this.rider.root.position;
-    const cam = new FollowCamera('cam',
-      new Vector3(rp.x, rp.y + CAM_HEIGHT, rp.z - CAM_RADIUS),
-      this.scene, follow);
-    cam.heightOffset = CAM_HEIGHT;
-    cam.radius = CAM_RADIUS;
-    cam.rotationOffset = 180;
-    // Snap into place for the first ~120 ms, then smooth follow.
-    cam.cameraAcceleration = 1.0;
-    cam.maxCameraSpeed = 100;
+    const cam = new TargetCamera('cam', this.rider.root.position.clone(), this.scene);
+    cam.minZ = 0.3;
     this.camera = cam;
     this.scene.activeCamera = cam;
-    setTimeout(() => { cam.cameraAcceleration = 0.20; }, 120);
-
+    this.camSnapped = false;
+    this.updateCamera();
     this.scene.registerBeforeRender(this.beforeRender);
   }
 
-  // Keeps the trailing camera above the terrain under both itself and the
-  // rider (it can be behind a cliff lip the rider already dropped off),
-  // widens FOV with speed, and dips on impacts.
-  private clampCameraAboveGround(): void {
+  // Chase camera, updated just before each render (after the frame's
+  // movement). It sits CAM_RADIUS back up the slope and CAM_HEIGHT out
+  // along the slope's normal, so it clears the rising snow behind the
+  // rider by design (the old FollowCamera hung below that snow and was
+  // pinned to its ground clamp every frame, which also killed the
+  // landing dip). Smoothing is exponential in real time, so framing is
+  // the same at any frame rate. Looks a little ahead of the rider.
+  private camSnapped = false;
+  private readonly camDesired = new Vector3();
+  private readonly camLook = new Vector3();
+  private readonly camLookNow = new Vector3();
+  private updateCamera(): void {
     if (!this.camera) return;
-    const cp = this.camera.position;
-    const cs = this.groundY + this.terrain.surfaceY(cp.x, cp.z) + this.terrain.pipeOffsetY(cp.x);
+    const dt = Math.min(0.05, this.engine.getDeltaTime() / 1000);
     const rp = this.rider.root.position;
-    const rs = this.groundY + this.terrain.surfaceY(rp.x, rp.z) + this.terrain.pipeOffsetY(rp.x);
-    const floor = Math.max(cs, rs);
-    const margin = 2.5;
-    if (cp.y < floor + margin) {
-      cp.y = floor + margin;
-    }
+    // Dust emitter and backdrop follow the rider's final position this frame.
+    this.followTarget.position.copyFrom(rp);
+    this.mountainAnchor?.position.copyFrom(rp);
 
-    const speedFrac = Math.min(1, this.speed / this.maxSpeed);
-    const baseFov = 0.80;
-    const fovBreathe = baseFov + 0.12 * speedFrac;
-    const baseHeight = CAM_HEIGHT;
-    let dipHeight = baseHeight;
+    const s = this.terrain.activeSlope;
+    const sinS = Math.sin(s), cosS = Math.cos(s);
+    let height = CAM_HEIGHT;
     const now = this.clock;
     if (now < this.impactBurstUntil) {
-      const remaining = this.impactBurstUntil - now;
-      const t = remaining / this.BURST_MS;
-      const scale = Math.min(1, this.impactBurstY / 12);
-      dipHeight = baseHeight - 0.6 * t * scale;
+      const t = (this.impactBurstUntil - now) / this.BURST_MS;
+      height -= 0.9 * t * Math.min(1, this.impactBurstY / 12);
     }
-    this.camera.fov = fovBreathe;
-    this.camera.heightOffset = dipHeight;
+    // back = (0, sin s, -cos s); normal = (0, cos s, sin s)
+    const d = this.camDesired.set(
+      rp.x,
+      rp.y + CAM_RADIUS * sinS + height * cosS,
+      rp.z - CAM_RADIUS * cosS + height * sinS,
+    );
+    const groundAt = (x: number, z: number) => this.groundY + this.terrain.surfaceY(x, z) + this.terrain.pipeOffsetY(x);
+    // Behind a cliff lip the rider already dropped off, the snow under
+    // the camera is far higher: stay above it.
+    const floor = Math.max(groundAt(d.x, d.z), groundAt(rp.x, rp.z)) + 1.5;
+    if (d.y < floor) d.y = floor;
+    this.camLook.set(rp.x, rp.y + 1.1 - 4 * sinS, rp.z + 4 * cosS);
+
+    const cp = this.camera.position;
+    if (!this.camSnapped) {
+      cp.copyFrom(d);
+      this.camLookNow.copyFrom(this.camLook);
+      this.camSnapped = true;
+    } else {
+      const kXZ = 1 - Math.exp(-9 * dt);
+      const kY = 1 - Math.exp(-6 * dt);
+      cp.x += (d.x - cp.x) * kXZ;
+      cp.z += (d.z - cp.z) * kXZ;
+      cp.y += (d.y - cp.y) * kY;
+      const kL = 1 - Math.exp(-12 * dt);
+      this.camLookNow.set(
+        this.camLookNow.x + (this.camLook.x - this.camLookNow.x) * kL,
+        this.camLookNow.y + (this.camLook.y - this.camLookNow.y) * kL,
+        this.camLookNow.z + (this.camLook.z - this.camLookNow.z) * kL,
+      );
+    }
+    const camFloor = groundAt(cp.x, cp.z) + 1.0;
+    if (cp.y < camFloor) cp.y = camFloor;
+    this.camera.setTarget(this.camLookNow);
+
+    const speedFrac = Math.min(1, this.speed / this.maxSpeed);
+    // Wider with speed; a boost strip pushes it a little further.
+    this.camera.fov = 0.80 + 0.12 * speedFrac + (this.clock < this.boostUntil ? 0.06 : 0);
   }
 
   private setRiderVisible(v: boolean): void {
@@ -471,11 +516,15 @@ export class Game {
 
   private exitRecovery(): void {
     this.state = 'normal';
+    this.trailBroken = true;
     this.setRiderVisible(true);
   }
 
   private tick(): void {
-    if (!this.running) { this.scene.render(); return; }
+    if (!this.running) {
+      if (this.pausedRenders < 3) { this.pausedRenders++; this.scene.render(); }
+      return;
+    }
     const dt = Math.min(0.05, this.engine.getDeltaTime() / 1000);
     this.clock += dt * 1000;
     const now = this.clock;
@@ -505,8 +554,7 @@ export class Game {
       // A bailed rider sliding off a cliff falls rather than snapping down
       // (the camera would otherwise chase them through the cliff face).
       const droppedOffCliff = !this.justLanded
-        && this.prevGroundLevel !== null
-        && (this.prevGroundLevel - newGround) > this.CLIFF_STEP_M;
+        && this.terrain.cliffBetween(this.stepFromZ, this.rider.root.position.z);
       if (droppedOffCliff) this.verticalVelocity = 0;
 
       const aboveGround = this.rider.root.position.y - newGround > 0.05;
@@ -521,7 +569,6 @@ export class Game {
         this.rider.root.position.y = newGround;
         this.verticalVelocity = 0;
       }
-      this.prevGroundLevel = newGround;
       // Like a normal landing, the landing frame's suppression lasts one frame.
       this.justLanded = false;
 
@@ -584,6 +631,17 @@ export class Game {
 
     const boardYaw = this.heading + this.bodyYawOffset;
     this.rider.root.rotation.x = this.terrain.activeSlope;
+    // On the pipe's curved walls the rider leans with the surface (up to
+    // ~90° at the lip) instead of standing straight up; in the air the
+    // roll eases back to level.
+    if (this.mode === 'half-pipe') {
+      const x = this.rider.root.position.x;
+      const d = Math.min(HP.PIPE_RADIUS * 0.999, Math.max(0, Math.abs(x) - HP.FLAT_HALF));
+      const wallAngle = Math.atan2(d, Math.sqrt(HP.PIPE_RADIUS * HP.PIPE_RADIUS - d * d));
+      const target = this.grounded ? Math.sign(x) * wallAngle : 0;
+      this.wallRoll += (target - this.wallRoll) * Math.min(1, 12 * dt);
+      this.rider.root.rotation.z = this.wallRoll;
+    }
     this.rider.heading.rotation.y = boardYaw;
     this.rider.lean.rotation.z = -this.edgeAngle;
 
@@ -651,68 +709,7 @@ export class Game {
         + this.terrain.surfaceY(this.rider.root.position.x, this.rider.root.position.z)
         + this.terrain.pipeOffsetY(this.rider.root.position.x);
       if (this.rider.root.position.y <= groundLevel) {
-        const impactSpeed = Math.abs(this.verticalVelocity);
-        this.rider.root.position.y = groundLevel;
-        this.verticalVelocity = 0;
-        this.grounded = true;
-        // Suppress cliff detection next frame; require a fresh jump press.
-        this.justLanded = true;
-        this.jumpReleaseRequired = true;
-
-        const landing = judgeLanding(this.flipRotation, this.spinRotation, this.bodyYawOffset !== 0);
-        if (landing.outcome === 'bail') {
-          this.impactBurstUntil = this.clock + this.BURST_MS;
-          this.impactBurstY = Math.min(14, impactSpeed);
-          this.callbacks.onTrick?.({ name: 'BAIL', payout: 0, comboMult: this.comboMultiplier(), outcome: 'bail', switch: landing.switch });
-          this.startBail();
-          this.scene.render();
-          return;
-        }
-
-        if (landing.isTrick) {
-          this.flipsLanded += landing.flips;
-          if (landing.halfTurns > 0) this.spinsLanded++;
-          // Chained tricks within the combo window raise the multiplier.
-          if (this.comboCount > 0 && this.clock - this.lastTrickAt < this.comboWindowMs) {
-            this.comboCount++;
-          } else {
-            this.comboCount = 1;
-          }
-          this.lastTrickAt = this.clock;
-          this.runBestCombo = Math.max(this.runBestCombo, this.comboCount);
-          const mult = this.comboMultiplier();
-          const payout = landing.pay * mult * this.coinMultiplier;
-          this.coinsCollected = addFlakes(this.coinsCollected, payout);
-          this.earnedTricks = addFlakes(this.earnedTricks, payout);
-          this.callbacks.onComboChange?.(this.comboCount, mult);
-          this.callbacks.onTrick?.({ name: landing.name, payout, comboMult: mult, outcome: 'clean', switch: landing.switch });
-        } else if (landing.outcome === 'sketchy') {
-          // Landed, but off-balance: no payout, the combo doesn't grow,
-          // and the wobble costs some speed.
-          this.speed *= 0.7;
-          this.wobbleUntil = this.clock + 500;
-          this.callbacks.onTrick?.({ name: 'SKETCHY', payout: 0, comboMult: this.comboMultiplier(), outcome: 'sketchy', switch: landing.switch });
-        }
-
-        // Snap the board to the flight direction (forgiving landing); a
-        // sketchy one keeps half its error. Backward landings ride switch.
-        const adj = landing.outcome === 'sketchy' ? landing.residual * 0.5 : 0;
-        this.heading = Math.atan2(Math.sin(this.travelHeading + adj), Math.cos(this.travelHeading + adj));
-        if (landing.switch) {
-          this.bodyYawOffset = Math.PI;
-          this.switchUntil = this.clock + this.SWITCH_MS;
-        } else {
-          this.bodyYawOffset = 0;
-        }
-        this.flipRotation = 0;
-        this.rider.body.rotation.x = 0;
-        this.spinRotation = 0;
-
-        this.landingSquatUntil = this.clock + this.SQUAT_MS;
-        this.impactBurstUntil = this.clock + this.BURST_MS;
-        this.impactBurstY = Math.min(12, impactSpeed);
-        soundFx.play('land');
-        haptics.play('land');
+        if (this.touchDown(groundLevel)) { this.scene.render(); return; }
       }
     }
 
@@ -725,6 +722,15 @@ export class Game {
       // Hitting the lip redirects the rider ~17° back inward, always mostly
       // forward, so contacts never ping-pong across the pipe.
       const REBOUND_HEADING = 0.30;
+      const lipHit = (r.x > limit && moveHeading > 0) || (r.x < -limit && moveHeading < 0);
+      if (lipHit && this.clock > this.lipFeedbackUntil) {
+        // Feel the lip: a spray of snow, a thud and a tick of vibration.
+        this.lipFeedbackUntil = this.clock + 400;
+        this.impactBurstUntil = this.clock + this.BURST_MS * 0.6;
+        this.impactBurstY = 4;
+        soundFx.play('land', 1.2);
+        haptics.play('land');
+      }
       if (r.x > limit) {
         r.x = limit;
         if (moveHeading > 0) {
@@ -766,22 +772,18 @@ export class Game {
       const groundLevel = this.groundY
         + this.terrain.surfaceY(this.rider.root.position.x, this.rider.root.position.z)
         + this.terrain.pipeOffsetY(this.rider.root.position.x);
-      // Cliff detection is skipped across the wall seam and right after landing.
-      const onWall = Math.abs(this.rider.root.position.x) > this.terrain.wallFootX;
-      const droppedOffCliff = !onWall && !this.prevWasOnWall && !this.justLanded
-        && this.prevGroundLevel !== null
-        && (this.prevGroundLevel - groundLevel) > this.CLIFF_STEP_M;
+      // Riding over a cliff edge launches the rider (exact terrain test;
+      // skipped on the landing frame).
+      const droppedOffCliff = !this.justLanded
+        && this.terrain.cliffBetween(this.stepFromZ, this.rider.root.position.z);
       if (droppedOffCliff) {
         this.grounded = false;
+        this.clearJumpCharge();
       } else {
         this.rider.root.position.y = groundLevel;
       }
-      this.prevGroundLevel = groundLevel;
-      this.prevWasOnWall = Math.abs(this.rider.root.position.x) > this.terrain.wallFootX;
       this.justLanded = false;
     } else {
-      this.prevGroundLevel = null;
-      this.prevWasOnWall = false;
       this.justLanded = false;
     }
 
@@ -807,10 +809,15 @@ export class Game {
         + this.terrain.surfaceY(this.rider.root.position.x, this.rider.root.position.z)
         + this.terrain.pipeOffsetY(this.rider.root.position.x);
       // Safety net: never let the rider end up buried below the surface.
+      // An airborne rider caught here (moving into rising ground) lands
+      // properly: judged, paid, board settled.
       if (this.rider.root.position.y < groundLevel - 1.5) {
-        this.rider.root.position.y = groundLevel;
-        this.verticalVelocity = 0;
-        this.grounded = true;
+        if (!this.grounded) {
+          if (this.touchDown(groundLevel)) { this.scene.render(); return; }
+        } else {
+          this.rider.root.position.y = groundLevel;
+          this.verticalVelocity = 0;
+        }
       }
     }
 
@@ -826,15 +833,23 @@ export class Game {
     this.dustParticles.direction1.x = -0.6 + sideKick;
     this.dustParticles.direction2.x =  0.6 + sideKick;
 
-    // Trail marks stay on the snow and pause while airborne.
+    // Trail marks stay on the snow and pause while airborne. After a
+    // jump, cliff or bail the trail restarts at the landing spot instead
+    // of joining it to the take-off with a ribbon through the air.
     if (this.trailAnchor) {
       if (this.grounded) {
         const rx = this.rider.root.position.x;
         const rz = this.rider.root.position.z;
         const surfY = this.groundY + this.terrain.surfaceY(rx, rz) + this.terrain.pipeOffsetY(rx);
         this.trailAnchor.position.set(rx, surfY + 0.02, rz);
+        if (this.trailBroken) {
+          this.trailAnchor.computeWorldMatrix(true);
+          this.trail.reset();
+          this.trailBroken = false;
+        }
         this.trail.start();
       } else {
+        this.trailBroken = true;
         this.trail.stop();
       }
     }
@@ -858,6 +873,77 @@ export class Game {
     }
 
     this.scene.render();
+  }
+
+  /**
+   * The rider meets the snow at groundLevel: judge the landing (trick,
+   * sketchy or bail), pay it, and settle the board. The one landing path,
+   * used by the normal touchdown and by the buried-rider safety net.
+   * Returns true if it was a bail (the frame ends there).
+   */
+  private touchDown(groundLevel: number): boolean {
+    const impactSpeed = Math.abs(this.verticalVelocity);
+    this.rider.root.position.y = groundLevel;
+    this.verticalVelocity = 0;
+    this.grounded = true;
+    // Suppress cliff detection next frame; require a fresh jump press.
+    this.justLanded = true;
+    this.clearJumpCharge();
+
+    const landing = judgeLanding(this.flipRotation, this.spinRotation, this.bodyYawOffset !== 0);
+    if (landing.outcome === 'bail') {
+      this.impactBurstUntil = this.clock + this.BURST_MS;
+      this.impactBurstY = Math.min(14, impactSpeed);
+      this.callbacks.onTrick?.({ name: 'BAIL', payout: 0, comboMult: this.comboMultiplier(), outcome: 'bail', switch: landing.switch });
+      this.startBail();
+      return true;
+    }
+
+    if (landing.isTrick) {
+      this.flipsLanded += landing.flips;
+      if (landing.halfTurns > 0) this.spinsLanded++;
+      // Chained tricks within the combo window raise the multiplier.
+      if (this.comboCount > 0 && this.clock - this.lastTrickAt < this.comboWindowMs) {
+        this.comboCount++;
+      } else {
+        this.comboCount = 1;
+      }
+      this.lastTrickAt = this.clock;
+      this.runBestCombo = Math.max(this.runBestCombo, this.comboCount);
+      const mult = this.comboMultiplier();
+      const payout = landing.pay * mult * this.coinMultiplier;
+      this.coinsCollected = addFlakes(this.coinsCollected, payout);
+      this.earnedTricks = addFlakes(this.earnedTricks, payout);
+      this.callbacks.onComboChange?.(this.comboCount, mult);
+      this.callbacks.onTrick?.({ name: landing.name, payout, comboMult: mult, outcome: 'clean', switch: landing.switch });
+    } else if (landing.outcome === 'sketchy') {
+      // Landed, but off-balance: no payout, the combo doesn't grow,
+      // and the wobble costs some speed.
+      this.speed *= 0.7;
+      this.wobbleUntil = this.clock + 500;
+      this.callbacks.onTrick?.({ name: 'SKETCHY', payout: 0, comboMult: this.comboMultiplier(), outcome: 'sketchy', switch: landing.switch });
+    }
+
+    // Snap the board to the flight direction (forgiving landing); a
+    // sketchy one keeps half its error. Backward landings ride switch.
+    const adj = landing.outcome === 'sketchy' ? landing.residual * 0.5 : 0;
+    this.heading = Math.atan2(Math.sin(this.travelHeading + adj), Math.cos(this.travelHeading + adj));
+    if (landing.switch) {
+      this.bodyYawOffset = Math.PI;
+      this.switchUntil = this.clock + this.SWITCH_MS;
+    } else {
+      this.bodyYawOffset = 0;
+    }
+    this.flipRotation = 0;
+    this.rider.body.rotation.x = 0;
+    this.spinRotation = 0;
+
+    this.landingSquatUntil = this.clock + this.SQUAT_MS;
+    this.impactBurstUntil = this.clock + this.BURST_MS;
+    this.impactBurstY = Math.min(12, impactSpeed);
+    soundFx.play('land');
+    haptics.play('land');
+    return false;
   }
 
   // Waist bend from the carve, crouch while charging a jump, landing
@@ -989,6 +1075,7 @@ export class Game {
           if (segmentHitsRect(this.stepFromX, this.stepFromZ, r.x, r.z, k.x, k.z, k.width / 2, 1.6)) {
             this.verticalVelocity = k.power;
             this.grounded = false;
+            this.clearJumpCharge();
           }
         }
       }
@@ -1022,6 +1109,10 @@ export class Game {
     this.rider.lean.rotation.z = 0;
     this.rider.body.rotation.x = 0;
     this.rider.body.rotation.z = Math.PI / 2;
+    // Lie on the snow, not frozen in mid-air.
+    const rp = this.rider.root.position;
+    rp.y = this.groundY + this.terrain.surfaceY(rp.x, rp.z) + this.terrain.pipeOffsetY(rp.x);
+    this.pausedRenders = 0;
     const distanceMeters = Math.floor(this.rider.root.position.z);
     this.fallTimeout = setTimeout(() => {
       this.fallTimeout = null;

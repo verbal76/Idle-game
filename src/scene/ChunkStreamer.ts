@@ -196,6 +196,8 @@ export class ChunkStreamer {
           const tz = baseZ + rng.rangeFloat(-3, 3);
           const scale = 1.0 + rng.next01() * 0.9;
           features.push(...this.spawnTree(rng, tx, tz, scale, `${cx}-${cz}-edge-${i}-${t}`));
+          // Every tree is solid (the edge clusters used to be ridden through).
+          rocks.push({ x: tx, z: tz, radius: 0.9 });
         }
       }
 
@@ -290,6 +292,9 @@ export class ChunkStreamer {
       }
     }
 
+    // Downhill scenery never moves: compute each world matrix once instead
+    // of every frame (hundreds of instances are live at a time).
+    for (const f of features) { f.freezeWorldMatrix(); f.doNotSyncBoundingInfo = true; }
     this.chunks.set(this.chunkKey(cx, cz), { features, rocks, kickers, cx, cz });
   }
 

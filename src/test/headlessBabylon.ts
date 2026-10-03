@@ -12,7 +12,8 @@ export async function babylonMock() {
   class HeadlessEngine extends actual.NullEngine {
     constructor() { super({ renderHeight: 256, renderWidth: 256, textureSize: 256, deterministicLockstep: false, lockstepMaxSteps: 1 }); }
     override runRenderLoop(): void { /* tests drive tick() manually */ }
-    override getDeltaTime(): number { return 1000 / 60; }
+    // A fixed 60 Hz frame unless a test sets another (frame-rate tests).
+    override getDeltaTime(): number { return (globalThis as { __testFrameMs?: number }).__testFrameMs ?? 1000 / 60; }
   }
   const fakeCtx = new Proxy({}, {
     get: (_t, k) => k === 'createLinearGradient' || k === 'createRadialGradient'

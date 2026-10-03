@@ -80,6 +80,21 @@ export class Terrain {
     return baseY + (ax - this.wallFootX) * this.wallRise / Math.cos(slopeForWall);
   }
 
+  /**
+   * Whether moving from z0 to z1 crosses a cliff (a segment that starts
+   * more than a metre below where the previous one ended). Exact, so it
+   * doesn't depend on frame rate or on the pipe/wall shape the way a
+   * per-frame height-drop test does. The half-pipe has no cliffs.
+   */
+  cliffBetween(z0: number, z1: number): boolean {
+    if (this.mode === 'half-pipe' || !(z1 > z0)) return false;
+    for (let i = 1; i < this.segments.length; i++) {
+      const s = this.segments[i]!;
+      if (s.startZ > z0 && s.startZ <= z1 && s.startY < this.segments[i - 1]!.endY - 1) return true;
+    }
+    return false;
+  }
+
   // Extra height from the U-shaped half-pipe cross-section.
   pipeOffsetY(x: number): number {
     if (this.mode !== 'half-pipe') return 0;
