@@ -17,6 +17,7 @@ export const SCHEMA_VERSION = 2;
 // raised it; Game clamps what it uses), but nothing absurd survives.
 const LEVEL_CEILING = 100;
 
+// eslint-disable-next-line no-control-regex -- stripping control characters is the point
 const ZERO_WIDTH = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g;
 export const NAME_MAX = 24;
 /**

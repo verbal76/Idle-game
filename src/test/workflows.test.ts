@@ -35,4 +35,15 @@ describe('release workflows (pre-release review)', () => {
   it('a native change on a non-APK branch fails loudly instead of shipping nowhere', () => {
     expect(update).toMatch(/native-change-not-built/);
   });
+
+  it('installs are reproducible (npm ci from the committed lockfile) and lint gates the publish', () => {
+    expect(update).toMatch(/npm ci/);
+    expect(update).not.toMatch(/npm install --no-audit/);
+    expect(build).toMatch(/npm ci/);
+    expect(update).toMatch(/npm run lint/);
+  });
+
+  it('never publishes the git-ignored placeholder bundle', () => {
+    expect(update).toMatch(/__PLACEHOLDER__/);
+  });
 });

@@ -4,13 +4,14 @@
   "private": true,
   "main": "index.js",
   "scripts": {
-    "start": "expo start",
-    "web:build": "node scripts/write-build-info.mjs && tsc && vite build && node scripts/embed-html.mjs && node scripts/make-icon.mjs",
-    "web:dev": "vite",
+    "start": "npm run web:build && expo start",
+    "web:build": "node scripts/ensure-generated.mjs && node scripts/write-build-info.mjs && tsc && vite build && node scripts/embed-html.mjs && node scripts/make-icon.mjs",
+    "web:dev": "node scripts/ensure-generated.mjs && vite",
     "eas-build-post-install": "npm run web:build",
-    "test": "vitest run",
+    "test": "node scripts/ensure-generated.mjs && vitest run",
     "test:smoke": "node scripts/smoke.mjs",
-    "check": "tsc && vitest run",
+    "lint": "node scripts/ensure-generated.mjs && eslint .",
+    "check": "node scripts/ensure-generated.mjs && tsc && eslint . && vitest run",
     "perf:runstart": "node scripts/perf-runstart.mjs"
   },
   "dependencies": {
@@ -26,12 +27,14 @@
   "devDependencies": {
     "@babel/core": "^7.24.0",
     "@babylonjs/core": "^7.39.0",
-    "@babylonjs/loaders": "^7.39.0",
+    "@eslint/js": "^9.39.5",
     "@types/react": "~18.2.79",
+    "eslint": "^9.39.5",
     "idb": "^8.0.0",
     "playwright-core": "^1.63.0",
     "pngjs": "^7.0.0",
     "typescript": "~5.3.3",
+    "typescript-eslint": "^8.71.0",
     "vite": "^5.4.10",
     "vite-plugin-singlefile": "^2.0.3",
     "vitest": "^2.1.9"

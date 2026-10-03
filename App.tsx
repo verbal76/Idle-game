@@ -226,7 +226,7 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         const resolved = await Promise.all(
           MUSIC_TRACKS.map(async (t) => {

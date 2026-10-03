@@ -20,6 +20,7 @@ const route = (before: string, sha: string, event = 'push') => {
   const out = execFileSync('bash', [SCRIPT], { cwd: dir, encoding: 'utf8', env: { ...process.env, BEFORE: before, GITHUB_SHA: sha, GITHUB_EVENT_NAME: event, GITHUB_OUTPUT: '/dev/null' } });
   return /native=(\w+)/.exec(out)![1];
 };
+const app = (version: string, extra = 0) => JSON.stringify({ expo: { version, extra } });
 const pkg = (expo: string, vitest: string) => JSON.stringify({ dependencies: { expo }, devDependencies: { vitest }, scripts: { test: 'vitest' } });
 
 describe('release routing: APK or OTA, never both', () => {
@@ -27,11 +28,11 @@ describe('release routing: APK or OTA, never both', () => {
   beforeAll(() => {
     dir = mkdtempSync(join(tmpdir(), 'route-'));
     git('init', '-q'); git('config', 'user.email', 't@t'); git('config', 'user.name', 't');
-    base = commit({ 'package.json': pkg('1', '1'), 'app.json': '{}', 'src/a.ts': 'a' }, 'base');
+    base = commit({ 'package.json': pkg('1', '1'), 'app.json': app('1'), 'src/a.ts': 'a' }, 'base');
     js = commit({ 'src/a.ts': 'b', 'App.tsx': 'x' }, 'js');
     dev = commit({ 'package.json': pkg('1', '2') }, 'devDependencies only');
-    dep = commit({ 'package.json': pkg('2', '2'), 'src/a.ts': 'c' }, 'runtime dependency');
-    native = commit({ 'app.json': '{"x":1}' }, 'native config');
+    dep = commit({ 'package.json': pkg('2', '2'), 'app.json': app('2'), 'src/a.ts': 'c' }, 'runtime dependency + runtime bump');
+    native = commit({ 'app.json': app('3', 1) }, 'native config + runtime bump');
   });
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -46,7 +47,8 @@ describe('release routing: APK or OTA, never both', () => {
   });
   it('native config changes are native', () => {
     expect(route(dep, native)).toBe('true');
-    for (const f of ['app.config.js', 'eas.json', 'android/x.gradle', 'src/assets/menu-bg.png']) {
+    // Tooling-only native edits (and the icon art) rebuild the APK without a bump.
+    for (const f of ['app.config.js', 'eas.json', 'src/assets/menu-bg.png']) {
       const s = commit({ [f]: String(Math.random()) }, f);
       expect(route(git('rev-parse', `${s}^`), s)).toBe('true');
     }
@@ -67,5 +69,32 @@ describe('release routing: APK or OTA, never both', () => {
   });
   it('manual runs are the person\'s choice', () => {
     expect(route('', js, 'workflow_dispatch')).toBe('manual');
+  });
+
+  it('a lockfile alone is JavaScript: introducing or churning it never forces an APK', () => {
+    const tip = git('rev-parse', 'HEAD');
+    const lock = (expoVer: string, vitestVer: string) => JSON.stringify({ packages: {
+      '': {}, 'node_modules/expo': { version: expoVer }, 'node_modules/vitest': { version: vitestVer },
+      'node_modules/react-native-webview': { version: '13.0.0' },
+    } });
+    const l1 = commit({ 'package-lock.json': lock('51.0.1', '2.0.0') }, 'introduce the lockfile');
+    expect(route(tip, l1)).toBe('false');                       // no previous lockfile: package.json decided
+    const l2 = commit({ 'package-lock.json': lock('51.0.1', '2.1.0') }, 'bump a dev tool');
+    expect(route(l1, l2)).toBe('false');                        // devDependency churn is OTA
+  });
+  it('a lockfile change that moves a native-carrying package needs an APK AND a runtime bump', () => {
+    const lock = (expoVer: string) => JSON.stringify({ packages: { '': {}, 'node_modules/expo': { version: expoVer } } });
+    const a = commit({ 'package-lock.json': lock('51.0.1') }, 'lock a');
+    const b = commit({ 'package-lock.json': lock('51.0.2') }, 'native package moved, no runtime bump');
+    expect(() => route(a, b)).toThrow();                        // refused: would reach old APKs
+    const c = commit({ 'package-lock.json': lock('51.0.3'), 'app.json': app('4', 1) }, 'native package moved + bump');
+    expect(route(b, c)).toBe('true');
+  });
+  it('native changes without a runtime bump are refused (an OTA must never reach an APK lacking its capability)', () => {
+    const before = git('rev-parse', 'HEAD');
+    const sameVersion = commit({ 'app.json': app('4', 99) }, 'app.json changed, expo.version not bumped');
+    expect(() => route(before, sameVersion)).toThrow();
+    const depNoBump = commit({ 'package.json': pkg('9', '2') }, 'runtime dependency, no bump');
+    expect(() => route(sameVersion, depNoBump)).toThrow();
   });
 });

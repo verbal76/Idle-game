@@ -36,6 +36,5 @@ const reencoded = PNG.sync.write(decoded);
 
 for (const t of TARGETS) {
   writeFileSync(t, reencoded);
-  // eslint-disable-next-line no-console
   console.log(`make-icon: ${SRC} → ${t} (${decoded.width}×${decoded.height}, ${reencoded.length} B)`);
 }

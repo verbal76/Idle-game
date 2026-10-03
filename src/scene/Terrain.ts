@@ -10,7 +10,7 @@ export interface SlopeSegment {
   floor: Mesh;
   leftWall: Mesh;
   rightWall: Mesh;
-  cliffFace?: Mesh;
+  cliffFace?: Mesh | undefined;
   startZ: number;
   endZ: number;     // = next segment's startZ
   startY: number;

@@ -6,6 +6,7 @@ import { countAt, formatCount, formatFlakes } from '../game/economy';
 import { ICON_FLAKE, withIcons } from './icons';
 import { escapeHtml } from '../util/escapeHtml';
 import { UPGRADES, effectPreview, effectiveLevel, type UpgradeDef } from '../game/upgrades';
+import { safeAsync } from '../util/safeAsync';
 
 const NEED_MS = 1400;
 
@@ -98,7 +99,7 @@ export function showUpgrades(root: HTMLElement, profiles: ProfileService): Promi
     };
 
     for (const r of rows) {
-      r.buy.addEventListener('click', async () => {
+      r.buy.addEventListener('click', safeAsync(async () => {
         if (busy) return;
         const p = profiles.activeProfile!;
         const lvl = effectiveLevel(r.def.id, p.upgrades[r.def.id]);
@@ -124,7 +125,7 @@ export function showUpgrades(root: HTMLElement, profiles: ProfileService): Promi
         } finally {
           busy = false;
         }
-      });
+      }));
     }
 
     root.querySelector<HTMLButtonElement>('#upgrades-back')!.addEventListener('click', () => resolve());

@@ -31,7 +31,8 @@ const builtAt      = new Date().toISOString();
 
 const pkg     = JSON.parse(readFileSync('package.json', 'utf8'));
 const app     = JSON.parse(readFileSync('app.json', 'utf8'));
-const appVersion        = pkg.version ?? app?.expo?.version ?? 'unknown';
+// The shipped app version is app.json's (the runtime version follows it).
+const appVersion        = app?.expo?.version ?? pkg.version ?? 'unknown';
 const androidVersionCode = app?.expo?.android?.versionCode ?? null;
 
 const data = {

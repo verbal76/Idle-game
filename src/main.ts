@@ -31,6 +31,7 @@ import { statusBanner } from './ui/StatusBanner';
 import { MemoryStore } from './profiles/MemoryStore';
 import type { ProfileStore } from './profiles/IndexedDbStore';
 import { installTapGuard } from './ui/tapGuard';
+import { safeAsync } from './util/safeAsync';
 
 declare global {
   interface Window {
@@ -445,7 +446,7 @@ async function runSession(
 
     // The HUD gear: Settings over the live run, which is paused while it
     // is open and resumes only if it was riding before.
-    hud.settingsBtn.addEventListener('click', async () => {
+    hud.settingsBtn.addEventListener('click', safeAsync(async () => {
       if (crashed || finished || anyOverlay()) return;
       savePending();
       releaseControls();
@@ -455,7 +456,7 @@ async function runSession(
       hud.settingsOverlay.style.display = 'none';
       hud.settingsOverlay.innerHTML = '';
       if (!finished && !crashed) game.resume();
-    });
+    }));
     // Ending a run any way (Quit, or switching style) shows what it
     // earned first; the summary's own buttons go on from there.
     const endRun = () => {
@@ -472,7 +473,7 @@ async function runSession(
     });
     hud.fellUpgradesBtn.addEventListener('click', () => finish('upgrades'));
 
-    hud.pauseUpgradesBtn.addEventListener('click', async () => {
+    hud.pauseUpgradesBtn.addEventListener('click', safeAsync(async () => {
       hud.pauseMenu.style.display = 'none';
       hud.settingsOverlay.style.display = 'flex';
       await showUpgrades(hud.settingsOverlay, profiles);
@@ -481,20 +482,20 @@ async function runSession(
       hud.settingsOverlay.innerHTML = '';
       game.setBankSnapshot(profiles.activeProfile?.currency ?? 0);
       hud.pauseMenu.style.display = 'flex';
-    });
-    hud.pauseHowToBtn.addEventListener('click', async () => {
+    }));
+    hud.pauseHowToBtn.addEventListener('click', safeAsync(async () => {
       hud.pauseMenu.style.display = 'none';
       await showHalfpipeIntro(hud);
       hud.pauseMenu.style.display = 'flex';
-    });
-    hud.pauseSettingsBtn.addEventListener('click', async () => {
+    }));
+    hud.pauseSettingsBtn.addEventListener('click', safeAsync(async () => {
       hud.pauseMenu.style.display = 'none';
       hud.settingsOverlay.style.display = 'flex';
       await showSettings(hud.settingsOverlay, music, profiles);
       hud.settingsOverlay.style.display = 'none';
       hud.settingsOverlay.innerHTML = '';
       hud.pauseMenu.style.display = 'flex';
-    });
+    }));
   });
 }
 

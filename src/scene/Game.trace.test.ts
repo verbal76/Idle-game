@@ -40,7 +40,6 @@ function ride(
   world?: string[],
 ): TraceRow[] {
   let frame = 0;
-  // eslint-disable-next-line prefer-const
   let game!: Game;
   const input = () => script(frame, game);
   game = new Game(stage, mode, {

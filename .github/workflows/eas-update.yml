@@ -81,7 +81,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: npm install --no-audit --no-fund
+          cache: npm
+      # Exactly the dependency tree in package-lock.json (reproducible).
+      - run: npm ci --no-audit --no-fund
+      - name: Lint (promise mistakes etc.; blocks the OTA)
+        run: npm run lint
       - name: Unit tests (block the OTA on any failure)
         run: npm test
       - name: Regenerate html-bundle.ts (CRITICAL for OTA correctness)
@@ -94,6 +98,13 @@ jobs:
         run: npm run test:smoke
         env:
           CHROMIUM_PATH: /usr/bin/google-chrome
+      - name: The embedded game is real (not the git-ignored placeholder)
+        run: |
+          if grep -q '__PLACEHOLDER__' src/__generated__/html-bundle.ts; then
+            echo "::error::src/__generated__/html-bundle.ts is still the placeholder; web:build did not produce the game. Refusing to publish a blank app."
+            exit 1
+          fi
+          test "$(wc -c < src/__generated__/html-bundle.ts)" -gt 1000000
       - name: Page size budget
         # The WebView receives the whole game as one HTML string; the
         # Android Binder channel that carries it fails (black screen)

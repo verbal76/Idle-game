@@ -1,6 +1,7 @@
 import { BUILD_INFO } from '../__generated__/build-info';
 import { buildInfoText, describeBuild, type RawShellInfo } from '../shell/buildInfo';
 import { escapeHtml } from '../util/escapeHtml';
+import { safeAsync } from '../util/safeAsync';
 
 declare global {
   // Injected by the native shell (App.tsx) before and after page load.
@@ -42,7 +43,7 @@ export function wireBuildInfo(root: HTMLElement): () => void {
       s.classList.toggle('full', on);
     });
     const copyBtn = s.querySelector<HTMLButtonElement>('#bi-copy')!;
-    copyBtn.addEventListener('click', async () => {
+    copyBtn.addEventListener('click', safeAsync(async () => {
       const text = buildInfoText(rows());
       try {
         await navigator.clipboard.writeText(text);
@@ -58,7 +59,7 @@ export function wireBuildInfo(root: HTMLElement): () => void {
         s.appendChild(ta);
         ta.select();
       }
-    });
+    }));
   };
   const onInfo = () => {
     const s = section();

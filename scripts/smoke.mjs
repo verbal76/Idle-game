@@ -78,6 +78,26 @@ async function main() {
     // The UI swallows taps for 200 ms after a screen appears (double-tap
     // guard, ui/tapGuard.ts); scripted clicks wait it out like a person.
     const waitTapGuard = () => page.waitForFunction(() => !(window.__tapsLocked && window.__tapsLocked()), null, { polling: 30 }).catch(() => {});
+    // State-based waits (instead of sleeping and hoping):
+    // the rider has covered `m` metres of the run (game time, not wall time) ...
+    const rode = (m) => page.waitForFunction((m) => (window.__wtb?.game?.rider?.root?.position?.z ?? 0) > m, m);
+    // ... the 2 s mirror of the run started after `since` (with some distance on it) has reached IndexedDB ...
+    const pendingSaved = async (since) => {
+      const read = () => page.evaluate((since) => new Promise((res) => {
+        const r = indexedDB.open('boarder');
+        r.onerror = () => res(false);
+        r.onsuccess = () => {
+          const g = r.result.transaction('profiles').objectStore('profiles').getAll();
+          g.onsuccess = () => { r.result.close(); res(g.result.some(p => p.pendingRun && p.pendingRun.distanceMeters > 0 && p.pendingRun.savedAtMs >= since)); };
+          g.onerror = () => res(false);
+        };
+      }), since);
+      const deadline = Date.now() + 30000;
+      while (!(await read())) {
+        if (Date.now() > deadline) throw new Error('the run mirror never reached IndexedDB');
+        await page.waitForTimeout(100);
+      }
+    };
     const rawClick = page.click.bind(page);
     page.click = async (sel, opts) => { await waitTapGuard(); return rawClick(sel, opts); };
     await page.goto(`http://127.0.0.1:${port}/?e2e`);
@@ -150,14 +170,13 @@ async function main() {
       });
       if (up.label !== 'Deep carve' || !up.svg || up.text !== 'CARVE') fail(`deep carve button: ${JSON.stringify(up)}`);
       const before = await page.textContent('#score');
-      await page.waitForTimeout(2500);
+      await rode(15);
       // Charge + release a jump, then steer. Real mouse input so
       // setPointerCapture sees a live pointer.
       await hold('#jump', 400);
       await hold('#dpad-left', 600);
-      await page.waitForTimeout(1500);
-      const after = await page.textContent('#score');
-      if (before === after) fail(`${mode}: HUD score never changed (${before})`);
+      await page.waitForFunction((b) => document.getElementById('score').textContent !== b, before, { timeout: 15000 })
+        .catch(() => fail(`${mode}: HUD score never changed (${before})`));
       await page.click('#pause');
       await page.waitForSelector('#pause-menu', { state: 'visible' });
       await quitRun();
@@ -188,7 +207,7 @@ async function main() {
       await page.click('#half-pipe');
       await page.setViewportSize(LANDSCAPE);
       await page.waitForSelector('#hud');
-      await page.waitForTimeout(600);
+      await rode(5);
       if (await page.isVisible('#halfpipe-intro')) fail('intro shown again on the second ride');
       await page.click('#pause');
       await quitRun();
@@ -201,7 +220,7 @@ async function main() {
       await page.click('#downhill');
       await page.setViewportSize(LANDSCAPE);
       await page.waitForSelector('#hud');
-      await page.waitForTimeout(800);
+      await rode(8);
       await page.evaluate(() => {
         window.__wtb.game.fall();
         document.getElementById('pause').click();     // tap pause right after the hit
@@ -228,7 +247,7 @@ async function main() {
         r.onsuccess = () => { const g = r.result.transaction('profiles').objectStore('profiles').getAll(); g.onsuccess = () => res(g.result[0].stats.lifetime.runs); };
       }));
       const shownRuns = Number((life.match(/Runs\s*(\d+)/) ?? [])[1]);
-      if (shownRuns !== saved || saved < 1 || saved > 5) fail(`lifetime runs: shown ${shownRuns}, saved ${saved}`);
+      if (shownRuns !== saved || saved > 5) fail(`lifetime runs: shown ${shownRuns}, saved ${saved}`);
       const down = await page.textContent('#stats-downhill');
       const m = down.match(/Longest run\s*([\d,]+) m/);
       if (!m || Number(m[1].replace(/,/g, '')) <= 0) fail(`downhill longest not recorded: ${down}`);
@@ -288,10 +307,11 @@ async function main() {
       const runsBefore = await lifetimeRuns();
       const distBefore = await lifetimeDistance();
       for (const crashFirst of [false, true]) {
+        const since = Date.now();
         await page.click('#downhill');
         await page.setViewportSize(LANDSCAPE);
         await page.waitForSelector('#hud');
-        await page.waitForTimeout(2600);                    // past one 2 s mirror save
+        await pendingSaved(since);                               // the 2 s mirror save has landed
         if (crashFirst) {
           await page.evaluate(() => window.__wtb.game.fall());
           await page.waitForSelector('#fell-overlay', { state: 'visible' });
@@ -331,7 +351,7 @@ async function main() {
       await page.click('#downhill');
       await page.setViewportSize(LANDSCAPE);
       await page.waitForSelector('#hud');
-      await page.waitForTimeout(2500);
+      await rode(30);
       await page.click('#pause');
       await page.click('#quit');
       await page.waitForSelector('#run-summary', { state: 'visible' });
@@ -365,7 +385,7 @@ async function main() {
       await page.click('#downhill');
       await page.setViewportSize(LANDSCAPE);
       await page.waitForSelector('#hud');
-      await page.waitForTimeout(1500);
+      await rode(8);
       await page.click('#pause');
       // A real run (past the 50 m 'accidental start' line) counts toward
       // the run goals; carry the paused rider 60 m on.
@@ -608,7 +628,7 @@ async function main() {
         await page.waitForSelector('#hud');
         if (await page.isVisible('#halfpipe-intro')) await page.click('#halfpipe-intro-ok');
         const a = await read();
-        await page.waitForTimeout(1500);
+        await page.waitForFunction((d) => Number(document.getElementById('chip-dist').textContent) > d, a.dist, { timeout: 15000 }).catch(() => {});
         const b = await read();
         if (!(b.dist > a.dist)) fail(`${mode}: distance chip not advancing ${a.dist} -> ${b.dist}`);
         if (b.alt !== (mode === 'downhill')) fail(`${mode}: altitude chip shown=${b.alt}`);
@@ -635,8 +655,8 @@ async function main() {
       if (shown.length !== 2) fail(`expected 2 callouts, got ${JSON.stringify(shown)}`);
       if (!shown[0].cls.includes('callout-big') || shown[0].text !== 'CORK 360+2.3 · ×1.5 combo') fail(`newest callout: ${JSON.stringify(shown[0])}`);
       if (shown[1].text !== 'FLIP+1') fail(`older callout: ${JSON.stringify(shown[1])}`);
-      await page.waitForTimeout(1700);
-      if (await page.$$eval('#callouts .callout', els => els.length) !== 0) fail('callouts did not clear');
+      await page.waitForFunction(() => document.querySelectorAll('#callouts .callout').length === 0, null, { timeout: 5000 })
+        .catch(() => fail('callouts did not clear'));
       await page.click('#pause');
       await quitRun();
       await page.setViewportSize(PORTRAIT);

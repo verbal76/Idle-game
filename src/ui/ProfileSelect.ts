@@ -8,6 +8,7 @@ import { bouncyTextHtml } from '../util/bouncyText';
 import { escapeHtml } from '../util/escapeHtml';
 import { showStats } from './Stats';
 import { ICON_EDIT, ICON_STATS } from './icons';
+import { safeAsync } from '../util/safeAsync';
 
 /**
  * The profile picker. Resolves once a profile is active (picked or
@@ -24,11 +25,11 @@ export async function showProfileSelect(
   return new Promise<void>((resolve) => {
     // One action at a time: a double tap can't start two of them.
     let busy = false;
-    const guard = (fn: () => Promise<void>) => async () => {
+    const guard = (fn: () => Promise<void>) => safeAsync(async () => {
       if (busy) return;
       busy = true;
       try { await fn(); } finally { busy = false; }
-    };
+    });
     let error = '';
 
     const render = () => {
@@ -132,10 +133,10 @@ function showManage(root: HTMLElement, profiles: ProfileService, p: SaveData): P
           </div>
         </div>`;
       if (confirming) {
-        root.querySelector('#manage-delete-yes')!.addEventListener('click', async () => {
+        root.querySelector('#manage-delete-yes')!.addEventListener('click', safeAsync(async () => {
           try { await profiles.deleteProfile(p.id); } catch (e) { console.error('[profiles] delete failed', e); }
           resolve();
-        }, { once: true });
+        }), { once: true });
         root.querySelector('#manage-delete-no')!.addEventListener('click', () => render(false), { once: true });
         return;
       }

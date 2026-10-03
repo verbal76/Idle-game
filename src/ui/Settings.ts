@@ -5,6 +5,7 @@ import { ProfileService } from '../profiles/ProfileService';
 import { showAbout } from './About';
 import { openBugReport, openFeatureRequest } from '../util/bugReport';
 import { escapeHtml } from '../util/escapeHtml';
+import { safeAsync } from '../util/safeAsync';
 
 // State machine for the OTA update flow. Native side posts these via
 // CustomEvent('update-status'); the Settings panel listens and updates
@@ -173,10 +174,10 @@ export function showSettings(
       });
       paintUpdateRow();
 
-      root.querySelector<HTMLButtonElement>('#settings-about')!.addEventListener('click', async () => {
+      root.querySelector<HTMLButtonElement>('#settings-about')!.addEventListener('click', safeAsync(async () => {
         await showAbout(root);
         render();
-      });
+      }));
       root.querySelector<HTMLButtonElement>('#settings-bug')!.addEventListener('click', () => {
         openBugReport();
       });
