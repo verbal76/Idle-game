@@ -112,6 +112,20 @@ jobs:
       # (read by expo prebuild via app.json). Both (and src/__generated__)
       # are .gitignored generated outputs; we materialise them on the runner here
       # so prebuild + Gradle find them in the workspace.
+      # The versionCode is this workflow's run number: monotonically
+      # increasing, never reused, and the same number as the APK's file
+      # name and release tag, so "Build 13" and Settings → About agree.
+      # Done before the web build so the bundle's own build stamp matches.
+      - name: Stamp versionCode = run number (not committed)
+        run: |
+          node -e "
+            const fs = require('fs');
+            const app = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+            app.expo.android.versionCode = ${{ github.run_number }};
+            fs.writeFileSync('app.json', JSON.stringify(app, null, 2) + '\n');
+          "
+          grep -n '"versionCode"\|"version"\|"package"' app.json
+
       - name: Unit tests (block the APK on any failure)
         run: npm test
 
@@ -152,11 +166,18 @@ jobs:
           echo "path=$APK" >> "$GITHUB_OUTPUT"
           echo "name=where-is-the-bottom-build-${{ github.run_number }}.apk" >> "$GITHUB_OUTPUT"
 
-      - name: Read OTA version label
+      - name: Describe this build
         id: ver
         run: |
-          OTA=$(grep -oE "OTA #[0-9]+[^']*" src/version.ts | head -1 || echo "unknown")
-          echo "ota=$OTA" >> "$GITHUB_OUTPUT"
+          echo "ota=source ${GITHUB_SHA::7} on ${GITHUB_REF_NAME}, versionCode ${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      # Reports COMPLIANT/NONCOMPLIANT for the 16 KB rule without blocking the
+      # artifact; the stage builds are expected to fail it until SDK 54.
+      - name: Inspect the APK (permissions, SDK levels, signing, 16 KB alignment)
+        continue-on-error: true
+        run: |
+          MANIFEST=$(find android/app/build/intermediates -name AndroidManifest.xml -path '*release*' -path '*merged_manifest*' -print -quit || true)
+          python3 scripts/inspect-apk.py "${{ steps.apk.outputs.path }}" "$MANIFEST" | tee apk-report.txt
 
       - name: Rename APK for upload
         run: cp "${{ steps.apk.outputs.path }}" "${{ steps.apk.outputs.name }}"
@@ -167,6 +188,12 @@ jobs:
           name: ${{ steps.apk.outputs.name }}
           path: ${{ steps.apk.outputs.name }}
           if-no-files-found: error
+
+      - name: Upload the APK inspection report
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-report-${{ github.run_number }}
+          path: apk-report.txt
 
       # Auto-publish a GitHub Release on every push so testers
       # always have a stable URL for the latest build. Manual

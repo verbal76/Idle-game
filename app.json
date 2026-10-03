@@ -3,7 +3,7 @@
     "name": "Where's the Bottom?",
     "slug": "snow",
     "owner": "hot-attic-games",
-    "version": "0.0.1",
+    "version": "0.1.0",
     "orientation": "default",
     "backgroundColor": "#0b1320",
     "userInterfaceStyle": "dark",
@@ -40,6 +40,18 @@
       "eas": {
         "projectId": "147c7fa1-88de-4800-8c08-c5e6411f069e"
       }
-    }
+    },
+    "newArchEnabled": false,
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35
+          }
+        }
+      ]
+    ]
   }
 }

@@ -37,18 +37,19 @@ const androidVersionCode = app?.expo?.android?.versionCode ?? null;
 const appName   = app?.expo?.name ?? 'unknown';
 const packageId = app?.expo?.android?.package ?? 'unknown';
 
-// Android SDK levels the native build is generated with: the React Native
-// template's defaults (expo prebuild uses the same ones for this SDK). The
-// installed APK's own value is not readable at runtime, so About shows
-// these as build-config values.
+// Android SDK levels the native build is generated with: pinned in app.json
+// through the expo-build-properties plugin so they are explicit and
+// reviewable (CI checks the built APK against them). The installed APK's own
+// value is not readable at runtime, so About shows these as build config.
 function sdkLevel(name) {
-  try {
-    const gradle = readFileSync('node_modules/react-native/template/android/build.gradle', 'utf8');
-    const m = gradle.match(new RegExp(`${name}\\s*=\\s*(\\d+)`));
-    return m ? Number(m[1]) : null;
-  } catch {
-    return null;
+  const plugins = Array.isArray(app?.expo?.plugins) ? app.expo.plugins : [];
+  for (const p of plugins) {
+    if (Array.isArray(p) && p[0] === 'expo-build-properties') {
+      const v = p[1]?.android?.[name];
+      if (typeof v === 'number') return v;
+    }
   }
+  return null;
 }
 const minSdk = sdkLevel('minSdkVersion');
 const compileSdk = sdkLevel('compileSdkVersion');

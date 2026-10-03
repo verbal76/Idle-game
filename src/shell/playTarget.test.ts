@@ -12,10 +12,11 @@ describe('Play target / signing facts stay honest', () => {
     expect(playCompliance(Number.NaN)).toBe('unverified');
   });
 
-  it('the build target comes from the framework template, and the docs record the same compliance', () => {
-    const gradle = readFileSync('node_modules/react-native/template/android/build.gradle', 'utf8');
-    const target = Number(gradle.match(/targetSdkVersion\s*=\s*(\d+)/)?.[1]);
-    expect(Number.isFinite(target)).toBe(true);
+  it('the build target is pinned in app.json, and the docs record the same compliance', () => {
+    const app = JSON.parse(readFileSync('app.json', 'utf8')) as { expo: { plugins?: unknown[] } };
+    const plugin = (app.expo.plugins ?? []).find((p): p is [string, { android?: { targetSdkVersion?: number } }] => Array.isArray(p) && p[0] === 'expo-build-properties');
+    const target = plugin?.[1]?.android?.targetSdkVersion;
+    expect(typeof target).toBe('number');
     // Placeholder (fresh clone) leaves it null until web:build runs.
     if (BUILD_INFO.targetSdk !== null) expect(BUILD_INFO.targetSdk).toBe(target);
     const doc = readFileSync('docs/play-readiness.md', 'utf8');
