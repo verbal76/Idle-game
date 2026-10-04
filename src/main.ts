@@ -91,7 +91,8 @@ function uiIdle(idle: boolean): void {
 
 async function bootstrap(): Promise<void> {
   // The studio card goes on top first; everything below keeps loading under it.
-  showStudioSplash();
+  // (The e2e harness skips the automatic card unless asked with `studio`, so reloads between steps stay fast.)
+  if (!location.search.includes('e2e') || location.search.includes('studio')) showStudioSplash();
   mountApplyingUpdate();
   if (location.search.includes('e2e')) (window as unknown as { __hag?: unknown }).__hag = { showStudioSplash };
   const screen = document.getElementById('screen') as HTMLElement;

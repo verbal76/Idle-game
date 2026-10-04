@@ -69,4 +69,4 @@ Blockers: the migration line is not yet device-tested and not live; no AAB build
 3. Play developer account type and current external-tester rules.
 4. Privacy policy URL and contact address.
 5. Music licence/provenance.
-6. Final icon, native splash, store art, and the canonical `branding/Hot_Attic_Games_Master_Logo.png`.
+6. Final icon, native splash and store art. (The canonical studio logo `Hot_Attic_Games_Master_Logo_ALPHA_FINAL.png` has been supplied and is wired into the studio splash; see docs/studio-splash.md. Note for the Play content-rating questionnaire: the logo artwork includes a whiskey bottle and glass.)
