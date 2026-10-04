@@ -30,8 +30,5 @@
 
 ## Hot Attic Games studio splash
 
-- Canonical asset: `branding/Hot_Attic_Games_Master_Logo.png`. **MISSING from the repository** (not on any branch). It was not drawn or substituted.
-- Implemented (PREPARED / HELD): `src/ui/StudioSplash.ts`. The card is picked up at build time when the file exists; without it nothing is shown. Solid black, logo centred, `object-fit: contain` (never cropped or distorted), 1.5 s from when the logo is visible, silent, fades out, once per page load, removed on load error or after a 4 s backstop, startup continues underneath.
-- Sequence: native bootstrap (dark) → studio card → the game's own splash/menu.
-- OTA-safe: YES (page code; no native build). Not replayed on navigation or a plain resume.
-- To enable: add the canonical PNG at the path above and ship. Physical-device verification (cold launch, white flash, orientations) is still required.
+Studio-wide requirement and details: **docs/studio-splash.md** (and CLAUDE.md). Summary: canonical artwork `Hot_Attic_Games_Master_Logo_ALPHA_FINAL.png` (repository root, never edited); `src/ui/StudioSplash.ts` shows it on every cold launch before the game's own opening (about 2.8 s, contained, transparency kept, once per page load); OTA-capable (page code only, no native build); wired and tested. The old "logo missing" blocker and the obsolete `branding/Hot_Attic_Games_Master_Logo.png` path are retired.
+
