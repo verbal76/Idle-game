@@ -1162,7 +1162,8 @@ async function main() {
           await p.waitForSelector('#studio-splash', { state: 'detached', timeout: 5000 });
           const total = Date.now() - t0;
           if (total < 2000 || total > 4200) fail(`${label}: studio card lasted ${total} ms`);
-          await p.waitForSelector('#downhill', { timeout: 15000 });
+          // The game's own first screen follows (a fresh profile store shows profile creation, not the menu).
+          await p.waitForFunction(() => (document.getElementById('screen')?.children.length ?? 0) > 0, null, { timeout: 15000 });
           // Background / resume must not bring it back.
           await p.evaluate(() => { Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true }); document.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('pagehide')); });
           await p.evaluate(() => { Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true }); document.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('pageshow')); window.dispatchEvent(new Event('focus')); });
