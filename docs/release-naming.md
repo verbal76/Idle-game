@@ -3,7 +3,7 @@
 Studio convention: every public release is named **`<Product Name> v<number>`**,
 with sequential integers (no semver, no codenames). For this game:
 
-| Public name | `Where's the Bottom? v83` |
+| Public name | `Where's the Bottom? v84` (v83 = OTA #83, the live game before this system existed) |
 |---|---|
 | Short / file name | `Wheres-the-Bottom` |
 | Release title | `Where's the Bottom? v<N>` |
@@ -34,16 +34,16 @@ These stay separate everywhere (diagnostics show all of them):
 
 Inventory of this repo when the convention was adopted:
 
-- Releases: `snow-build-106` and `snow-build-107` (same commit 8827159, ~79 MB APKs, `versionCode` 5, no update-channel header). Titled "APK build #N", where N was a CI run number, not a product version.
+- Releases: `snow-build-106` and `snow-build-107` (~79 MB APKs, `versionCode` 5). Titled "APK build #N", where N was a CI run number, not a product version. Provenance caveat: both release TAGS point at `main` (8827159, where the release was created), but the APKs were built from the transition branch: run 106 from 86b534d and run 107 from bc1fb81 (the commit that bakes the `preview` update channel into the manifest). So build 107 DOES receive OTAs; build 106 does not. Both are signed with the Expo template debug key (certificate SHA-256 fac61745...3b9c).
 - OTA numbering ran `OTA #27` ... `OTA #83` (live line).
 - The Android `versionCode` (5) and CI run numbers are not product versions.
 
-`v83` was chosen because it continues the only sequence that tracks delivered
+`v83` names the live OTA #83 state, retroactively (no installable file exists for it). `v84` is the first delivery that carries this naming system (its release.json), and was chosen because it continues the only sequence that tracks delivered
 playable states (OTA #83 is the current live game). Resetting to v1 would
 discard that history; using `versionCode` or a CI run would be arbitrary.
 Builds 106/107 are not renumbered: they predate the convention and keep their tags.
 
-**Next version: v84** for the next newly delivered playable build.
+**This branch ships as v84.** Any later delivery must bump `release.json` first (the APK workflow refuses a tag that already exists). Next after that: v85.
 
 ## Known limitation
 
@@ -51,10 +51,11 @@ No installable APK corresponds to v83: the live game is the installed shell plus
 OTA #83, which updates itself. The first standalone file under this convention will
 be `Wheres-the-Bottom-v84.apk` (or later).
 
-Correction: earlier migration notes called "Build 13" a GitHub run number. The evidence
-points to an EAS cloud build #13 signed with the EAS-managed keystore. The GitHub-built
-debug-signed APKs use a different key, so Android will not update over an EAS-signed
-install; the owner must uninstall (after using Settings > Back up) or keep using OTA.
+Correction: earlier notes called "Build 13" a GitHub run number. It is not one: run 13 of the
+APK workflow was a skipped OTA-publish run, and no `snow-build-13` release exists. What
+"Build 13" is on the owner's phone cannot be proven from the repository. The harmless way to
+find out is to try installing a debug-signed APK over it: Android refuses a mismatched
+signature and leaves the installed app and its data untouched (never uninstall to "fix" it).
 
 ## Releasing
 
