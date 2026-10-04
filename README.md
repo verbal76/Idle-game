@@ -144,7 +144,16 @@ expands: create an upload keystore (owner keeps custody; never commit it),
 store it in GitHub secrets, build an AAB with `bundleRelease`, enrol in
 Play App Signing, and give testers a separate channel from production.
 The one-time reinstall this causes is cheapest while the install base is
-tiny. Details: `docs/release-architecture.md`.
+tiny. Details: `docs/release-architecture.md`. The production path is
+`.github/workflows/release-android.yml` (manual, owner-confirmed, fails closed
+when signing is not configured); whether an APK can install over a given
+phone is explained in `docs/signing-continuity.md`.
+
+**Public version.** Releases are named `Where's the Bottom? v<number>`
+(`release.json` is the only place the number is edited; it flows to the
+release title, the `Wheres-the-Bottom-v<N>.apk` file name, the About panel and
+the diagnostics). OTA numbers, versionCode, runtime and commit SHA stay
+internal. See `docs/release-naming.md`.
 
 **Dependencies.** `package-lock.json` is committed; CI uses `npm ci`.
 Everything the game runs on in the WebView (Babylon, idb) lives in
