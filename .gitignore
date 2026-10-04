@@ -23,4 +23,4 @@ ios/
 
 # Build output (scripts/write-build-info.mjs, scripts/embed-html.mjs); placeholders via scripts/ensure-generated.mjs.
 src/__generated__/
-scripts/__pycache__/
+__pycache__/

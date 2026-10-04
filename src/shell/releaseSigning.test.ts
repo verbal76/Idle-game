@@ -38,7 +38,7 @@ describe('release signing (fixtures only, never production keys)', () => {
       execFileSync('keytool', ['-genkeypair', '-keystore', f, '-storepass', 'fixture-pass', '-keypass', 'fixture-pass', '-alias', 'k', '-dname', 'CN=Fixture', '-keyalg', 'RSA', '-keysize', '2048', '-validity', days], { stdio: 'ignore' });
       return readFileSync(f).toString('base64');
     };
-    const run = (env: Record<string, string>) => spawnSync('node', ['scripts/release-signing.mjs', 'check'], { env: { PATH: process.env.PATH ?? '', ...env } as NodeJS.ProcessEnv, encoding: 'utf8' });
+    const run = (env: Record<string, string>) => spawnSync('node', ['scripts/release-signing.mjs', 'check'], { env: { PATH: process.env.PATH ?? '', ...env } as unknown as NodeJS.ProcessEnv, encoding: 'utf8' });
     const base = { RELEASE_KEYSTORE_PASSWORD: 'fixture-pass', RELEASE_KEY_ALIAS: 'k', RELEASE_KEYSTORE_FILE: join(dir, 'out.jks') };
 
     const none = run({});
