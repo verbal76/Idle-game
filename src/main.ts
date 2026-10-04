@@ -28,6 +28,8 @@ import { graceCallout, trickCallout } from './game/callout';
 import { awardGoals, goalLines, type GoalAward } from './game/goals';
 import { showFatalError } from './ui/FatalError';
 import { statusBanner } from './ui/StatusBanner';
+import { mountApplyingUpdate } from './ui/ApplyingUpdate';
+import { showStudioSplash } from './ui/StudioSplash';
 import { MemoryStore } from './profiles/MemoryStore';
 import type { ProfileStore } from './profiles/IndexedDbStore';
 import { installTapGuard } from './ui/tapGuard';
@@ -88,6 +90,11 @@ function uiIdle(idle: boolean): void {
 }
 
 async function bootstrap(): Promise<void> {
+  // The studio card goes on top first; everything below keeps loading under it.
+  // (The e2e harness skips the automatic card unless asked with `studio`, so reloads between steps stay fast.)
+  if (!location.search.includes('e2e') || location.search.includes('studio')) showStudioSplash();
+  mountApplyingUpdate();
+  if (location.search.includes('e2e')) (window as unknown as { __hag?: unknown }).__hag = { showStudioSplash };
   const screen = document.getElementById('screen') as HTMLElement;
   const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement;
   // Pre-warm the stage while the player is on the menus so even the
