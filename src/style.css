@@ -1092,14 +1092,22 @@ details.build-details[open] > summary::after { border-top-color: transparent; bo
 .about-copy { margin-top: 10px; min-width: 0; min-height: 44px; padding: 8px 18px; }
 .about-card textarea.about-fallback { width: 100%; min-height: 120px; margin-top: 8px; box-sizing: border-box; }
 
-/* Hot Attic Games opening card: black, logo centred and contained. */
+/* Hot Attic Games opening card: the canonical logo, centred and contained. */
 .studio-splash {
-  position: fixed; inset: 0; z-index: 10100; background: #000;
-  display: flex; align-items: center; justify-content: center;
-  opacity: 1; transition: opacity 200ms ease-out; touch-action: none;
+  /* The app's own start-up colour (app.json splash backgroundColor) so there is no flash between the
+     native splash and this card. The logo is contained, never cropped or stretched. */
+  position: fixed; inset: 0; z-index: 10100; background: #0b1320;
+  display: flex; align-items: center; justify-content: center; box-sizing: border-box;
+  padding: max(3vmin, env(safe-area-inset-top)) max(3vmin, env(safe-area-inset-right)) max(3vmin, env(safe-area-inset-bottom)) max(3vmin, env(safe-area-inset-left));
+  opacity: 1; transition: opacity 300ms ease-out; touch-action: none;
 }
 .studio-splash.out { opacity: 0; pointer-events: none; }
-.studio-splash img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; user-select: none; -webkit-user-drag: none; }
+.studio-splash img {
+  max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; user-select: none; -webkit-user-drag: none;
+  opacity: 0; transition: opacity 300ms ease-in;
+}
+.studio-splash.ready img { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .studio-splash, .studio-splash img { transition-duration: 0ms; } }
 
 /* "Please wait, applying update": the game's own panel look. */
 .applying-update {
