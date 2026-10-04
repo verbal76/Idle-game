@@ -1,0 +1,136 @@
+name: Release Android (signed AAB + APK, manual)
+
+# PRODUCTION BUILD PATH. Manual only, owner-confirmed, fail-closed.
+#
+# - Never runs on push, never publishes an OTA, never creates a GitHub Release,
+#   never uploads to Google Play. The output is a workflow artifact
+#   (AAB + signed APK + SHA-256 files + inspection report) for the owner to review.
+# - Needs four repository secrets (Settings > Secrets and variables > Actions):
+#     RELEASE_KEYSTORE_B64       base64 of the upload keystore
+#     RELEASE_KEYSTORE_PASSWORD  store password
+#     RELEASE_KEY_ALIAS          key alias
+#     RELEASE_KEY_PASSWORD       key password (optional if equal to the store password)
+#   If any is missing, or the keystore is the public debug key, or it expires before
+#   2033-10-23, the very first step fails and nothing is built (scripts/release-signing.mjs;
+#   covered by fixture tests that use throwaway keys, never production material).
+# - Public naming comes from release.json (docs/release-naming.md):
+#   Wheres-the-Bottom-v<N>.aab / .apk. versionCode = this run's number (monotonic).
+# - The same gate as the sideload build runs with ALLOW_DEBUG_SIGNING=0: 16 KB alignment,
+#   target SDK 36, package id, blocked permissions, and "not debug-signed".
+#
+# SIGNING CONTINUITY: an APK signed with this key will NOT update over an APK signed with
+# the debug key (or an EAS-managed key) and vice versa; Android refuses the update, and
+# an uninstall erases local saves. Use Settings > Back up first. See docs/signing-continuity.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type build-signed-release to confirm (owner authorization)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-android
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Signed AAB + APK
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+      RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+      RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+      RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+      RELEASE_KEYSTORE_FILE: ${{ runner.temp }}/release.jks
+    steps:
+      - name: Require the owner's confirmation
+        run: |
+          [ "${{ inputs.confirm }}" = "build-signed-release" ] || { echo "::error::Type build-signed-release to confirm."; exit 1; }
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # Fails first, before anything expensive, when signing is not fully configured.
+      - name: Validate the signing secrets and keystore (fail closed)
+        id: key
+        run: node scripts/release-signing.mjs check
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Stamp versionCode = run number (not committed)
+        run: |
+          node -e "
+            const fs = require('fs');
+            const app = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+            app.expo.android.versionCode = ${{ github.run_number }};
+            fs.writeFileSync('app.json', JSON.stringify(app, null, 2) + '\n');
+          "
+
+      - name: Tests (block the release on any failure)
+        run: |
+          npm test
+          python3 -m unittest discover -s scripts/tests
+
+      - run: npm run web:build
+
+      - name: Generate android/ project and attach the production keystore
+        run: |
+          npx expo prebuild --platform android --clean
+          node scripts/release-signing.mjs patch
+        env:
+          EXPO_NO_TELEMETRY: '1'
+
+      - run: bash .github/scripts/install-android-components.sh
+
+      - name: Build signed AAB and APK
+        working-directory: android
+        run: ./gradlew bundleRelease assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx4g"
+
+      - name: Name, hash, and gate the artifacts
+        id: out
+        run: |
+          set -o pipefail
+          eval "$(node scripts/release-info.mjs --github | sed 's/^\([a-z]*\)=\(.*\)$/\1="\2"/')"
+          BASE="${apk%.apk}"
+          cp android/app/build/outputs/apk/release/app-release.apk "$BASE.apk"
+          cp android/app/build/outputs/bundle/release/app-release.aab "$BASE.aab"
+          # The AAB must carry the same production certificate as the APK, never the debug key.
+          keytool -printcert -jarfile "$BASE.aab" > aab-cert.txt
+          AAB_SHA=$(grep -oE 'SHA256: [0-9A-F:]{95}' aab-cert.txt | head -1 | cut -d' ' -f2 | tr -d ':' | tr 'A-F' 'a-f')
+          [ "$AAB_SHA" = "${{ steps.key.outputs.cert_sha256 }}" ] || { echo "::error::AAB certificate does not match the production keystore"; exit 1; }
+          MANIFEST=$(find android/app/build/intermediates -name AndroidManifest.xml -path '*release*' -path '*merged_manifest*' -print -quit || true)
+          ALLOW_DEBUG_SIGNING=0 python3 scripts/inspect-apk.py "$BASE.apk" "$MANIFEST" | tee apk-report.txt
+          sha256sum "$BASE.apk" "$BASE.aab" | tee SHA256SUMS.txt
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.out.outputs.base }}
+          path: |
+            ${{ steps.out.outputs.base }}.apk
+            ${{ steps.out.outputs.base }}.aab
+            SHA256SUMS.txt
+            apk-report.txt
+          if-no-files-found: error
+
+      - name: Remove the decoded keystore
+        if: always()
+        run: rm -f "$RELEASE_KEYSTORE_FILE"
