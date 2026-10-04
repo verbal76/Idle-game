@@ -128,8 +128,9 @@ jobs:
       # are .gitignored generated outputs; we materialise them on the runner here
       # so prebuild + Gradle find them in the workspace.
       # The versionCode is this workflow's run number: monotonically
-      # increasing, never reused, and the same number as the APK's file
-      # name and release tag, so "Build 13" and Settings → About agree.
+      # increasing and never reused. It is INTERNAL metadata (About shows it
+      # as "Android build (versionCode)"); the public name and file name come
+      # from release.json (v<number>, docs/release-naming.md).
       # Done before the web build so the bundle's own build stamp matches.
       - name: Stamp versionCode = run number (not committed)
         run: |

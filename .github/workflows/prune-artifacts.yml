@@ -1,7 +1,10 @@
 name: Prune Artifacts
 
-# Keep only the 3 most recent artifacts repo-wide so we stay under the
-# storage quota. Runs daily, manually, and after every EAS build.
+# Keep the 6 most recent artifacts repo-wide, and never delete one younger than
+# 3 days, so we stay under the storage quota WITHOUT deleting a freshly built
+# APK before the owner has downloaded it (each build uploads an APK and a
+# report, so the old keep-3 rule removed the previous build's APK as soon as
+# the next build finished). Runs daily, manually, and after every APK build.
 
 on:
   workflow_dispatch:
@@ -18,11 +21,12 @@ jobs:
   prune:
     runs-on: ubuntu-latest
     steps:
-      - name: Delete all but the 3 newest artifacts
+      - name: Delete old artifacts beyond the newest 6
         uses: actions/github-script@v7
         with:
           script: |
-            const KEEP = 3;
+            const KEEP = 6;
+            const MIN_AGE_MS = 3 * 24 * 3600 * 1000;
             const { owner, repo } = context.repo;
             const all = await github.paginate(
               github.rest.actions.listArtifactsForRepo,
@@ -31,7 +35,7 @@ jobs:
             const sorted = all.sort(
               (a, b) => new Date(b.created_at) - new Date(a.created_at)
             );
-            const toDelete = sorted.slice(KEEP);
+            const toDelete = sorted.slice(KEEP).filter(a => Date.now() - new Date(a.created_at) > MIN_AGE_MS);
             core.info(`Found ${sorted.length} artifacts; keeping ${Math.min(KEEP, sorted.length)}, deleting ${toDelete.length}.`);
             for (const a of toDelete) {
               core.info(`Deleting ${a.name} (id=${a.id}, created=${a.created_at})`);

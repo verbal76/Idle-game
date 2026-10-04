@@ -43,3 +43,15 @@
 - Cut-over plan (all owner-triggered, none done): (1) finish testing OTA #83, then release PR #65 and the save backup as an OTA on runtime 0.0.1 so every old install has Back up & restore; (2) owner backs up and verifies; (3) owner installs the migration APK (same package, same debug key, so an in-place update that keeps saves; if Android refuses the update the signature differs and the backup is the only way); (4) physical test; (5) merge the migration line, pick the final runtime version, and publish OTAs for that runtime from the live branch (the OTA workflow, ancestry guard and delivery check are unchanged and runtime-aware, and the route guard enforces the runtime bump); (6) keep the old lineage alive on its own channel/branch for as long as old installs exist, or retire it deliberately.
 - The applying-update modal is unchanged: it only reacts to the shell's `reloading` status, which comes from the same `UpdateGate` / `reloadNow` code under expo-updates 29.
 - About / Copy diagnostics read the build's own identity: package ID, versionName, versionCode, runtime, channel, update ID, source commit, target SDK (from app.json), Play required target SDK and compliance, signing state, device Android/API. They show the migrated values (0.1.x, target 36, "Yes") on the migration line and the old ones (0.0.1, 34, "No") on the live line. The signing line still says "Debug keystore".
+
+## Release pipeline (candidate branch)
+
+| Workflow | Trigger | Produces | Publishes? |
+| --- | --- | --- | --- |
+| `eas-update.yml` | push to the live line / `main` only | OTA | the only OTA publisher; hold and candidate branches never trigger it |
+| `eas-build.yml` | native changes, or `[build-apk]` in a commit message on `main`, the migration branch or the candidate branch | `Wheres-the-Bottom-v<N>.apk` + `.sha256`, `apk-report-<run>` (artifacts) | a GitHub Release only for `main` pushes |
+| `release-android.yml` | manual, owner types `build-signed-release` | signed `.aab` + `.apk`, `SHA256SUMS.txt`, report (artifact) | never (no Release, no Play upload); fails first when the signing secrets are missing |
+
+Gates in `eas-build.yml`: unit tests + `scripts/tests` (APK gate fixtures), then `scripts/inspect-apk.py` blocks the artifact on 16 KB misalignment, `zipalign -P 16`, targetSdk < 36, wrong package id or a blocked permission. Public names come from `release.json` (docs/release-naming.md). versionCode = run number. See docs/signing-continuity.md before any APK is installed over the owner's phone.
+
+Artifact retention: `prune-artifacts.yml` keeps the newest 6 artifacts and never deletes one younger than 3 days (it used to keep 3, which removed the previous build's APK as soon as the next build finished). Scheduled and `workflow_run` workflows run from the default branch, so this takes effect when the change reaches `main`.

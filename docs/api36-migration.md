@@ -40,3 +40,10 @@ Install the stage 3b APK over the current build on the owner's phone: saves kept
 ## Left as is
 
 New architecture stays off (a later, separate decision). No AAB (docs/play-readiness.md), no production signing, no OTA, runtime cutover not performed (docs/infrastructure.md).
+
+## Release gate and qualification (added on the candidate branch)
+
+- `scripts/inspect-apk.py` is now a blocking CI gate (it was report-only): 64-bit ELF `p_align` >= 16 KB for every `.so`, `zipalign -c -P 16`, `targetSdkVersion` >= 36, package `com.hotatticgames.snow`, no `READ/WRITE_EXTERNAL_STORAGE` or `SYSTEM_ALERT_WINDOW`; it fails closed when aapt2/zipalign are missing and, for production (`ALLOW_DEBUG_SIGNING=0`), when the APK carries the public debug certificate. Unit-tested by `scripts/tests/test_inspect_apk.py` (synthetic ELF/APK fixtures) and run in CI before the Gradle build.
+- Evidence from run 114 (`90a0d8c`, APK sha256 `a4adbd3e...0668`): compileSdk/targetSdk 36, minSdk 24, 24 of 24 64-bit libraries 16 KB aligned, `zipalign -P 16` PASS, effective permissions INTERNET / VIBRATE / ACCESS_NETWORK_STATE, v2 signature only (adequate for minSdk 24), `allowBackup=true`, debug certificate. ENGINEERING VERIFIED. Not verified on a device: rendering, audio, rotation, insets, update flow.
+- The old step had `continue-on-error: true`, so a 16 KB regression would not have failed CI. Fixed.
+- Signing continuity with the owner's phone: docs/signing-continuity.md.
