@@ -127,9 +127,21 @@ describe('Release diagnostics (About / Copy diagnostics)', () => {
     expect(text).not.toMatch(/@/);              // no e-mail addresses
   });
 
+  it('shows the public version separately from OTA / commit / versionCode', () => {
+    const r = byId(describeBuild(shell, { ...build, productName: "Where's the Bottom?", publicVersion: 83 }, ctx));
+    expect(r['product'].full).toBe("Where's the Bottom?");
+    expect(r['public-version'].full).toBe('v83');
+    expect(r['ota-name'].full).not.toBe('v83');
+    expect(r['native-build'].full).toBe('5');
+    expect(r['commit'].full).not.toBe('v83');
+    const text = diagnosticsText(describeBuild(shell, { ...build, publicVersion: 83 }, ctx));
+    expect(text).toMatch(/Version: v83/);
+    expect(byId(describeBuild(shell, build, ctx))['public-version'].full).toBe(UNAVAILABLE);
+  });
+
   it('is honest when things are unavailable (browser, no shell, no SDK info)', () => {
     const r = byId(describeBuild(undefined, { commit: 'unknown', dirty: false, builtAt: '' }));
-    for (const id of ['android', 'device', 'locale', 'package', 'updates-enabled', 'update-status', 'target-sdk', 'app-name']) expect(r[id].full, id).toBe(UNAVAILABLE);
+    for (const id of ['android', 'device', 'locale', 'package', 'updates-enabled', 'update-status', 'target-sdk', 'app-name', 'product', 'public-version']) expect(r[id].full, id).toBe(UNAVAILABLE);
     expect(r['play-compliant'].full).toBe('Unverified');
     const text = diagnosticsText(Object.values(r));
     expect(text).not.toMatch(/undefined|null|NaN/);

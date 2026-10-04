@@ -42,6 +42,8 @@ export interface RawShellInfo {
 export interface BundleStamp {
   commit: string; dirty: boolean; builtAt: string;
   appName?: string; packageId?: string;
+  /** Public release name/number from release.json ("Where's the Bottom? v83"). */
+  productName?: string; publicVersion?: number;
   minSdk?: number | null; compileSdk?: number | null; targetSdk?: number | null;
 }
 
@@ -164,7 +166,12 @@ export function describeBuild(raw: RawShellInfo | null | undefined, bundle: Bund
   const name = clean(bundle.appName);
   const pkg = clean(bundle.packageId);
 
+  const pv = typeof bundle.publicVersion === 'number' && bundle.publicVersion > 0 ? `v${bundle.publicVersion}` : null;
+  const product = clean(bundle.productName);
+
   return [
+    row('product', 'application', 'Product', product && product !== 'unknown' ? product : null),
+    row('public-version', 'application', 'Version', pv),
     row('app-name', 'application', 'Application', name && name !== 'unknown' ? name : null),
     row('android', 'device', 'Android', android),
     row('device', 'device', 'Device', device),
