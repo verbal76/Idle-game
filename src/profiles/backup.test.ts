@@ -106,6 +106,57 @@ describe('save backup', () => {
   });
 });
 
+describe('save backup hardening (regressions)', () => {
+  it('survives a mail app: CRLF line endings, a BOM, quoted-reply markers around the text', async () => {
+    const { svc } = await seeded();
+    const text = buildBackup(await svc.list(), null);
+    expect(parseBackup('\uFEFF' + text.replace(/\n/g, '\r\n')).ok).toBe(true);
+    expect(parseBackup('> hi\r\n> ' + text.replace(/\n/g, '\n> ')).ok).toBe(false); // quoting breaks the JSON: refused, not mangled
+  });
+
+  it('does not let a __proto__ / constructor key pollute anything', async () => {
+    const { svc } = await seeded();
+    const env = JSON.parse(buildBackup(await svc.list(), null));
+    const evil = JSON.parse('{"__proto__":{"polluted":true},"constructor":{"prototype":{"polluted":true}}}');
+    env.profiles[0] = { ...env.profiles[0], ...evil };
+    env.checksum = fnv1a(JSON.stringify(env.profiles));
+    const r = parseBackup(JSON.stringify(env));
+    expect(({} as Record<string, unknown>)['polluted']).toBeUndefined();
+    if (r.ok) for (const p of r.profiles) expect((p as unknown as Record<string, unknown>)['polluted']).toBeUndefined();
+  });
+
+  it('keeps one copy of a duplicated profile id and counts the other as skipped', async () => {
+    const { svc } = await seeded();
+    const env = JSON.parse(buildBackup(await svc.list(), null));
+    env.profiles.push(env.profiles[0]);
+    env.checksum = fnv1a(JSON.stringify(env.profiles));
+    const r = parseBackup(JSON.stringify(env));
+    expect(r.ok && r.profiles.length).toBe(2);
+    expect(r.ok && r.skipped).toBe(1);
+  });
+
+  it('refuses an absurd profile count, a non-numeric version, and a missing checksum', async () => {
+    const { svc } = await seeded();
+    const base = JSON.parse(buildBackup(await svc.list(), null));
+    expect(parseBackup(JSON.stringify({ ...base, profiles: Array(201).fill(base.profiles[0]) })).ok).toBe(false);
+    expect(parseBackup(JSON.stringify({ ...base, version: 'one' })).ok).toBe(false);
+    expect(parseBackup(JSON.stringify({ ...base, checksum: undefined })).ok).toBe(false);
+  });
+
+  it('export then import into a brand-new store reproduces every profile exactly (modulo the unbanked run)', async () => {
+    const { svc } = await seeded();
+    const before = await svc.list();
+    const r = parseBackup(buildBackup(before, svc.activeProfile!.id));
+    if (!r.ok) throw new Error(r.error);
+    const fresh = new ProfileService(new MemoryStore());
+    await fresh.init();
+    await fresh.importProfiles(r.profiles, r.activeId);
+    const after = await fresh.list();
+    const strip = (p: SaveData) => { const c = JSON.parse(JSON.stringify(p)); delete c.pendingRun; return c; };
+    expect(after.map(strip).sort((a, b) => a.id.localeCompare(b.id))).toEqual(before.map(strip).sort((a, b) => a.id.localeCompare(b.id)));
+  });
+});
+
 describe('ProfileService.importProfiles', () => {
   it('adds new profiles, replaces matching ids, keeps the rest, and swaps the active one in memory', async () => {
     const { svc, store, a, b } = await seeded();

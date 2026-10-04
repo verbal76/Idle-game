@@ -46,11 +46,13 @@ jobs:
       RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
       RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
       RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-      RELEASE_KEYSTORE_FILE: ${{ runner.temp }}/release.jks
     steps:
       - name: Require the owner's confirmation
         run: |
           [ "${{ inputs.confirm }}" = "build-signed-release" ] || { echo "::error::Type build-signed-release to confirm."; exit 1; }
+
+      - name: Decoded keystore location (runner temp, deleted at the end)
+        run: echo "RELEASE_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v4
 
