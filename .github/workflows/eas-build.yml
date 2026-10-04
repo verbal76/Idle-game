@@ -150,6 +150,14 @@ jobs:
       - name: Build web bundle + icons
         run: npm run web:build
 
+      # The WebView receives the whole game as one HTML string; the Android Binder
+      # channel that carries it fails (black screen) somewhere above ~10 MB.
+      - name: Page size budget
+        run: |
+          SIZE=$(wc -c < dist/index.html)
+          echo "dist/index.html: $SIZE bytes (budget 7500000)"
+          if [ "$SIZE" -gt 7500000 ]; then echo "::error::Page bundle $SIZE bytes is over the 7.5 MB budget"; exit 1; fi
+
       - name: Generate android/ project (expo prebuild)
         run: npx expo prebuild --platform android --clean
         env:
