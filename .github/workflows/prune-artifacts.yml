@@ -9,10 +9,7 @@ name: Prune Artifacts
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 6 * * *'
-  workflow_run:
-    workflows: ['APK Build (GitHub-hosted)']
-    types: [completed]
+    - cron: '17 6 * * 1'   # weekly (Mondays); it used to run daily and after every build
 
 permissions:
   actions: write

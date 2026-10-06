@@ -29,6 +29,17 @@ on:
       - 'README.md'
       - 'MOBILE_GAME_DEV_RULES.md'
       - '.gitignore'
+      # Documentation / agent instructions / release tooling that is not in the page bundle.
+      # (docs-only pushes used to run lint+tests+smoke AND publish an OTA.)
+      - 'docs/**'
+      - 'CLAUDE.md'
+      - '**/*.md'
+      - '.claude/**'
+      - '.github/**'
+      - 'scripts/tests/**'
+      - 'scripts/inspect-apk.py'
+      - 'scripts/release-signing.mjs'
+      - 'scripts/make-studio-logo.mjs'
 
 permissions:
   contents: read
