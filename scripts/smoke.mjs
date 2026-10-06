@@ -1067,6 +1067,113 @@ async function main() {
       await page.waitForSelector('#downhill');
     });
 
+    await step('applying-update modal, Copy diagnostics, studio card', async () => {
+      await page.waitForSelector('#downhill');
+      const modal = () => page.evaluate(() => {
+        const m = document.getElementById('applying-update');
+        return m ? { text: m.textContent.trim(), top: document.elementFromPoint(innerWidth / 2, innerHeight / 2) === m || m.contains(document.elementFromPoint(innerWidth / 2, innerHeight / 2)) } : null;
+      });
+      const status = (s) => page.evaluate((s) => { window.__UPDATE_STATUS__ = s; window.dispatchEvent(new CustomEvent('update-status', { detail: s })); }, s);
+      // Only the real activation shows it.
+      for (const s of ['checking', 'downloading', 'up-to-date', 'ready', 'deferred', 'offline', 'unavailable']) {
+        await status(s);
+        if (await modal()) fail(`applying modal shown for status '${s}'`);
+      }
+      await status('reloading');
+      let m = await modal();
+      if (!m) fail('applying modal not shown on activation');
+      if (m.text !== 'Please wait, applying update') fail(`applying modal text: ${m.text}`);
+      if (!m.top) fail('applying modal does not cover the screen');
+      await status('reloading');
+      if ((await page.$$('#applying-update')).length !== 1) fail('applying modal stacked');
+      // Android Back does nothing while it is up.
+      await page.evaluate(() => window.__wtbBack && window.__wtbBack());
+      if (!(await modal())) fail('Back dismissed the applying modal');
+      if (!(await page.isVisible('#downhill'))) fail('Back changed the screen under the applying modal');
+      // A failed activation (the shell reports ready again) removes it.
+      await status('ready');
+      if (await modal()) fail('applying modal stayed after a failed activation');
+      if (await page.evaluate(() => document.body.innerText.includes('applying update'))) fail('applying text left behind');
+
+      // Copy diagnostics (About).
+      await page.evaluate(() => {
+        window.__copied = null;
+        Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (t) => { window.__copied = t; } }, configurable: true });
+      });
+      await page.click('#menu-settings');
+      await page.click('#settings-about');
+      await page.waitForSelector('#about-copy');
+      await status('up-to-date');
+      await page.waitForSelector('#about-copy');
+      await page.click('#about-copy');
+      await page.waitForFunction(() => window.__copied);
+      const text = await page.evaluate(() => window.__copied);
+      if (!text.startsWith('HOT ATTIC GAMES DIAGNOSTICS')) fail(`diagnostics header: ${text.slice(0, 60)}`);
+      for (const want of ['Captured at: ', '\nAPPLICATION\n', '\nDEVICE\n', '\nINSTALL\n', '\nOTA\n', '\nUPDATE STATE\n', '\nGOOGLE PLAY / ANDROID\n',
+        'Package ID: com.hotatticgames.snow', 'Update state: Up to date', 'Play API compliant: ', 'Signing: Debug keystore']) {
+        if (!text.includes(want)) fail(`diagnostics missing ${JSON.stringify(want)}:\n${text}`);
+      }
+      if (/undefined|null|NaN/.test(text)) fail(`diagnostics has a bad value:\n${text}`);
+      await page.click('#about-back');
+      await page.waitForSelector('#sfx-vol');
+      await page.click('#settings-back');
+      await page.waitForSelector('#downhill');
+
+      // Studio card mechanics with a stand-in 1x1 image (the real logo is checked in the cold-launch step below).
+      const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+      const shown = await page.evaluate((png) => !!window.__hag.showStudioSplash({ logoUrl: png, durationMs: 200 }), png);
+      if (!shown) fail('studio card not shown');
+      const card = await page.evaluate(() => {
+        const el = document.getElementById('studio-splash'); const img = el.querySelector('img');
+        const r = img.getBoundingClientRect(), c = getComputedStyle(el);
+        return { bg: c.backgroundColor, pos: c.position, fit: getComputedStyle(img).objectFit, w: el.getBoundingClientRect().width, h: el.getBoundingClientRect().height,
+          cx: r.left + r.width / 2, cy: r.top + r.height / 2, vw: innerWidth, vh: innerHeight };
+      });
+      if (card.bg !== 'rgb(11, 19, 32)' || card.pos !== 'fixed' || card.fit !== 'contain') fail(`studio card style: ${JSON.stringify(card)}`);
+      if (Math.abs(card.w - card.vw) > 1 || Math.abs(card.h - card.vh) > 1) fail(`studio card not full screen: ${JSON.stringify(card)}`);
+      if (Math.abs(card.cx - card.vw / 2) > 1.5 || Math.abs(card.cy - card.vh / 2) > 1.5) fail(`studio logo not centred: ${JSON.stringify(card)}`);
+      await page.waitForSelector('#studio-splash', { state: 'detached', timeout: 6000 });
+      const again = await page.evaluate((png) => !!window.__hag.showStudioSplash({ logoUrl: png, durationMs: 200 }), png);
+      if (again) fail('studio card replayed within one page load');
+    });
+
+    await step('studio splash: cold launch shows the canonical logo first (~2.8 s, contained, transparent), then the game; resume never replays it', async () => {
+      for (const [label, vp] of [['portrait', PORTRAIT], ['landscape', { width: 844, height: 390 }]]) {
+        const p = await browser.newPage({ viewport: vp, hasTouch: true });
+        try {
+          const t0 = Date.now();
+          await p.goto(`http://127.0.0.1:${port}/?e2e&studio`);
+          await p.waitForSelector('#studio-splash img', { timeout: 5000 });
+          await p.waitForFunction(() => { const i = document.querySelector('#studio-splash img'); return i && i.complete && i.naturalWidth > 0; }, null, { timeout: 5000 });
+          await p.waitForSelector('#studio-splash.ready', { timeout: 3000 });
+          await p.waitForTimeout(400);                             // past the fade-in
+          const m = await p.evaluate(() => {
+            const el = document.getElementById('studio-splash'), img = el.querySelector('img');
+            const r = img.getBoundingClientRect(), top = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+            return { nw: img.naturalWidth, nh: img.naturalHeight, w: r.width, h: r.height, l: r.left, t: r.top, vw: innerWidth, vh: innerHeight,
+              fit: getComputedStyle(img).objectFit, bg: getComputedStyle(el).backgroundColor, opacity: getComputedStyle(img).opacity, topIsCard: el.contains(top),
+              menuBeneath: !!document.getElementById('downhill') };
+          });
+          if (m.nw !== 1536 || m.nh !== 1024) fail(`${label}: studio logo is not the canonical 1536x1024 artwork: ${JSON.stringify(m)}`);
+          if (Math.abs(m.w / m.h - 1.5) > 0.01) fail(`${label}: studio logo aspect ratio distorted: ${JSON.stringify(m)}`);
+          if (m.l < -0.5 || m.t < -0.5 || m.l + m.w > m.vw + 0.5 || m.t + m.h > m.vh + 0.5) fail(`${label}: studio logo is cropped / outside the screen: ${JSON.stringify(m)}`);
+          if (!m.topIsCard || m.opacity !== '1' || m.bg !== 'rgb(11, 19, 32)') fail(`${label}: studio card is not on top / visible: ${JSON.stringify(m)}`);
+          // The game keeps loading underneath; the card ends within about 2-3.4 s of the page load.
+          await p.waitForSelector('#studio-splash', { state: 'detached', timeout: 5000 });
+          const total = Date.now() - t0;
+          if (total < 2000 || total > 4200) fail(`${label}: studio card lasted ${total} ms`);
+          // The game's own first screen follows (a fresh profile store shows profile creation, not the menu).
+          await p.waitForFunction(() => (document.getElementById('screen')?.children.length ?? 0) > 0, null, { timeout: 15000 });
+          // Background / resume must not bring it back.
+          await p.evaluate(() => { Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true }); document.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('pagehide')); });
+          await p.evaluate(() => { Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true }); document.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('pageshow')); window.dispatchEvent(new Event('focus')); });
+          await p.waitForTimeout(600);
+          if (await p.evaluate(() => !!document.getElementById('studio-splash'))) fail(`${label}: studio card replayed on resume`);
+          if (await p.evaluate(() => document.body.firstElementChild?.tagName === 'PRE' || !!document.querySelector('.fatal-panel'))) fail(`${label}: bootstrap error after the studio card`);
+        } finally { await p.close(); }
+      }
+    });
+
     await step('HUD controls never overlap each other (graphics/UI audit)', async () => {
       // Portrait had FLIP on top of the right steering button.
       await page.click('#downhill');

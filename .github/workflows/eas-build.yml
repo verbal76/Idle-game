@@ -48,7 +48,7 @@ on:
       # are .gitignored generated outputs, so listing menu-bg here
       # is the only way an icon-art change triggers a rebuild.
       - 'src/assets/menu-bg.png'
-      - '.github/workflows/eas-build.yml'
+      # (Editing this workflow or the route script does NOT start a build: run it by hand to try a change.)
 
 permissions:
   # softprops/action-gh-release needs write access to publish the
@@ -129,7 +129,10 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          # Keyed on the dependency lock, NOT on the generated android/ files: those contain the
+          # per-run versionCode, so the old key changed every run, never hit, and saved a new
+          # ~1.5 GB cache every time (billed upload time + cache-quota churn).
+          key: gradle-${{ hashFiles('package-lock.json') }}
           restore-keys: |
             gradle-
 
@@ -150,13 +153,26 @@ jobs:
             exit 1
           fi
           echo "path=$APK" >> "$GITHUB_OUTPUT"
-          echo "name=where-is-the-bottom-build-${{ github.run_number }}.apk" >> "$GITHUB_OUTPUT"
+          # Public names come only from release.json (docs/release-naming.md).
+          node scripts/release-info.mjs --github >> "$GITHUB_OUTPUT"
+          echo "name=$(node scripts/release-info.mjs --github | sed -n 's/^apk=//p')" >> "$GITHUB_OUTPUT"
 
       - name: Read OTA version label
         id: ver
         run: |
           OTA=$(grep -oE "OTA #[0-9]+[^']*" src/version.ts | head -1 || echo "unknown")
           echo "ota=$OTA" >> "$GITHUB_OUTPUT"
+
+      # A public version number is never reused for a different binary:
+      # bump release.json before shipping a new playable build.
+      - name: Refuse to reuse a public version
+        if: github.event_name == 'push'
+        run: |
+          TAG="${{ steps.apk.outputs.tag }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::Release tag $TAG already exists. Bump publicVersion in release.json (see docs/release-naming.md)."
+            exit 1
+          fi
 
       - name: Rename APK for upload
         run: cp "${{ steps.apk.outputs.path }}" "${{ steps.apk.outputs.name }}"
@@ -176,17 +192,23 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: snow-build-${{ github.run_number }}
-          name: "Where's the Bottom? APK build #${{ github.run_number }}"
+          tag_name: ${{ steps.apk.outputs.tag }}
+          name: ${{ steps.apk.outputs.title }}
           body: |
-            Auto-built from commit `${{ github.sha }}`.
+            ## Install: download `${{ steps.apk.outputs.name }}` below
 
-            **${{ steps.ver.outputs.ota }}**
-
-            Standalone sideload APK (release variant, JS bundled). Install via:
-            1. Download the APK below.
+            1. Download the APK.
             2. On your Android device, allow "install from unknown sources" for your browser / file manager.
-            3. **First install of this build line:** uninstall the previous version first (different keystore — Android won't update over it). Local saves will be lost on this one-time reinstall.
-            4. Open the downloaded APK to install.
+            3. Open the downloaded APK to install.
+            4. If Android refuses to update over an existing install (different signing key), uninstall first. Use Settings > Back up first: an uninstall erases local saves.
+
+            After installing, the app keeps itself current over the air; the public version shown in About can stay the same while the OTA revision advances.
+
+            ### Provenance (internal)
+            - Public version: ${{ steps.apk.outputs.version }}
+            - Source commit: `${{ github.sha }}`
+            - OTA revision at build: **${{ steps.ver.outputs.ota }}**
+            - Android versionCode: from `app.json` (see About > Copy diagnostics)
+            - CI run: #${{ github.run_number }}
           files: ${{ steps.apk.outputs.name }}
           token: ${{ secrets.GITHUB_TOKEN }}
