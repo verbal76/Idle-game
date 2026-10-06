@@ -9,8 +9,10 @@ const build = readFileSync('.github/workflows/eas-build.yml', 'utf8');
 describe('release workflows (pre-release review)', () => {
   it('OTA publishing is serialised across branches and never cancelled', () => {
     expect(update).toMatch(/concurrency:\s*\n\s*group: eas-update-preview\s*\n\s*cancel-in-progress: false/);
-    expect(build).toMatch(/cancel-in-progress: false/);
-    expect(build).not.toMatch(/group: [^\n]*github\.ref/);
+    // APK builds: main is never cancelled (a native change must not be dropped); only the artifact-only
+    // hold/candidate branches let a newer [build-apk] push supersede an older run (Actions budget policy).
+    expect(build).toMatch(/cancel-in-progress: \$\{\{ github\.ref != 'refs\/heads\/main' \}\}/);
+    expect(build).toMatch(/group: apk-build-\$\{\{ github\.ref \}\}/);
   });
 
   it('only the live lines can trigger a publish or an APK', () => {
@@ -49,5 +51,22 @@ describe('release workflows (pre-release review)', () => {
 
   it('never publishes the git-ignored placeholder bundle', () => {
     expect(update).toMatch(/__PLACEHOLDER__/);
+  });
+
+  it('Actions budget: docs never publish an OTA, branch builds need [build-apk], prune is weekly, release gates stay', () => {
+    for (const p of ["'docs/**'", "'CLAUDE.md'", "'**/*.md'", "'.github/**'"]) expect(update).toContain(p);
+    expect(build).toMatch(/route:[^]*?if: github\.ref == 'refs\/heads\/main' \|\| github\.event_name == 'workflow_dispatch' \|\| contains\(github\.event\.head_commit\.message, '\[build-apk\]'\)/);
+    expect(build).not.toMatch(/\n {4}paths:/);                       // a path filter would let workflow/doc edits start runs
+    expect(build).toContain("key: gradle-${{ hashFiles('package-lock.json') }}");
+    const prune = readFileSync('.github/workflows/prune-artifacts.yml', 'utf8');
+    expect(prune).toMatch(/cron: '17 6 \* \* 1'/);
+    expect(prune).not.toMatch(/workflow_run/);
+    // Release safety is never traded for minutes.
+    expect(update).toMatch(/Never go backwards/);
+    expect(update).toMatch(/Page size budget/);
+    expect(build).toMatch(/inspect-apk\.py/);
+    const prod = readFileSync('.github/workflows/release-android.yml', 'utf8');
+    expect(prod).toMatch(/on:\s*\n\s*workflow_dispatch:/);          // production builds are manual only
+    expect(prod).not.toMatch(/\n {2}push:/);
   });
 });
