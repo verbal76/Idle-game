@@ -41,40 +41,29 @@ on:
       # Integration candidate (migration + save backup + diagnostics + naming).
       # Same rules: artifact only, never a Release, never an OTA.
       - claude/hold-candidate-next
-    paths:
-      - 'package.json'
-      - 'package-lock.json'
-      - 'app.json'
-      - 'app.config.js'
-      - 'eas.json'
-      - 'babel.config.js'
-      - 'metro.config.js'
-      - 'android/**'
-      - 'ios/**'
-      # Source PNG for the icon — assets/icon.png + adaptive-icon.png
-      # are .gitignored generated outputs, so listing menu-bg here
-      # is the only way an icon-art change triggers a rebuild.
-      - 'src/assets/menu-bg.png'
-      - '.github/workflows/eas-build.yml'
-      - '.github/scripts/release-route.sh'
-      - 'docs/api36-migration.md'
+    # No `paths:` filter: pushes to hold/candidate branches are gated by the job-level `if` below
+    # (a job skipped by `if` uses no runner minutes), so editing docs or this workflow costs nothing.
 
 permissions:
   # softprops/action-gh-release needs write access to publish the
   # release + upload the APK as an asset.
   contents: write
 
-# Never cancelled: a later push that routes OTA-only would otherwise
-# drop a native change that was still building.
+# main: never cancelled (a later OTA-only push must not drop a native change that was still
+# building). Hold / candidate branches: a newer [build-apk] push supersedes the older run.
 concurrency:
-  group: apk-build
-  cancel-in-progress: false
+  group: apk-build-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   route:
     # One-at-a-time rule: decides whether this push is native (APK) or
     # JS-only (OTA). eas-build.yml and eas-update.yml run the same script
     # on the same commit range, so a push can never start both.
+    # Budget rule (docs/actions-budget.md): on branches other than main a build is
+    # wanted only when the commit message says [build-apk]; otherwise this job (and
+    # the build) is skipped and costs no minutes.
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build-apk]')
     runs-on: ubuntu-latest
     outputs:
       native: ${{ steps.route.outputs.native }}
@@ -90,7 +79,7 @@ jobs:
   build:
     needs: route
     # Only pushes that change the native build (not e.g. devDependencies).
-    if: needs.route.outputs.native != 'false'
+    if: needs.route.outputs.native != 'false' && needs.route.result == 'success'
     name: Build Android APK
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -175,7 +164,10 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          # Keyed on the dependency lock, NOT on the generated android/ files: those contain the
+          # per-run versionCode, so the old key changed every run, never hit, and saved a new
+          # ~1.5 GB cache every time (billed upload time + cache-quota churn).
+          key: gradle-${{ hashFiles('package-lock.json') }}
           restore-keys: |
             gradle-
 
