@@ -14,6 +14,11 @@ on:
   pull_request:
     branches:
       - main
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'CLAUDE.md'
+      - '.claude/**'
 
 permissions:
   contents: read

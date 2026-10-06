@@ -48,7 +48,7 @@ on:
       # are .gitignored generated outputs, so listing menu-bg here
       # is the only way an icon-art change triggers a rebuild.
       - 'src/assets/menu-bg.png'
-      - '.github/workflows/eas-build.yml'
+      # (Editing this workflow or the route script does NOT start a build: run it by hand to try a change.)
 
 permissions:
   # softprops/action-gh-release needs write access to publish the
@@ -129,7 +129,10 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          # Keyed on the dependency lock, NOT on the generated android/ files: those contain the
+          # per-run versionCode, so the old key changed every run, never hit, and saved a new
+          # ~1.5 GB cache every time (billed upload time + cache-quota churn).
+          key: gradle-${{ hashFiles('package-lock.json') }}
           restore-keys: |
             gradle-
 
