@@ -86,6 +86,12 @@ jobs:
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # ancestry check against the authoritative baseline
+
+      # Release builds come from the product's one history, never an abandoned/divergent branch.
+      - name: Refuse a source that does not contain the authoritative baseline
+        run: node scripts/assert-release-source.mjs
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -225,6 +231,8 @@ jobs:
           cp "${{ steps.apk.outputs.path }}" "${{ steps.apk.outputs.name }}"
           sha256sum "${{ steps.apk.outputs.name }}" | tee "${{ steps.apk.outputs.name }}.sha256"
           echo "sha256=$(cut -d' ' -f1 "${{ steps.apk.outputs.name }}.sha256")" >> "$GITHUB_OUTPUT"
+          VERSION_CODE=${{ github.run_number }} node scripts/make-release-manifest.mjs --platform android --signing debug \
+            --out "${{ steps.apk.outputs.name }}.manifest.json" "${{ steps.apk.outputs.name }}"
 
       - name: Upload APK as workflow artifact
         uses: actions/upload-artifact@v4
@@ -233,6 +241,7 @@ jobs:
           path: |
             ${{ steps.apk.outputs.name }}
             ${{ steps.apk.outputs.name }}.sha256
+            ${{ steps.apk.outputs.name }}.manifest.json
           if-no-files-found: error
 
       - name: Upload the APK inspection report

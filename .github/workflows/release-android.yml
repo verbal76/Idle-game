@@ -55,6 +55,8 @@ jobs:
         run: echo "RELEASE_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -65,6 +67,10 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
+
+      # Release builds come from the product's one history, never an abandoned/divergent branch.
+      - name: Refuse a source that does not contain the authoritative baseline
+        run: node scripts/assert-release-source.mjs
 
       # Fails first, before anything expensive, when signing is not fully configured.
       - name: Validate the signing secrets and keystore (fail closed)
@@ -121,6 +127,8 @@ jobs:
           MANIFEST=$(find android/app/build/intermediates -name AndroidManifest.xml -path '*release*' -path '*merged_manifest*' -print -quit || true)
           ALLOW_DEBUG_SIGNING=0 python3 scripts/inspect-apk.py "$BASE.apk" "$MANIFEST" | tee apk-report.txt
           sha256sum "$BASE.apk" "$BASE.aab" | tee SHA256SUMS.txt
+          VERSION_CODE=${{ github.run_number }} node scripts/make-release-manifest.mjs --platform android --signing production \
+            --out "$BASE.manifest.json" "$BASE.apk" "$BASE.aab"
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
@@ -130,6 +138,7 @@ jobs:
             ${{ steps.out.outputs.base }}.apk
             ${{ steps.out.outputs.base }}.aab
             SHA256SUMS.txt
+            ${{ steps.out.outputs.base }}.manifest.json
             apk-report.txt
           if-no-files-found: error
 

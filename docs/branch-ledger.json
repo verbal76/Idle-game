@@ -1,0 +1,47 @@
+{
+  "authoritativeLine": "claude/repo-gameplay-review-loq9rq",
+  "reviewed": "2026-10-12",
+  "branches": [
+    {
+      "branch": "claude/hold-candidate-next",
+      "status": "integration-branch",
+      "note": "Proposed next tip of the authoritative line: 0 commits behind it. Contains every hold branch below. Not live; promotion needs the owner."
+    },
+    {
+      "branch": "claude/hold-api36-migration",
+      "status": "in-integration",
+      "containedIn": "claude/hold-candidate-next",
+      "note": "Expo 52-54 / API 36 migration stages 1-3b + docs. Fully contained in the candidate."
+    },
+    {
+      "branch": "claude/hold-save-export",
+      "status": "in-integration",
+      "containedIn": "claude/hold-candidate-next",
+      "note": "Back up & restore saves. Contained in the candidate."
+    },
+    {
+      "branch": "claude/infra-hold-about-splash-applying",
+      "status": "in-integration",
+      "containedIn": "claude/hold-candidate-next",
+      "note": "PR #65: applying-update modal, About diagnostics, studio splash. Contained in the candidate."
+    },
+    {
+      "branch": "claude/hold-release-naming",
+      "status": "in-integration",
+      "containedIn": "claude/hold-candidate-next",
+      "note": "PR #66: public v<number> naming, Actions budget. Contained in the candidate."
+    },
+    {
+      "branch": "Github-APK-Transition-snow",
+      "status": "intentional",
+      "acceptedTip": "bf96e840e5747c5742efa0b22360e62bbd45b903",
+      "note": "Single commit bf96e84 turns its OTA/APK workflows into disabled stubs. Intentional: the stale snow line must not publish."
+    },
+    {
+      "branch": "main",
+      "status": "intentional",
+      "acceptedTip": "968e195d5dac1d6a6a339c89cafac1ddadd06d5d",
+      "note": "Default branch, 82 commits behind the authoritative line. Its 3 own commits: workflow stubs (intentional, so a stale main cannot publish), the owner-uploaded canonical logo (carried into the candidate byte-identical), weekly prune (equivalent change is in the candidate). Integration of the authoritative line into main is an OWNER decision (see docs/branch-ledger.md)."
+    }
+  ]
+}
