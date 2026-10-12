@@ -50,10 +50,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SOURCE_SHA: ${{ inputs.source_sha }}
-      RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
-      RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
-      RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-      RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
     steps:
       - name: Require the owner's confirmation
         run: |
@@ -85,9 +81,19 @@ jobs:
         run: node scripts/verify-approved-source.mjs "$SOURCE_SHA"
 
       # Fails first, before anything expensive, when signing is not fully configured.
+      # Secrets are visible ONLY to the steps that need them (least privilege): never to npm ci,
+      # the test suite, the web build or prebuild, which run third-party code.
       - name: Validate the signing secrets and keystore (fail closed)
         id: key
         run: node scripts/release-signing.mjs check
+        env:
+          RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+
+      - name: Remove the decoded keystore until the Gradle step needs it
+        run: rm -f "$RELEASE_KEYSTORE_FILE"
 
       - uses: android-actions/setup-android@v3
         with:
@@ -120,9 +126,21 @@ jobs:
 
       - run: bash .github/scripts/install-android-components.sh
 
+      - name: Re-decode the keystore for signing (secrets scoped to this step and the build)
+        run: node scripts/release-signing.mjs check
+        env:
+          RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+
       - name: Build signed AAB and APK
         working-directory: android
         run: ./gradlew bundleRelease assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx4g"
+        env:
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
 
       - name: Name, hash, and gate the artifacts
         id: out

@@ -69,6 +69,29 @@ describe('no automatic publishing path', () => {
   });
 });
 
+describe('least-privilege secrets', () => {
+  it('signing secrets are visible only to the validate, re-decode and Gradle steps, never job-wide', () => {
+    const t = text('release-android.yml');
+    const beforeSteps = t.slice(0, t.indexOf('\n    steps:'));
+    expect(beforeSteps.replace(/^#.*$/gm, '')).not.toMatch(/secrets\./);
+    const steps = t.slice(t.indexOf('\n    steps:')).split(/\n {6}- /).slice(1);
+    const withSecrets = steps.filter(s => /secrets\./.test(s)).map(s => /name: ([^\n]+)/.exec(s)?.[1] ?? '?');
+    expect(withSecrets).toEqual(['Validate the signing secrets and keystore (fail closed)', 'Re-decode the keystore for signing (secrets scoped to this step and the build)', 'Build signed AAB and APK']);
+    const gradle = steps.find(s => s.startsWith('name: Build signed AAB'))!;
+    expect(gradle).not.toMatch(/KEYSTORE_B64/);                    // the raw keystore is not needed by Gradle
+  });
+
+  it('workflow token permissions are read-only except the release job and the artifact pruner', () => {
+    for (const f of files) {
+      const t = text(f);
+      const top = /\npermissions:\n((?: {2}.*\n|#.*\n)+)/.exec(`\n${t}`)?.[1] ?? '';
+      expect(top, f).toMatch(/(contents: read|actions: write)/);
+      expect(top, f).not.toMatch(/contents: write/);
+    }
+    expect(text('eas-build.yml').match(/contents: write/g)).toHaveLength(1);   // only the release job
+  });
+});
+
 const git = (cwd: string, ...a: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', ...a], { cwd, encoding: 'utf8' }).trim();
 
 describe('exact approved-source verification', () => {
