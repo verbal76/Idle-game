@@ -9,8 +9,8 @@ One game, three targets, one source line (`authoritative.json`). Targets are sel
 | Platform | Package | Shell | Status (evidence) |
 | --- | --- | --- | --- |
 | Android | `<Title> Build NN APK.apk` | Expo SDK 54 / React Native 0.81 WebView shell, `com.hotatticgames.snow`, API 36, 16 KB aligned | Built on GitHub Actions (run 118); CI gate PASS; not device-tested on the new stack |
-| Windows x86-64 | `<Title> Build NN EXE.zip` | Electron 44.7.0 shell (`desktop/`) hosting the same page | Packaged locally (cross-packaged on Linux); **never executed**: no Windows machine available |
-| Linux x86-64 (native) | `<Title> Build NN Linux.tar.gz` | same Electron shell | Packaged and **executed headless** (Xvfb, software GL) in this environment: boots the game, studio splash plays and clears, 3 music tracks wired, no fatal screen. Not a Steam Deck |
+| Windows x86-64 | `<Title> Build NN EXE.zip` | Electron 44.7.0 shell (`desktop/`) hosting the same page | Packaged locally (cross-packaged on Linux); **never executed**: no Windows machine available. Gamepad input rides the same Chromium Gamepad API (standard mapping) but is unverified on Windows |
+| Linux x86-64 (native) | `<Title> Build NN Linux.tar.gz` | same Electron shell | Packaged and **executed headless** (Xvfb, software GL) in this environment: boots the game, studio splash plays and clears, 3 music tracks wired, no fatal screen; additionally driven with a **simulated** gamepad through `scripts/smoke-packaged-controller.mjs` (bridge present and sandboxed, pad runs first launch to the main menu, Quit game exits the process, `SteamDeck=1` goes full screen with Deck prompts). Not a Steam Deck, not a physical controller |
 
 `all` refuses to succeed unless all three exist (Android needs the hosted APK build, or `--android-apk`). The hosted equivalent is the manually dispatched `eas-build.yml` (`platform`, `source_sha`, `build_number`, `destination`), which publishes one GitHub Release per build number only after owner confirmation and environment approval (docs/release-authorization.md).
 

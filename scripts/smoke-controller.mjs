@@ -14,10 +14,10 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { chromium } from 'playwright-core';
+import { FAKE_PAD, BTN } from './lib/fake-pad.mjs';
 
 const DIST = 'dist';
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml' };
-const BTN = { south: 0, east: 1, west: 2, north: 3, lb: 4, rb: 5, lt: 6, rt: 7, select: 8, start: 9, up: 12, down: 13, left: 14, right: 15 };
 
 function findChromium() {
   return [process.env.CHROMIUM_PATH, '/opt/pw-browsers/chromium',
@@ -37,21 +37,6 @@ async function serve() {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   return server;
 }
-
-// The simulated pad lives in the page; the test drives it through window.__pad.
-const FAKE_PAD = () => {
-  const ID = 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)';
-  const s = { connected: false, id: ID, axes: [0, 0, 0, 0], buttons: Array(17).fill(false) };
-  window.__pad = {
-    connect(id) { s.connected = true; if (id) s.id = id; },
-    disconnect() { s.connected = false; s.buttons.fill(false); s.axes = [0, 0, 0, 0]; },
-    set(down, axes) { s.buttons.fill(false); for (const i of down) s.buttons[i] = true; if (axes) s.axes = axes; },
-    state: s,
-  };
-  navigator.getGamepads = () => (s.connected
-    ? [{ id: s.id, index: 0, connected: true, mapping: 'standard', timestamp: performance.now(), axes: [...s.axes], buttons: s.buttons.map((p) => ({ pressed: p, touched: p, value: p ? 1 : 0 })) }, null, null, null]
-    : [null, null, null, null]);
-};
 
 const errors = [];
 const fail = (m) => { throw new Error(m); };
