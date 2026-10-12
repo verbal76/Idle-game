@@ -19,7 +19,7 @@ export function collect(read = (p) => readFileSync(p, 'utf8'), exists = existsSy
       name, version: meta.version,
       license: typeof meta.license === 'string' ? meta.license : (meta.license?.type ?? null),
       homepage: meta.homepage ?? (typeof meta.repository === 'string' ? meta.repository : meta.repository?.url ?? null),
-      text: licenseFile && exists(`${dir}/${licenseFile}`) ? read(`${dir}/${licenseFile}`).trim() : null,
+      text: licenseFile && exists(`${dir}/${licenseFile}`) ? read(`${dir}/${licenseFile}`).replace(/\r\n/g, '\n').trim() : null,
     };
   });
 }
