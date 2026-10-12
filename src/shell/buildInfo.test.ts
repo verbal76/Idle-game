@@ -128,14 +128,16 @@ describe('Release diagnostics (About / Copy diagnostics)', () => {
   });
 
   it('shows the public version separately from OTA / commit / versionCode', () => {
-    const r = byId(describeBuild(shell, { ...build, productName: "Where's the Bottom?", publicVersion: 83 }, ctx));
+    const r = byId(describeBuild(shell, { ...build, productName: "Where's the Bottom?", publicVersion: 83, publicVersionLabel: 'Build 83' }, ctx));
     expect(r['product'].full).toBe("Where's the Bottom?");
-    expect(r['public-version'].full).toBe('v83');
-    expect(r['ota-name'].full).not.toBe('v83');
+    expect(r['public-version'].full).toBe('Build 83');
+    expect(r['ota-name'].full).not.toBe('Build 83');
     expect(r['native-build'].full).toBe('5');
-    expect(r['commit'].full).not.toBe('v83');
-    const text = diagnosticsText(describeBuild(shell, { ...build, publicVersion: 83 }, ctx));
-    expect(text).toMatch(/Version: v83/);
+    expect(r['commit'].full).not.toBe('Build 83');
+    const text = diagnosticsText(describeBuild(shell, { ...build, publicVersion: 83, publicVersionLabel: 'Build 83' }, ctx));
+    expect(text).toMatch(/Release: Build 83/);
+    // the earlier "v<N>" style is one switch away and uses the same number
+    expect(byId(describeBuild(shell, { ...build, publicVersion: 83, publicVersionLabel: 'v83' }, ctx))['public-version'].full).toBe('v83');
     expect(byId(describeBuild(shell, build, ctx))['public-version'].full).toBe(UNAVAILABLE);
   });
 

@@ -59,7 +59,7 @@ const targetSdk = sdkLevel('targetSdkVersion');
 const rel = releaseInfo();
 
 const data = {
-  productName: rel.productName, publicVersion: rel.publicVersion,
+  productName: rel.productName, publicVersion: rel.publicVersion, publicVersionLabel: rel.version,
   branch, commit, commitShort, dirty, builtAt, appVersion, androidVersionCode,
   appName, packageId, minSdk, compileSdk, targetSdk,
 };
@@ -71,6 +71,7 @@ writeFileSync(OUTPUT,
   `export interface BuildInfo {\n` +
   `  productName: string;\n` +
   `  publicVersion: number;\n` +
+  `  publicVersionLabel: string;\n` +
   `  branch: string;\n` +
   `  commit: string;\n` +
   `  commitShort: string;\n` +
