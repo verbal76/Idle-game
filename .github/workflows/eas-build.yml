@@ -339,7 +339,12 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm ci --prefix desktop --no-audit --no-fund
       - name: Build, package, manifest and verify (tests + web build + page budget included)
-        run: node scripts/build.mjs --platform "${{ matrix.platform }}" --source-sha "$SOURCE_SHA" --build-number "${{ inputs.build_number }}"
+        # github_releases = a RELEASE build (--release: exact approved SHA, clean tree, authoritative line, standard
+        # file names). local_only = a development build: its files say DEV and can never be published.
+        run: |
+          FLAGS=""
+          if [ "${{ inputs.destination }}" = "github_releases" ]; then FLAGS="--release"; fi
+          node scripts/build.mjs --platform "${{ matrix.platform }}" --source-sha "$SOURCE_SHA" --build-number "${{ inputs.build_number }}" $FLAGS
       - name: Packaged Linux executable boots the game (headless, software GL)
         if: matrix.platform == 'linux'
         run: |
@@ -395,6 +400,7 @@ jobs:
           mkdir out
           find dl -type f -exec cp {} out/ \;
           rm -f out/*.apk.sha256
+          if ls out | grep -q ' DEV '; then echo "::error::a development (DEV) artifact reached the release job"; exit 1; fi
           node scripts/make-release-manifest.mjs --merge out/build-manifest.json out/*.manifest.json
           node scripts/make-release-manifest.mjs --checksums out/build-manifest.json out/checksums.sha256
           rm -f out/*.manifest.json

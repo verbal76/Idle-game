@@ -1,0 +1,248 @@
+{
+  "pack": "Input Prompts (JulioCacko), supplied by the owner as Source.zip",
+  "archiveSha256": "f6c75921b9d6ab2cb2b5249f547c7b7ba19e22da9f4f3b45693cf0912f25ded0",
+  "licenseEvidence": "Store listing screenshot supplied by the owner shows \"CC0 1.0 Universal\" for assets and \"MIT\" for code. The archive itself contains no license file; the owner must confirm against the original download page before release. See docs/THIRD_PARTY_ASSETS.md.",
+  "modified": false,
+  "files": [
+    {
+      "file": "xbox/south.png",
+      "source": "XGamepad/Default/T_X_A_Color.png",
+      "sha256": "a836d9d1023afd67ab37a8a8ac8bf7fb9c175731994c26abbcd0a5576fdc755c"
+    },
+    {
+      "file": "xbox/east.png",
+      "source": "XGamepad/Default/T_X_B_Color.png",
+      "sha256": "1627a5eac2c88b74a0ec3cba33f0f66783d09c01d85ff20a38a2c7f392a9c8fc"
+    },
+    {
+      "file": "xbox/west.png",
+      "source": "XGamepad/Default/T_X_X_Color.png",
+      "sha256": "cfd4380316fe89ec32a22ff05bc58612945d44abf76f8c94666b6fc9506157b6"
+    },
+    {
+      "file": "xbox/north.png",
+      "source": "XGamepad/Default/T_X_Y_Color.png",
+      "sha256": "ce09f539616a780dde94619edbefe7e605d1b0429ba3c9182c12fdf9f6f965d2"
+    },
+    {
+      "file": "xbox/lb.png",
+      "source": "XGamepad/Default/T_X_LB.png",
+      "sha256": "28bfd55655e3c5588c2664868ab2b96f0543f2ae0de197a95cad0e4d2eb95196"
+    },
+    {
+      "file": "xbox/rb.png",
+      "source": "XGamepad/Default/T_X_RB.png",
+      "sha256": "5973c04be16302f5bf56837f7df35255474efa0e6f29d3a7ad7f7e492be355b8"
+    },
+    {
+      "file": "xbox/lt.png",
+      "source": "XGamepad/Default/T_X_LT.png",
+      "sha256": "dd7f7b711df2a980451d4a49ee924306608d03b74620701f67244f4d3e2e8d13"
+    },
+    {
+      "file": "xbox/rt.png",
+      "source": "XGamepad/Default/T_X_RT.png",
+      "sha256": "4143142ccac6d6002d69f0b3cf23c9a8efd15ee5684ddc222732af82d20292e8"
+    },
+    {
+      "file": "xbox/dpad.png",
+      "source": "XGamepad/Default/T_X_Dpad.png",
+      "sha256": "f176363da04a7c58301e46480a7182843672dbf30fe7c2f15b1627d06245f31f"
+    },
+    {
+      "file": "xbox/dpad-left.png",
+      "source": "XGamepad/Default/T_X_Dpad_Left.png",
+      "sha256": "4d5e365341c5552f2a6057ccfdef3f9c7e0063cd864a57b3aa20e74253ce2a2d"
+    },
+    {
+      "file": "xbox/dpad-right.png",
+      "source": "XGamepad/Default/T_X_Dpad_Right.png",
+      "sha256": "3b92ad377713da6c60545b944efa2dc7e1e48fdfacff1c9a221840a303f00e1c"
+    },
+    {
+      "file": "xbox/stick-l.png",
+      "source": "XGamepad/Default/T_X_L_2D.png",
+      "sha256": "414f670566db50c1ca630e31b60629d4fb6bf1a224feb5756e59cd34fbff8718"
+    },
+    {
+      "file": "xbox/sprite.png",
+      "source": "XGamepad/Default/T_X_Sprite.png",
+      "sha256": "915d6028e89323a9dab98d1feeb1ffa6a1733b3bd526a29e1b29b2265e717db9"
+    },
+    {
+      "file": "playstation/south.png",
+      "source": "P5Gamepad/Default/T_P5_Cross_Color.png",
+      "sha256": "558e36c380765dd77dc8d64814eb7578acfcf4978de9a697ac3298ab05f97081"
+    },
+    {
+      "file": "playstation/east.png",
+      "source": "P5Gamepad/Default/T_P5_Circle_Color.png",
+      "sha256": "6e1e6aa6075911aa6ebe32452de9891ecef2f71c0fd5e0be0277a7b9c59015b6"
+    },
+    {
+      "file": "playstation/west.png",
+      "source": "P5Gamepad/Default/T_P5_Square_Color.png",
+      "sha256": "aea6f53aa2a5dda588011e68814bd321a17b861b72befdd42a07c7823614ffea"
+    },
+    {
+      "file": "playstation/north.png",
+      "source": "P5Gamepad/Default/T_P5_Triangle_Color.png",
+      "sha256": "12e81cfe23586170bc9f1c9c84c14ea0754ef660c349806827ea10e2240ad33c"
+    },
+    {
+      "file": "playstation/lb.png",
+      "source": "P5Gamepad/Default/T_P5_L1.png",
+      "sha256": "9304d2cb8341ac8b707f2babc5aa982d7d5331a79d40d504b6c2091c25b3809a"
+    },
+    {
+      "file": "playstation/rb.png",
+      "source": "P5Gamepad/Default/T_P5_R1.png",
+      "sha256": "0056bc13e10857d7ceee3490ddbd870de8b038963f0298ffdb27b7284d00071d"
+    },
+    {
+      "file": "playstation/lt.png",
+      "source": "P5Gamepad/Default/T_P5_L2.png",
+      "sha256": "79a772df2ba7403db742a6b2b819b4b08a1820e082329a87240a255d1da60b65"
+    },
+    {
+      "file": "playstation/rt.png",
+      "source": "P5Gamepad/Default/T_P5_R2.png",
+      "sha256": "698c211d47b4a73a99c46f03b0f26bf3b4ba430a0f8483f100f1e862b2649d96"
+    },
+    {
+      "file": "playstation/dpad.png",
+      "source": "P5Gamepad/Default/T_P5_Dpad.png",
+      "sha256": "19a45ff194758886b4cd98d7628b4446a2587f29454802976a17831100a3f365"
+    },
+    {
+      "file": "playstation/dpad-left.png",
+      "source": "P5Gamepad/Default/T_P5_Dpad_Left.png",
+      "sha256": "3083be55d4e656273414b8a88e7b8e047c323a0abb8fdd766cc4ab43424ffb72"
+    },
+    {
+      "file": "playstation/dpad-right.png",
+      "source": "P5Gamepad/Default/T_P5_Dpad_Right.png",
+      "sha256": "a92514bd58e9dd94f4380725b0ad4288adedaed1453c3ed16307da0aa487be7f"
+    },
+    {
+      "file": "playstation/stick-l.png",
+      "source": "P5Gamepad/Default/T_P5_L_2D.png",
+      "sha256": "6e7ac0b75ebbd372e51ffa8fe03fa61161a2c4e616d795c25f0e122e27e912b6"
+    },
+    {
+      "file": "playstation/start.png",
+      "source": "P5Gamepad/Default/T_P5_Options.png",
+      "sha256": "69cd0081b8d7ac5803886ef1a01ad01b54befb41207bc46503fcca2fbbc13d34"
+    },
+    {
+      "file": "switch/south.png",
+      "source": "SGamepad/Default/T_S_B.png",
+      "sha256": "c8258c092b3856c0f7f4c604080a9380986509396838d0cde1a2a54d4001cc33"
+    },
+    {
+      "file": "switch/east.png",
+      "source": "SGamepad/Default/T_S_A.png",
+      "sha256": "a6a438981faab2ed85cfd42bbbe02f383442cd157e84f1068f8b145a6880dafe"
+    },
+    {
+      "file": "switch/west.png",
+      "source": "SGamepad/Default/T_S_Y.png",
+      "sha256": "0c9af8e58b5a8ead7bb168fbc5df8054655d1af8d17fad84421c5eb7af76a89c"
+    },
+    {
+      "file": "switch/north.png",
+      "source": "SGamepad/Default/T_S_X.png",
+      "sha256": "ce80af0a4ea98e580df1c87c5836636bf1c5401445cb83392ab92cd3b3071913"
+    },
+    {
+      "file": "switch/lb.png",
+      "source": "SGamepad/Default/T_S_LB.png",
+      "sha256": "e04f53283397ff0c6ee8954d2e341401a29588573bf970c704feb09c3b76eb8e"
+    },
+    {
+      "file": "switch/rb.png",
+      "source": "SGamepad/Default/T_S_RB.png",
+      "sha256": "46c02993601988847ae5bfff65b988539a6f3956eca28e0c1608ede4a19bb326"
+    },
+    {
+      "file": "switch/lt.png",
+      "source": "SGamepad/Default/T_S_LT.png",
+      "sha256": "cb80ed18ca1fa2fde3f09497ce0c0b73930fa98f0be05f8d19cc848065e4eaa0"
+    },
+    {
+      "file": "switch/rt.png",
+      "source": "SGamepad/Default/T_S_RT.png",
+      "sha256": "9086d326de3bdf11d7671de1223622c5f165ef3ae09e972213bd3681f1affc02"
+    },
+    {
+      "file": "switch/dpad.png",
+      "source": "SGamepad/Default/T_S_Dpad.png",
+      "sha256": "1bda8bd8d42c21b748a5566767d974ff48afd5f9704fdfd913ac0b5d25f3c0f0"
+    },
+    {
+      "file": "switch/dpad-left.png",
+      "source": "SGamepad/Default/T_S_Dpad_Left.png",
+      "sha256": "3735b0bcefb246a948e550fc5821f09a4a38a5a9cd5f28edb0b1a61f277d04a4"
+    },
+    {
+      "file": "switch/dpad-right.png",
+      "source": "SGamepad/Default/T_S_Dpad_Right.png",
+      "sha256": "858c077f641b631da94cff045860a238cd7a7029d3e8aa0943827a37330beda8"
+    },
+    {
+      "file": "switch/stick-l.png",
+      "source": "SGamepad/Default/T_S_L_2D.png",
+      "sha256": "8165ece3bf191fdede2f37196239d282275e9f26d0f20fd0e79cd119b0ef4888"
+    },
+    {
+      "file": "switch/start.png",
+      "source": "SGamepad/Default/T_S_Plus.png",
+      "sha256": "17a456a74bb445950e4423e342a602d486c9bf5c69538b8518e72149d38e8ff4"
+    },
+    {
+      "file": "keyboard/left.png",
+      "source": "Keyboard_Mouse/White/T_Left_Key_White.png",
+      "sha256": "6a2b0deb150716425a4e8e64b0c0f3186c9b6624e24a391b55a47573f153da53"
+    },
+    {
+      "file": "keyboard/right.png",
+      "source": "Keyboard_Mouse/White/T_Right_Key_White.png",
+      "sha256": "ea0c28d3f2129b679c20c5768e1a2a410ff1a71d3a677001920b71061af85633"
+    },
+    {
+      "file": "keyboard/up.png",
+      "source": "Keyboard_Mouse/White/T_Up_Key_White.png",
+      "sha256": "4939a26ecd9e7882eb82f98d4ee86f355878ec54208449a69baa2885931a196d"
+    },
+    {
+      "file": "keyboard/down.png",
+      "source": "Keyboard_Mouse/White/T_Down_Key_White.png",
+      "sha256": "bc9b366551e00238c9c196f0ff91a8392befac82f96640044770a2cd5c801153"
+    },
+    {
+      "file": "keyboard/space.png",
+      "source": "Keyboard_Mouse/White/T_Space_Key_White.png",
+      "sha256": "59a1c551dd1baabeae40039ba8c92306be423d0e69b904d4d6bcf60b922e1eff"
+    },
+    {
+      "file": "keyboard/shift.png",
+      "source": "Keyboard_Mouse/White/T_Shift_Key_White.png",
+      "sha256": "0ad62f75e9987749303b2334be477a19f309e5b56b05f4fcc69a66520b6a12dc"
+    },
+    {
+      "file": "keyboard/f.png",
+      "source": "Keyboard_Mouse/White/T_F_Key_White.png",
+      "sha256": "c08d50f6ab59fa8faa7d8781968a8db83c14a02f5f7dd33ccbbe531b8f6d006a"
+    },
+    {
+      "file": "keyboard/esc.png",
+      "source": "Keyboard_Mouse/White/T_Esc_Key_White.png",
+      "sha256": "2bd6c1adc05a72314b34430474823e41e4ed397a49820ca33e24fe10783ef3de"
+    },
+    {
+      "file": "keyboard/enter.png",
+      "source": "Keyboard_Mouse/White/T_Enter_Key_White.png",
+      "sha256": "fb420475b5cfd4134850869529dc4fa9ccdf3ed7e661511c8b066742f2ae45be"
+    }
+  ]
+}

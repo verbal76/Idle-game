@@ -7,6 +7,8 @@ import { showBackup } from './Backup';
 import { openBugReport, openFeatureRequest } from '../util/bugReport';
 import { escapeHtml } from '../util/escapeHtml';
 import { safeAsync } from '../util/safeAsync';
+import { inputSystem } from '../input/system';
+import { PROMPT_PREFS, PROMPT_PREF_LABEL, savePref } from '../input/prompts';
 
 // State machine for the OTA update flow. Native side posts these via
 // CustomEvent('update-status'); the Settings panel listens and updates
@@ -73,6 +75,10 @@ export function showSettings(
             <span class="setting-label">Vibration</span>
             <button id="haptics-toggle" class="toggle" aria-pressed="${hapticsOn}">${hapticsOn ? 'On' : 'Off'}</button>
           </div>
+          ${inputSystem() && inputSystem()!.prompts.source !== 'touch' ? `<div class="setting-row" id="prompt-row">
+            <span class="setting-label">Button prompts</span>
+            <button id="prompt-style" class="toggle">${PROMPT_PREF_LABEL[inputSystem()!.prompts.pref]}</button>
+          </div>` : ''}
           <p class="muted" id="music-now">${escapeHtml(nowPlaying(music))}</p>
           <div class="list">
             <button id="music-skip" class="btn-ghost">Skip track</button>
@@ -136,6 +142,17 @@ export function showSettings(
           profile.settings.haptics = on;
           flushSave();
         }
+      });
+
+      // Which device's buttons the prompts show: Auto follows the last device used.
+      const promptBtn = root.querySelector<HTMLButtonElement>('#prompt-style');
+      promptBtn?.addEventListener('click', () => {
+        const input = inputSystem();
+        if (!input) return;
+        const next = PROMPT_PREFS[(PROMPT_PREFS.indexOf(input.prompts.pref) + 1) % PROMPT_PREFS.length];
+        savePref(next);
+        input.setPref(next);
+        promptBtn.textContent = PROMPT_PREF_LABEL[next];
       });
 
       // Preview at the chosen level when the drag ends.

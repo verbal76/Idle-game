@@ -9,7 +9,8 @@
     "web:dev": "node scripts/ensure-generated.mjs && vite",
     "eas-build-post-install": "npm run web:build",
     "test": "node scripts/ensure-generated.mjs && vitest run",
-    "test:smoke": "node scripts/smoke.mjs",
+    "test:smoke": "node scripts/smoke.mjs && node scripts/smoke-controller.mjs",
+    "test:smoke:controller": "node scripts/smoke-controller.mjs",
     "lint": "node scripts/ensure-generated.mjs && eslint .",
     "check": "node scripts/ensure-generated.mjs && tsc && eslint . && vitest run",
     "perf:runstart": "node scripts/perf-runstart.mjs"

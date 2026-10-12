@@ -3,7 +3,7 @@
 // The game is the SAME single-file bundle Android runs (game/index.html, built by `npm run web:build`);
 // this file is only the platform adapter: window, fullscreen, audio URLs and navigation lockdown.
 // Saves live in the page's IndexedDB under the stable origin app://game (Electron's userData folder).
-const { app, BrowserWindow, Menu, net, protocol } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, net, powerMonitor, protocol } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -11,6 +11,10 @@ const { resolveGameFile } = require('./paths');
 
 const GAME_DIR = path.join(__dirname, 'game');
 const SMOKE = process.env.WTB_SMOKE === '1';
+// Steam sets SteamDeck=1 in the environment of games launched on a Steam Deck (Game Mode or Desktop Mode);
+// WTB_FULLSCREEN=1 / --fullscreen force it elsewhere (e.g. a Steam Machine on a TV). Hardware-untested.
+const STEAM_DECK = process.env.SteamDeck === '1';
+const FULLSCREEN = STEAM_DECK || process.env.WTB_FULLSCREEN === '1' || process.argv.includes('--fullscreen');
 const TRACKS = [
   { file: 'Powder_Parade.mp3', title: 'Powder Parade' },
   { file: 'Trail_Snack_Parade.mp3', title: 'Trail Snack Parade' },
@@ -27,7 +31,12 @@ function createWindow() {
     backgroundColor: '#0b1320',                    // the app's own start-up colour: no white flash
     autoHideMenuBar: true,
     show: !SMOKE,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
+    fullscreen: FULLSCREEN && !SMOKE,
+    webPreferences: {
+      contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false,
+      preload: path.join(__dirname, 'preload.js'),
+      additionalArguments: STEAM_DECK ? ['--wtb-steamdeck=1'] : [],
+    },
   });
   Menu.setApplicationMenu(null);
   win.webContents.on('before-input-event', (e, input) => {
@@ -42,9 +51,16 @@ function createWindow() {
       `(function(){var u=${JSON.stringify(tracks)};window.__MUSIC_URLS__=u;try{window.dispatchEvent(new CustomEvent('music-urls',{detail:u}));}catch(e){}})();true;`,
     ).catch(() => {});
   });
+  // Sleep / lock: tell the game so it pauses the run and saves (the same path as backgrounding on Android).
+  const toPage = (name) => { if (!win.isDestroyed()) win.webContents.executeJavaScript(`window.dispatchEvent(new Event(${JSON.stringify(name)}));true;`).catch(() => {}); };
+  powerMonitor.on('suspend', () => toPage('wtb-suspend'));
+  powerMonitor.on('lock-screen', () => toPage('wtb-suspend'));
+  powerMonitor.on('resume', () => toPage('wtb-resume'));
   win.loadURL('app://game/index.html');
   return win;
 }
+
+ipcMain.on('wtb:quit', () => app.quit());
 
 app.whenReady().then(() => {
   protocol.handle('app', (req) => {

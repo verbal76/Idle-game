@@ -1141,3 +1141,35 @@ details.build-details[open] > summary::after { border-top-color: transparent; bo
 .backup-rows li { margin: 4px 0; }
 /* The hidden attribute must win over component display rules. */
 [hidden] { display: none !important; }
+
+/* ---- Controller / keyboard support (docs/controller-input.md) ---- */
+/* Focus ring: only for pad / keyboard users (the root gets .nav-ring), never for touch. */
+.nav-ring .fullscreen-panel button:focus,
+.nav-ring .fullscreen-panel [role="button"]:focus,
+.nav-ring .fullscreen-panel input:focus,
+.nav-ring .fullscreen-panel select:focus {
+  outline: 4px solid #fff;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 7px rgba(255, 196, 46, 0.85), 0 0 22px 8px rgba(255, 196, 46, 0.55);
+  position: relative;
+  z-index: 1;
+}
+.nav-ring .fullscreen-panel input[type="range"]:focus { box-shadow: none; outline-offset: 6px; }
+
+/* Button prompts: a strip along the bottom, shown only for pad / keyboard users. */
+.prompt-bar {
+  position: fixed; left: 50%; bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  display: none; align-items: center; gap: 18px;
+  padding: 6px 16px; border-radius: 999px;
+  background: rgba(11, 19, 32, 0.78); color: #fff;
+  font: 700 14px/1 system-ui, sans-serif;
+  pointer-events: none; z-index: 10090; white-space: nowrap;
+}
+.prompt-bar.on { display: flex; }
+.prompt-bar .prompt { display: inline-flex; align-items: center; gap: 6px; }
+.prompt-bar .glyph { width: var(--glyph, 28px); height: var(--glyph, 28px); display: inline-block; flex: none; }
+.prompt-bar .glyph-sprite { background-repeat: no-repeat; }
+.prompt-bar .glyph-text { width: auto; padding: 0 6px; border: 1px solid #fff; border-radius: 6px; line-height: var(--glyph, 28px); }
+.prompt-bar .prompt-label { opacity: 0.95; }
+@media (max-width: 480px) { .prompt-bar { gap: 10px; padding: 4px 10px; font-size: 12px; } }

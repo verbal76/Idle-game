@@ -25,6 +25,13 @@ Two modes, picked from the main menu:
 | **FLIP** | Front flip; **FLIP while carving** = back flip |
 | ⏸ / Android Back | Pause (Back again resumes). Backgrounding the app pauses too |
 
+**Controller and keyboard** (desktop, Steam Deck, and Android with a paired pad) drive the same actions;
+touch is unchanged. Left stick (or D-pad) steers, **A / Cross** jumps (hold to charge), **X / Square** flips,
+**LB / LT** carves, **Start** pauses, **B / Circle** is Back; in menus the D-pad or stick moves focus and A
+presses. Keyboard: arrows/A-D steer, Space jump, F flip, Shift carve, Esc pause/back. Button prompts follow the
+last device used (Settings > Button prompts to pick one). Full mapping and test status:
+`docs/controller-input.md`.
+
 ### Tricks and payouts
 
 - Flip: 1 ❄ per flip, back flips +25%. Spins: 0.5 ❄ per 180°.

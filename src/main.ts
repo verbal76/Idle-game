@@ -14,6 +14,7 @@ import { SteerStrip } from './input/SteerStrip';
 import { soundFx } from './audio/SoundFx';
 import { haptics } from './util/haptics';
 import { ActionButtons } from './input/ActionButtons';
+import { installInput } from './input/system';
 import { MusicPlayer } from './audio/MusicPlayer';
 import { Game } from './scene/Game';
 import { Stage } from './scene/Stage';
@@ -39,6 +40,12 @@ declare global {
   interface Window {
     ReactNativeWebView?: { postMessage: (data: string) => void };
   }
+}
+
+/** Asks the app shell to leave: the Android shell (WebView bridge) or the desktop shell (Electron preload). */
+function quitApp(): void {
+  if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage('quit:app');
+  else window.wtbDesktop?.quit();
 }
 
 type RunMode = Exclude<MenuChoice, 'switch-profile' | 'upgrades' | 'stats' | 'settings' | 'quit'>;
@@ -103,6 +110,7 @@ async function bootstrap(): Promise<void> {
 
   installBackBridge();
   installTapGuard();
+  installInput();
   const { store, persistent } = await openStore();
   const profiles = new ProfileService(store);
   await profiles.init();
@@ -216,7 +224,7 @@ async function bootstrap(): Promise<void> {
       }
       if (choice === 'quit') {
         await profiles.save();
-        window.ReactNativeWebView?.postMessage('quit:app');
+        quitApp();
         // Android may only background the app: keep the menu alive so
         // it still works when the player comes back.
         continue;
@@ -271,12 +279,12 @@ async function runSession(
 
     let crashed = false;
     const callout = createCallouts(hud.hud);
-    const game = new Game(getStage(canvas), mode, {
-      leftStick: () => steer.left,
-      jumpHeld: () => buttons.jumpHeld,
-      flipHeld: () => buttons.flipHeld,
-      forwardHeld: () => steer.upHeld,
-    }, {
+    // Touch, keyboard and gamepad all feed the same four inputs (input/mux.ts).
+    const inputs = installInput();
+    const gameInput = inputs.gameInput({ steer, buttons });
+    // A button still down from choosing "Downhill" must not start a jump charge.
+    gameInput.releaseAll();
+    const game = new Game(getStage(canvas), mode, gameInput, {
       onHud: (h) => hud.setReadout(h),
       onTrick: (t) => {
         const c = trickCallout(t);
@@ -360,7 +368,7 @@ async function runSession(
 
     // Held controls are released whenever the run stops taking input,
     // so a release that never arrived can't leave a button stuck.
-    const releaseControls = () => { steer.reset(); buttons.reset(); };
+    const releaseControls = () => { steer.reset(); buttons.reset(); gameInput.releaseAll(); };
     const openPause = () => {
       if (crashed || finished) return;
       savePending();
@@ -386,6 +394,9 @@ async function runSession(
       }
     };
     const onBlur = () => { releaseControls(); };
+    // The desktop shell reports sleep / screen lock (Steam Deck suspend): same as backgrounding.
+    const onSuspend = () => { savePending(); releaseControls(); if (!anyOverlay()) openPause(); };
+    window.addEventListener('wtb-suspend', onSuspend);
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('blur', onBlur);
     window.addEventListener('pagehide', savePending);
@@ -438,8 +449,10 @@ async function runSession(
       clearInterval(pendingTimer);
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('blur', onBlur);
+      window.removeEventListener('wtb-suspend', onSuspend);
       window.removeEventListener('pagehide', savePending);
       popBack();
+      inputs.setRun(null);
 
       bankNow();                       // Switch Style skips the summary
       game.dispose();
@@ -447,6 +460,17 @@ async function runSession(
       buttons.detach();
       resolve(next);
     };
+
+    inputs.setRun({
+      inPlay: () => !finished && !crashed && !anyOverlay(),
+      menu: () => {
+        if (finished || crashed) return;
+        if (isShown(hud.pauseMenu)) closePause();
+        else if (!anyOverlay()) openPause();
+      },
+      // The controller in use went away: stop the run so the player can reconnect.
+      padLost: () => { if (!anyOverlay()) openPause(); },
+    });
 
     hud.pauseBtn.addEventListener('click', openPause);
     hud.resumeBtn.addEventListener('click', closePause);

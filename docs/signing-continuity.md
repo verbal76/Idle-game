@@ -71,3 +71,31 @@ key and NOTHING was changed. Do not uninstall.
   key). Reusing the EAS-managed key as Play's app signing key would preserve continuity with an EAS-signed phone, but only
   for a brand-new app listing and only with the owner's keystore; it is an OWNER decision and only matters if more than the
   owner's own phone has the old install. Backup/Restore makes it unnecessary for a single tester.
+
+## Fingerprint verification procedure (owner steps; no keys, no passwords, no tokens)
+
+Update compatibility is **not claimed** by this repository until the three public values below have been
+compared. Fingerprints are public SHA-256 digests of a certificate; pasting them into chat or a script is
+safe. Never paste a keystore, its password or an EAS token.
+
+| # | Fingerprint | Where to get it (read-only) |
+| --- | --- | --- |
+| 1 | **Installed app's signing certificate** (the one that decides whether an update installs) | On a computer with Android platform-tools and build-tools, USB debugging on: `adb shell pm path com.hotatticgames.snow` (prints `package:/data/app/.../base.apk`), `adb pull <that path> installed.apk`, then `apksigner verify --print-certs installed.apk` (or `keytool -printcert -jarfile installed.apk`). Use the line `Signer #1 certificate SHA-256 digest`. This reads the APK already on the phone: nothing is changed. |
+| 2 | **Candidate APK's signing certificate** | `apksigner verify --print-certs "<candidate>.apk"` on the downloaded artifact (a hosted build also prints it in the log). A debug-signed build shows `fac61745dc09...33b9c` (the public Android/Expo debug key). |
+| 3 | **EAS-managed keystore** (explains where #1 came from) | expo.dev > the project > Credentials > Android > the build credentials > **SHA-256 fingerprint**; or `eas credentials` (Android, read-only listing). Shows fingerprints only, never the key. |
+| 4 | **Play App Signing** (only later, for a Play listing) | Play Console > the app > Test and release > App integrity > App signing: "App signing key certificate" and "Upload key certificate" SHA-256. Play re-signs with its own key, so a sideloaded APK will not update to a Play install regardless of #1 to #3. |
+
+Compare with `node scripts/compare-fingerprints.mjs <#1> <#2> [<#3>]` (accepts `SHA256: AB:CD:...`, lowercase
+hex, with or without colons; exits 0 only when #1 equals #2). Reading the result:
+
+* **#1 == #2**: Android will accept the candidate as an in-place update (same package id
+  `com.hotatticgames.snow`, higher versionCode). Saves are kept.
+* **#1 != #2**: Android refuses the candidate; nothing is changed or deleted. Back up first (Settings > Back up
+  & restore), and only then decide whether to uninstall. **Do not uninstall before a verified backup.**
+* **#1 == #3**: the installed app is EAS-signed; a GitHub-built debug-signed APK will be refused, and a
+  continuity build has to be produced with the EAS keystore (EAS cloud) or accepted as a one-time reinstall.
+
+Findings recorded so far (non-secret metadata only): the debug certificate fingerprint above is the only
+candidate-side value known from the repository (`scripts/release-signing.mjs`, CI log of run 114); #1 and #3
+have **not** been read by this project. No keystore, password or token has been requested, generated,
+rotated or committed in this round, and no signing configuration was changed.

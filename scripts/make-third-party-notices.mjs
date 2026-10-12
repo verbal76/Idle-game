@@ -40,7 +40,7 @@ export function render(rows) {
     '| Music: three MP3 tracks (`src/assets/music`) | ID3 comment "made with suno"; license/plan not documented: needs owner confirmation before commercial release |',
     '| Menu art, splash art, gear icon | Described only as "supplied": needs owner confirmation |',
     '| Hot Attic Games logo (`Hot_Attic_Games_Master_Logo_ALPHA_FINAL.png`) | Studio-owned artwork |',
-    '| Controller glyph library, "Input Prompts" by JulioCacko (`Source.zip`) | Not shipped in this app. License identified as CC0 1.0 Universal (asset) / MIT (code) from the owner-supplied store-page screenshot (Unity Asset Store listing, published 2023-06-30, updated 2025-02-03; "no generative AI used"); not independently verified against the source, and the archive itself contains no license file |', '',
+    '| Controller glyph library, "Input Prompts" by JulioCacko (48 PNGs in `src/assets/glyphs`, unmodified; manifest `glyphs.json`) | Shipped in the page. License identified as CC0 1.0 Universal (asset) / MIT (code) from the owner-supplied store-page screenshot (Unity Asset Store listing, published 2023-06-30, updated 2025-02-03; "no generative AI used"); not independently verified against the source, and the archive itself contains no license file: needs owner confirmation of the original download page before release |', '',
     '## License texts', '',
   ];
   for (const r of rows) out.push(`### ${r.name} ${r.version} (${r.license ?? 'unknown'})`, '', r.homepage ? `Source: ${r.homepage}` : '', '', r.text ? '```text\n' + r.text + '\n```' : '_No license file shipped in the package; see the license id above._', '');
