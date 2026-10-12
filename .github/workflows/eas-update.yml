@@ -62,7 +62,7 @@ jobs:
         run: node scripts/verify-approved-source.mjs "$APPROVED_SHA"
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
       # Exactly the dependency tree in package-lock.json (reproducible).
       - run: npm ci --no-audit --no-fund

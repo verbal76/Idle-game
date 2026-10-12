@@ -19,9 +19,9 @@ const depVersion = (name) => {
   try { return JSON.parse(readFileSync(`node_modules/${name}/package.json`, 'utf8')).version; } catch { return null; }
 };
 
-export function buildManifest({ platform, signing, artifacts, env = process.env, now = new Date() }) {
+export function buildManifest({ platform, signing, artifacts, env = process.env, now = new Date(), runtime: runtimeOverride = '', toolchain = {} }) {
   if (!platform) throw new Error('platform is required');
-  if (!['debug', 'production'].includes(signing)) throw new Error('signing must be debug or production');
+  if (!['debug', 'production', 'unsigned'].includes(signing)) throw new Error('signing must be debug, production or unsigned');
   if (!artifacts.length) throw new Error('at least one artifact is required');
   const rel = releaseInfo();
   const app = JSON.parse(readFileSync('app.json', 'utf8')).expo;
@@ -32,17 +32,18 @@ export function buildManifest({ platform, signing, artifacts, env = process.env,
     const head = git('rev-parse', 'HEAD');
     if (head && head !== sha) throw new Error(`checked-out HEAD ${head.slice(0, 7)} disagrees with the approved source ${sha.slice(0, 7)}`);
   }
-  const runtime = typeof app.runtimeVersion === 'string' ? app.runtimeVersion : app.version;   // policy appVersion => app version
+  const runtime0 = typeof app.runtimeVersion === 'string' ? app.runtimeVersion : app.version;   // policy appVersion => app version
   return {
     product: rel.productName,
     publicVersion: rel.version,
+    buildNumber: rel.buildNumber,
     title: rel.title,
     sourceSha: sha,
     sourceRef: env.GITHUB_REF_NAME || git('rev-parse', '--abbrev-ref', 'HEAD'),
     platform,
     packageId: app.android?.package ?? null,
     appVersion: app.version,
-    runtimeVersion: runtime,
+    runtimeVersion: runtimeOverride || runtime0,
     versionCode: Number(env.VERSION_CODE || env.GITHUB_RUN_NUMBER || app.android?.versionCode || 0) || null,
     buildConfiguration: { variant: 'release', signing },
     ci: env.GITHUB_RUN_ID ? { runId: env.GITHUB_RUN_ID, runNumber: env.GITHUB_RUN_NUMBER ?? null } : null,
@@ -50,7 +51,7 @@ export function buildManifest({ platform, signing, artifacts, env = process.env,
     toolchain: {
       node: process.version,
       expo: depVersion('expo'), reactNative: depVersion('react-native'), expoUpdates: depVersion('expo-updates'),
-      webview: depVersion('react-native-webview'), typescript: depVersion('typescript'),
+      webview: depVersion('react-native-webview'), typescript: depVersion('typescript'), ...toolchain,
     },
     artifacts: artifacts.map((p) => ({ name: basename(p), bytes: readFileSync(p).length, sha256: createHash('sha256').update(readFileSync(p)).digest('hex') })),
   };
@@ -69,6 +70,35 @@ export function checkParity(manifests) {
   return fails;
 }
 
+/** A schema-2 (coordinated) manifest unpacked into per-platform schema-1 manifests. */
+function unpack(m) {
+  if (!m.platforms) return [m];
+  const { schema: _s, platforms, builtAt: _b, ...common } = m;
+  return platforms.map(p => ({ ...common, builtAt: m.builtAt, ...p }));
+}
+
+/** One coordinated build: a single manifest (schema 2) for every platform, after verifying parity. */
+export function mergeManifests(inputs) {
+  const manifests = inputs.flatMap(unpack);
+  const dup = manifests.map(m => m.platform).filter((p, i, a) => a.indexOf(p) !== i);
+  if (dup.length) throw new Error(`parity: platform listed twice: ${[...new Set(dup)].join(', ')}`);
+  const fails = checkParity(manifests);
+  if (fails.length) throw new Error(`parity: ${fails.join('; ')}`);
+  const f = manifests[0];
+  const { product, title, publicVersion, buildNumber, sourceSha, sourceRef } = f;
+  return {
+    schema: 2, product, title, publicVersion, buildNumber, sourceSha, sourceRef,
+    builtAt: manifests.map(m => m.builtAt).sort().at(-1),
+    platforms: manifests.map(({ product: _p, title: _t, publicVersion: _v, buildNumber: _b, sourceSha: _s, sourceRef: _r, ...rest }) => rest),
+  };
+}
+
+/** `sha256sum`-format lines for every artifact in a manifest (schema 1 or 2). */
+export function checksumLines(manifest) {
+  const arts = manifest.platforms ? manifest.platforms.flatMap(p => p.artifacts) : manifest.artifacts;
+  return arts.map(a => `${a.sha256}  ${a.name}`).join('\n') + '\n';
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   try {
@@ -77,6 +107,14 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       for (const f of fails) console.error(`::error::parity: ${f}`);
       if (fails.length) process.exit(1);
       console.log('parity OK: one source SHA for every platform');
+    } else if (args[0] === '--checksums') {
+      writeFileSync(args[2], checksumLines(JSON.parse(readFileSync(args[1], 'utf8'))));
+      console.log(`checksums ${args[2]}`);
+    } else if (args[0] === '--merge') {
+      const [, out, ...inputs] = args;
+      const merged = mergeManifests(inputs.map(f => JSON.parse(readFileSync(f, 'utf8'))));
+      writeFileSync(out, JSON.stringify(merged, null, 2) + '\n');
+      console.log(`coordinated manifest ${out}: ${merged.title}, ${merged.platforms.length} platform(s) @ ${merged.sourceSha.slice(0, 7)}`);
     } else {
       const opt = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : undefined; };
       const out = opt('--out');
