@@ -1,14 +1,47 @@
 import { BUILD_INFO } from '../__generated__/build-info';
-import { buildInfoText, describeBuild, type RawShellInfo } from '../shell/buildInfo';
+import { describeBuild, diagnosticsText, type DiagnosticContext, type RawShellInfo } from '../shell/buildInfo';
 import { escapeHtml } from '../util/escapeHtml';
 import { safeAsync } from '../util/safeAsync';
 
 declare global {
   // Injected by the native shell (App.tsx) before and after page load.
-  interface Window { __OTA__?: RawShellInfo }
+  interface Window { __OTA__?: RawShellInfo; __UPDATE_STATUS_AT__?: string }
 }
 
-const rows = () => describeBuild(window.__OTA__, BUILD_INFO);
+/** What only the page knows: its locale and the live update state the shell reported. */
+export function pageContext(): DiagnosticContext {
+  return {
+    locale: typeof navigator !== 'undefined' ? navigator.language : null,
+    updateStatus: (window.__UPDATE_STATUS__ as string | undefined) ?? null,
+    updateStatusAt: window.__UPDATE_STATUS_AT__ ?? null,
+  };
+}
+
+export const currentRows = () => describeBuild(window.__OTA__, BUILD_INFO, pageContext());
+const rows = currentRows;
+
+/**
+ * Copy diagnostics: plain grouped text on the clipboard; when the WebView
+ * has no clipboard, a selectable copy appears in `host` instead.
+ */
+export function wireCopyDiagnostics(button: HTMLButtonElement, host: HTMLElement, idleLabel: string): void {
+  button.addEventListener('click', safeAsync(async () => {
+    const text = diagnosticsText(rows());
+    try {
+      await navigator.clipboard.writeText(text);
+      button.textContent = 'Copied!';
+      setTimeout(() => { button.textContent = idleLabel; }, 1500);
+    } catch {
+      if (host.querySelector('textarea.about-fallback')) return;
+      const ta = document.createElement('textarea');
+      ta.className = 'about-fallback';
+      ta.readOnly = true;
+      ta.value = text;
+      host.appendChild(ta);
+      ta.select();
+    }
+  }));
+}
 
 /** The Build / Update Info block at the bottom of Settings. */
 export function buildInfoHtml(): string {
@@ -42,24 +75,7 @@ export function wireBuildInfo(root: HTMLElement): () => void {
       for (const v of s.querySelectorAll<HTMLElement>('.bi-val')) v.textContent = (on ? v.dataset.full : v.dataset.short) ?? '';
       s.classList.toggle('full', on);
     });
-    const copyBtn = s.querySelector<HTMLButtonElement>('#bi-copy')!;
-    copyBtn.addEventListener('click', safeAsync(async () => {
-      const text = buildInfoText(rows());
-      try {
-        await navigator.clipboard.writeText(text);
-        copyBtn.textContent = 'Copied!';
-        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
-      } catch {
-        // No clipboard in this WebView: show a selectable copy instead.
-        if (s.querySelector('textarea')) return;
-        const ta = document.createElement('textarea');
-        ta.className = 'about-fallback';
-        ta.readOnly = true;
-        ta.value = text;
-        s.appendChild(ta);
-        ta.select();
-      }
-    }));
+    wireCopyDiagnostics(s.querySelector<HTMLButtonElement>('#bi-copy')!, s, 'Copy');
   };
   const onInfo = () => {
     const s = section();
@@ -69,5 +85,6 @@ export function wireBuildInfo(root: HTMLElement): () => void {
   };
   wire();
   window.addEventListener('ota-info', onInfo);
-  return () => window.removeEventListener('ota-info', onInfo);
+  window.addEventListener('update-status', onInfo);
+  return () => { window.removeEventListener('ota-info', onInfo); window.removeEventListener('update-status', onInfo); };
 }

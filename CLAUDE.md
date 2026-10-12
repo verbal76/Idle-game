@@ -1,0 +1,7 @@
+# Where's the Bottom? (Hot Attic Games): standing project rules
+
+- **Studio splash is mandatory.** Every Hot Attic Games app/game opens with the studio splash before its own title/menu, on every cold launch. The canonical artwork is exactly `Hot_Attic_Games_Master_Logo_ALPHA_FINAL.png` (repository root). Never redraw, substitute, crop, distort or edit it; the old `branding/Hot_Attic_Games_Master_Logo.png` path is obsolete. Details and how it is built here: docs/studio-splash.md.
+- **Public version.** Releases are named `Where's the Bottom? v<number>`; `release.json` is the only place the number is edited. OTA #, versionCode, runtime, SHA stay internal. docs/release-naming.md.
+- **Owner is not an engineering stop-gap.** Kevin judges feel, fun, mechanics and physical-device behaviour; Claude completes all other engineering, qualification and release preparation on isolated branches. Never publish an OTA/release or merge a held PR without explicit authorization; never expose or commit signing material; never risk the installed save (docs/signing-continuity.md, docs/save-protection.md).
+- **Page size.** The game is one inline HTML string that fails (black screen) above ~10 MB on Android; keep `dist/index.html` under the 7.5 MB budget in `eas-update.yml`.
+- Checks before any push: `npx tsc && npx eslint . && npx vitest run && python3 -m unittest discover -s scripts/tests`, and `npm run test:smoke` for UI changes.
