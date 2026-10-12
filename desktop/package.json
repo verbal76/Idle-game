@@ -1,0 +1,12 @@
+{
+  "name": "wheres-the-bottom-desktop",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Desktop (Windows x86-64 / Linux x86-64) shell for Where's the Bottom?: the SAME game bundle as Android, hosted in Electron. See docs/PLATFORM_SUPPORT.md.",
+  "main": "main.js",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@electron/packager": "^19.0.0",
+    "electron": "44.7.0"
+  }
+}

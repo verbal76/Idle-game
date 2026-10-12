@@ -1,6 +1,6 @@
 # Compliance audit (overnight directive, 2026-10-12)
 
-Evidence-based; `HOT_ATTIC_GAMES_MASTER_STANDARD.md` was NOT available anywhere accessible (not in the repository, any branch, or the filesystem), so this is the provisional audit the directive defines. The owner supplied `Source.zip` mid-session (SHA-256 `f6c75921b9d6ab2cb2b5249f547c7b7ba19e22da9f4f3b45693cf0912f25ded0`; inspected in an isolated scratch directory, not committed).
+Evidence-based. The master standard was missing when this audit started, so the first pass was provisional; the owner then supplied it (`HOT ATTIC GAMES - steamdeck - dev mandate.doc`, standard v2.0) and the audit was corrected against it: **Windows, Linux and Steam are required platforms for every game, so the earlier "NOT APPLICABLE" rows were wrong** (see the revised rows and docs/PLATFORM_SUPPORT.md, docs/STEAM_HARDWARE_CHECKLIST.md). The owner supplied `Source.zip` mid-session (SHA-256 `f6c75921b9d6ab2cb2b5249f547c7b7ba19e22da9f4f3b45693cf0912f25ded0`; inspected in an isolated scratch directory, not committed).
 
 ## Project facts
 
@@ -16,22 +16,23 @@ Where's the Bottom? is an Android-only game: Expo SDK 54 shell (React Native 0.8
 | --- | --- | --- | --- |
 | Source and branches | PASS | One authoritative line (`authoritative.json`), ledger + check, all hold branches contained in the candidate | none new |
 | Android | PARTIAL | API 36 / SDK 54 APK builds, 16 KB and target-API gate pass in CI (run 118); no device evidence for the new stack | none |
-| Windows | NOT APPLICABLE (not configured) | no desktop target exists | reported |
-| Linux | NOT APPLICABLE (not configured) | none | reported |
+| Windows | PARTIAL | Electron shell + `scripts/build.mjs --platform windows` produce `Wheres the Bottom Build 85 EXE.zip` locally; never executed on Windows; unsigned | built the shell and packaging |
+| Linux | PARTIAL | same shell; `...Linux.tar.gz` packaged, exec bit verified, packaged executable booted the game headless (Xvfb, software GL); not a Steam Deck | built, executed headless |
 | Build flags / platform adapters | PARTIAL | shell/game seam documented (docs/architecture.md); no platform flag because there is one platform | none |
-| Build numbering | PARTIAL | public `v<N>` from `release.json`; the directive's "Build NN" template conflicts with the owner's earlier v-number directive | owner decision N1 |
+| Build numbering | PASS (config) | one number in `release.json`; now "Build NN" per the standard (`namingStyle` switch keeps the earlier v-form) | adopted standard naming |
 | GitHub Releases | PARTIAL | release job exists, dispatch-only; the old releases (106/107) predate the convention; one platform only | none |
 | Build provenance | PASS | manifests (SHA, ref, version, runtime, toolchain, hashes), parity check | none new |
 | Release authorization | PARTIAL | dispatch-only + exact SHA + environment, mutation-tested; NOT YET ON THE LIVE LINE (it still has the old push-triggered OTA until PR #65/#66 merge); environment reviewers not configured | F2 below |
 | OTA architecture | PASS | expo-updates, channel `preview`, runtime = app version, safe-point apply, delivery verification | rollback runbook added |
 | OTA rollback | PARTIAL | device fallback is expo-updates behaviour (not unit-testable); republish procedure now documented | docs/ota-rollback.md |
 | OTA authenticity | FAIL | no code signing configured | RED F7 |
-| Steam controller / Input / mixed input / text input | NOT APPLICABLE (no Steam target); gamepad support absent | none | reported |
-| Steam display / graphics / performance / stability | NOT APPLICABLE; Android UI is tested at 320 px, portrait and landscape (smoke) | none | |
+| Steam controller completeness / Steam Input | FAIL | no gamepad or keyboard control; touch/pointer only (RED: control-scheme decision) | checklist |
+| Mixed input / text input | NOT APPLICABLE / PENDING | no free camera; on-screen keyboard needs Steamworks | checklist |
+| Steam display / graphics / performance / stability | PARTIAL / UNVERIFIED / PENDING | layout smoke at 320 px and 844x390; window 1280x800; no Deck measurements | checklist |
 | Controller glyphs | BLOCKED (scope) | archive inspected; CC0 identified from the owner's store-page screenshot, not independently verified; no controller input exists to use it | F11 |
 | Offline play | PARTIAL | `fallbackToCacheTimeout: 0`, offline update status handled and unit tested; first-launch-offline on a device not tested | none |
 | Save safety | PASS (automated) | per-profile IndexedDB writes, validated migration, queue/retry, tested backup/restore | none |
-| Steam Cloud | NOT APPLICABLE | | |
+| Steam Cloud | PENDING | not implemented; needs Steamworks | checklist |
 | Graphics settings | NOT APPLICABLE | no graphics options | |
 | Branding | PASS | canonical logo splash, tested | none |
 | Automated testing | PASS | see final report | notices tests added |
@@ -53,6 +54,6 @@ Where's the Bottom? is an Android-only game: Expo SDK 54 shell (React Native 0.8
 | F7 | No OTA code signing | P2 | RED | needs key + new APK |
 | F8 | Node 20 in CI/OTA workflows vs Node 22 locally/elsewhere | P3 | GREEN | aligned to 22 |
 | F9 | Music / art / model provenance | P1 | owner | listed in notices |
-| F10 | No Windows/Linux/Steam targets | info | RED | new platforms are a product decision |
+| F10 | No Windows/Linux packages (required platforms) | P1 | GREEN/YELLOW | done: Electron shell, build interface, coordinated workflow; Windows unexecuted; Steamworks/SteamPipe pending |
 | F11 | No gamepad input, so the (CC0-identified) glyph library has no use yet | P2 | RED | owner |
-| F12 | Naming "Build NN" vs "v<N>" | P3 | owner | N1 |
+| F12 | Naming "Build NN" vs "v<N>" | P3 | GREEN | resolved by the standard: Build NN (switchable) |

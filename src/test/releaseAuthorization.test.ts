@@ -42,7 +42,7 @@ describe('no automatic publishing path', () => {
     // eas-build may BUILD on push, but the publishing job is dispatch-only.
     const build = text('eas-build.yml');
     const releaseJob = build.slice(build.indexOf('\n  release:'));
-    expect(releaseJob).toMatch(/if: github\.event_name == 'workflow_dispatch'/);
+    expect(releaseJob).toMatch(/if: always\(\) && github\.event_name == 'workflow_dispatch' && inputs\.destination == 'github_releases'/);
     expect(build.slice(0, build.indexOf('\n  release:'))).not.toMatch(PUBLISHING);
   });
 
@@ -55,7 +55,7 @@ describe('no automatic publishing path', () => {
     expect(rel).toMatch(/ref: \$\{\{ inputs\.source_sha \}\}/);
     expect(rel).not.toMatch(/github\.sha/);
     const build = text('eas-build.yml');
-    expect(build).toMatch(/target_commitish: \$\{\{ needs\.build\.outputs\.source_sha \}\}/);
+    expect(build).toMatch(/target_commitish: \$\{\{ inputs\.source_sha \}\}/);
   });
 
   it('a version bump, docs change or merge cannot publish: no push/PR trigger exists on the publishers', () => {

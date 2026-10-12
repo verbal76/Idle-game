@@ -1,5 +1,6 @@
 {
   "productName": "Where's the Bottom?",
-  "fileName": "Wheres-the-Bottom",
-  "publicVersion": 85
+  "fileName": "Wheres the Bottom",
+  "publicVersion": 85,
+  "namingStyle": "build"
 }

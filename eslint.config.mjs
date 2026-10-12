@@ -6,7 +6,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', 'src/__generated__/**', '.claude/**', 'android/**', 'ios/**', 'assets/**', '*.config.js'] },
+  { ignores: ['dist/**', 'node_modules/**', 'src/__generated__/**', '.claude/**', 'desktop/node_modules/**', 'build-out/**', 'android/**', 'ios/**', 'assets/**', '*.config.js'] },
   js.configs.recommended,
   {
     files: ['src/**/*.ts', 'App.tsx', 'index.js', 'vite.config.ts', 'vitest.config.ts'],
@@ -35,5 +35,11 @@ export default tseslint.config(
     languageOptions: { globals: { process: 'readonly', console: 'readonly', URL: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly', Buffer: 'readonly', window: 'readonly', document: 'readonly', performance: 'readonly', indexedDB: 'readonly', navigator: 'readonly', Image: 'readonly', PointerEvent: 'readonly', CustomEvent: 'readonly', Event: 'readonly', requestAnimationFrame: 'readonly', location: 'readonly', crypto: 'readonly', getComputedStyle: 'readonly', innerWidth: 'readonly', innerHeight: 'readonly' } },
     // (smoke.mjs runs code in both Node and the browser page, so no-undef can't apply.)
     rules: { 'no-undef': 'off', 'no-unused-vars': 'off', 'no-empty': ['error', { allowEmptyCatch: true }] },
+  },
+  {
+    // Desktop shell (CommonJS, runs in Electron's main process).
+    files: ['desktop/*.js'],
+    languageOptions: { sourceType: 'commonjs', globals: { process: 'readonly', console: 'readonly', URL: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly', Response: 'readonly', require: 'readonly', module: 'readonly', __dirname: 'readonly' } },
+    rules: { 'no-empty': ['error', { allowEmptyCatch: true }] },
   },
 );

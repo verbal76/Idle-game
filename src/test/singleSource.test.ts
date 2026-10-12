@@ -106,7 +106,7 @@ describe('release manifest and platform parity', () => {
     const m = mk('android');
     expect(m.sourceSha).toBe(sha);
     expect(m.sourceRef).toBe('main');
-    expect(m.publicVersion).toMatch(/^v\d+$/);
+    expect(m.publicVersion).toMatch(/^Build \d+$/);
     expect(m.platform).toBe('android');
     expect(m.packageId).toBe('com.hotatticgames.snow');
     expect(m.runtimeVersion).toMatch(/^\d+\.\d+\.\d+$/);

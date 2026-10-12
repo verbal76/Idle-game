@@ -1,5 +1,7 @@
 # Release naming and versioning
 
+**Current convention (studio standard v2.0, adopted 2026-10-12): `<Game Title> Build NN`.** Title `Where's the Bottom? Build NN`, tag `build-NN`, files `Wheres the Bottom Build NN APK.apk`, `... EXE.zip`, `... Linux.tar.gz`, `build-manifest.json`, `checksums.sha256`. The number sequence is unchanged (the same integers as the earlier `v<N>` names); `namingStyle` in `release.json` switches between `"build"` (default) and `"v"`. The sections below describe the original `v<number>` convention and the history behind the number; read "v84"/"v85" as "Build 84"/"Build 85".
+
 Studio convention: every public release is named **`<Product Name> v<number>`**,
 with sequential integers (no semver, no codenames). For this game:
 

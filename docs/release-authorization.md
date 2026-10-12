@@ -28,8 +28,7 @@
 1. Decide the exact commit: the integrated tip of the authoritative line (full 40-character SHA; `git rev-parse origin/claude/repo-gameplay-review-loq9rq`).
 2. GitHub > Actions > the workflow > Run workflow:
    - OTA: **EAS Update (OTA)**: `source_sha`, `confirm` = `publish-ota`, optional `ota_label` (for example `OTA #84`).
-   - Native build only: **APK Build (GitHub-hosted)** with `source_sha` (or a `[build-apk]` commit).
-   - GitHub Release for a tester APK: **APK Build** with `source_sha`, `publish_release` = true, `confirm` = `publish-release`.
+   - Coordinated build: **APK Build (GitHub-hosted)** (the primary build workflow) with `platform` (android, windows, linux or all), `source_sha`, `build_number` (must equal `release.json`), `destination` = `local_only` (workflow artifacts) or `github_releases` (one GitHub Release "Title Build NN" with the selected platforms, `build-manifest.json`, `checksums.sha256`; also needs `confirm` = `publish-release`). An Android-only `[build-apk]` commit still produces an artifact for playtesting.
    - Signed AAB/APK: **Release Android** with `source_sha`, `confirm` = `build-signed-release` (needs the signing secrets).
 3. Approve the **`production-release`** environment when GitHub asks. One-time setup (owner, Settings > Environments > New environment `production-release`): add yourself as a required reviewer and restrict "Deployment branches" to the authoritative line. Even without that setup, nothing publishes unless someone with write access runs the workflow and types the confirmation word.
 
