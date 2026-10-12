@@ -28,8 +28,7 @@
 1. Decide the exact commit: the integrated tip of the authoritative line (full 40-character SHA; `git rev-parse origin/claude/repo-gameplay-review-loq9rq`).
 2. GitHub > Actions > the workflow > Run workflow:
    - OTA: **EAS Update (OTA)**: `source_sha`, `confirm` = `publish-ota`, optional `ota_label` (for example `OTA #84`).
-   - Native build only: **APK Build (GitHub-hosted)** with `source_sha` (or a `[build-apk]` commit).
-   - GitHub Release for a tester APK: **APK Build** with `source_sha`, `publish_release` = true, `confirm` = `publish-release`.
+   - Coordinated build: **APK Build (GitHub-hosted)** (the primary build workflow) with `platform` (android, windows, linux or all), `source_sha`, `build_number` (must equal `release.json`), `destination` = `local_only` (workflow artifacts) or `github_releases` (one GitHub Release "Title Build NN" with the selected platforms, `build-manifest.json`, `checksums.sha256`; also needs `confirm` = `publish-release`). An Android-only `[build-apk]` commit still produces an artifact for playtesting.
    - Signed AAB/APK: **Release Android** with `source_sha`, `confirm` = `build-signed-release` (needs the signing secrets).
 3. Approve the **`production-release`** environment when GitHub asks. One-time setup (owner, Settings > Environments > New environment `production-release`): add yourself as a required reviewer and restrict "Deployment branches" to the authoritative line. Even without that setup, nothing publishes unless someone with write access runs the workflow and types the confirmation word.
 
@@ -45,7 +44,7 @@ Facts: PR #65 (`infra-hold-about-splash-applying`) and PR #66 (`hold-release-nam
 
 1. Do NOT merge PR #64 into `main` yet. It changes nothing for the installed game and is no longer a publishing risk, but it is not on the critical path.
 2. Merge PR #65, then PR #66 (or #66 alone: it contains #65). They now carry the dispatch-only workflows, so the merge itself cannot publish. JS-only, runtime stays 0.0.1: OTA-compatible.
-3. Integrate `hold-save-export` (JS-only, runtime 0.0.1) into the live line the same way. It needs its own validation: it touches the save/profile code, so run the full smoke and have the owner export a backup on the device before anything else changes.
+3. Integrate `hold-save-export` (JS-only, runtime 0.0.1) into the live line the same way. Expect ONE textual conflict: `scripts/smoke.mjs` (PR #65/#66 add the studio-splash smoke step and save-export adds the backup step at the same spot); keep both steps (the candidate's `scripts/smoke.mjs` is the correct merged file). A trial merge of #66 + save-export onto the live line was run locally: classification `native=false` (JS-only), `app.json` version 0.0.1, `release.json` 84, tsc/eslint clean and 286 unit tests pass. It needs its own validation: it touches the save/profile code, so run the full smoke and have the owner export a backup on the device before anything else changes.
 4. Owner approves **OTA v84**: dispatch `eas-update.yml` with the integrated tip SHA (release.json = 84). Players on runtime 0.0.1 get backup, diagnostics, the studio splash, and the naming.
 5. Owner exports a backup (Settings > Back up) and keeps it off the phone.
 6. Integrate the migration (API 36 / runtime 0.1.x). No OTA is published for it; it is a native change: build the APK (v85) from the integrated SHA, install it over the existing app ONLY after the signing question is settled (docs/signing-continuity.md). Then runtime-0.1.x OTAs flow.

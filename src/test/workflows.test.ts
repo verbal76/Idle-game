@@ -20,7 +20,7 @@ describe('release workflows (pre-release review)', () => {
   });
 
   it('GitHub Releases (public distribution) only come from the owner-authorized release job, never from a push', () => {
-    expect(build).toMatch(/release:[^]*?if: github\.event_name == 'workflow_dispatch' && inputs\.publish_release && inputs\.confirm == 'publish-release'[^]*?environment: production-release/);
+    expect(build).toMatch(/release:[^]*?if: always\(\) && github\.event_name == 'workflow_dispatch' && inputs\.destination == 'github_releases' && inputs\.confirm == 'publish-release'[^]*?environment: production-release/);
     expect(build).toMatch(/uses: softprops\/action-gh-release/);
     expect(build.match(/softprops\/action-gh-release/g)).toHaveLength(1);
   });
@@ -71,4 +71,23 @@ describe('release workflows (pre-release review)', () => {
     expect(prod).toMatch(/on:\s*\n\s*workflow_dispatch:/);          // production builds are manual only
     expect(prod).not.toMatch(/\n {2}push:/);
   });
+
+  it('the coordinated build workflow exposes the standard inputs and never releases a partial build', () => {
+    const on = /\non:\n([^]*?)\n\n/.exec(build)![1]!;
+    for (const k of ['platform:', 'source_sha:', 'build_number:', 'destination:', 'confirm:']) expect(on).toContain(k);
+    expect(on).toMatch(/options: \[android, windows, linux, all\]/);
+    expect(on).toMatch(/options: \[local_only, github_releases\]/);
+    const desktop = build.slice(build.indexOf('\n  desktop:'), build.indexOf('\n  release:'));
+    expect(desktop).toMatch(/if: github\.event_name == 'workflow_dispatch' && inputs\.platform != 'android'/);
+    expect(desktop).toMatch(/node scripts\/build\.mjs --platform "\$\{\{ matrix\.platform \}\}" --source-sha "\$SOURCE_SHA"/);
+    expect(desktop).toMatch(/ref: \$\{\{ inputs\.source_sha \}\}/);
+    const release = build.slice(build.indexOf('\n  release:'));
+    expect(release).toMatch(/android\|all\) \[ "\$BUILD" = success \]/);
+    expect(release).toMatch(/windows\|linux\|all\) \[ "\$DESKTOP" = success \]/);
+    expect(release).toMatch(/make-release-manifest\.mjs --merge/);
+    expect(release).toMatch(/sha256sum -c checksums\.sha256/);
+    expect(release).toMatch(/fail_on_unmatched_files: true/);
+    expect(release).toMatch(/already exists/);                          // a build number is never reused
+  });
 });
+

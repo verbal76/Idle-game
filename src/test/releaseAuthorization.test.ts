@@ -42,7 +42,7 @@ describe('no automatic publishing path', () => {
     // eas-build may BUILD on push, but the publishing job is dispatch-only.
     const build = text('eas-build.yml');
     const releaseJob = build.slice(build.indexOf('\n  release:'));
-    expect(releaseJob).toMatch(/if: github\.event_name == 'workflow_dispatch'/);
+    expect(releaseJob).toMatch(/if: always\(\) && github\.event_name == 'workflow_dispatch' && inputs\.destination == 'github_releases'/);
     expect(build.slice(0, build.indexOf('\n  release:'))).not.toMatch(PUBLISHING);
   });
 
@@ -55,7 +55,7 @@ describe('no automatic publishing path', () => {
     expect(rel).toMatch(/ref: \$\{\{ inputs\.source_sha \}\}/);
     expect(rel).not.toMatch(/github\.sha/);
     const build = text('eas-build.yml');
-    expect(build).toMatch(/target_commitish: \$\{\{ needs\.build\.outputs\.source_sha \}\}/);
+    expect(build).toMatch(/target_commitish: \$\{\{ inputs\.source_sha \}\}/);
   });
 
   it('a version bump, docs change or merge cannot publish: no push/PR trigger exists on the publishers', () => {
@@ -66,6 +66,29 @@ describe('no automatic publishing path', () => {
   it('the existing OTA safeguards are intact: runtime/native check, never-go-backwards, delivery verification, size budget', () => {
     const upd = text('eas-update.yml');
     for (const re of [/Never go backwards/, /merge-base --is-ancestor "\$LIVE" "\$APPROVED_SHA"/, /cannot ship as an OTA/, /Verify the installed APK will receive this update/, /Page size budget/, /npm run test:smoke/, /eas-cli@24\.10\.0 update/, /channel:edit preview/]) expect(upd).toMatch(re);
+  });
+});
+
+describe('least-privilege secrets', () => {
+  it('signing secrets are visible only to the validate, re-decode and Gradle steps, never job-wide', () => {
+    const t = text('release-android.yml');
+    const beforeSteps = t.slice(0, t.indexOf('\n    steps:'));
+    expect(beforeSteps.replace(/^#.*$/gm, '')).not.toMatch(/secrets\./);
+    const steps = t.slice(t.indexOf('\n    steps:')).split(/\n {6}- /).slice(1);
+    const withSecrets = steps.filter(s => /secrets\./.test(s)).map(s => /name: ([^\n]+)/.exec(s)?.[1] ?? '?');
+    expect(withSecrets).toEqual(['Validate the signing secrets and keystore (fail closed)', 'Re-decode the keystore for signing (secrets scoped to this step and the build)', 'Build signed AAB and APK']);
+    const gradle = steps.find(s => s.startsWith('name: Build signed AAB'))!;
+    expect(gradle).not.toMatch(/KEYSTORE_B64/);                    // the raw keystore is not needed by Gradle
+  });
+
+  it('workflow token permissions are read-only except the release job and the artifact pruner', () => {
+    for (const f of files) {
+      const t = text(f);
+      const top = /\npermissions:\n((?: {2}.*\n|#.*\n)+)/.exec(`\n${t}`)?.[1] ?? '';
+      expect(top, f).toMatch(/(contents: read|actions: write)/);
+      expect(top, f).not.toMatch(/contents: write/);
+    }
+    expect(text('eas-build.yml').match(/contents: write/g)).toHaveLength(1);   // only the release job
   });
 });
 
