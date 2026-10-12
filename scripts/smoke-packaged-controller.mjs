@@ -22,7 +22,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function launch(port, env) {
   const ud = mkdtempSync(join(tmpdir(), 'wtb-ud-'));
   const child = spawn('xvfb-run', ['-a', '-s', '-screen 0 1280x800x24', exe, '--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', `--user-data-dir=${ud}`, `--remote-debugging-port=${port}`], {
-    env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'], detached: true,   // own process group, so cleanup reaches Xvfb and every Electron child
   });
   let log = '';
   child.stdout.on('data', (d) => { log += d; }); child.stderr.on('data', (d) => { log += d; });
@@ -31,12 +31,13 @@ async function launch(port, env) {
   for (let i = 0; i < 60 && !browser; i++) {
     try { browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`); } catch { await sleep(500); }
   }
-  if (!browser) { child.kill(); fail(`could not attach to the packaged app\n${log.slice(-800)}`); }
+  if (!browser) { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } fail(`could not attach to the packaged app\n${log.slice(-800)}`); }
   const context = browser.contexts()[0];
   let page = context.pages()[0];
   for (let i = 0; i < 40 && !page; i++) { await sleep(250); page = context.pages()[0]; }
   if (!page) fail('the packaged app opened no window');
-  return { child, exited, browser, context, page, log: () => log };
+  const killTree = () => { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ } };
+  return { child, exited, browser, context, page, killTree, log: () => log };
 }
 
 async function session(name, env, port, body) {
@@ -55,7 +56,7 @@ async function session(name, env, port, body) {
     await body(app, page);
     if (errors.length) fail(`page errors: ${errors.join('; ')}`);
     console.log('ok');
-  } finally { app.child.kill('SIGKILL'); await app.browser.close().catch(() => {}); }
+  } finally { app.killTree(); await app.browser.close().catch(() => {}); }
 }
 
 const frames = (page, n = 3) => page.evaluate((n) => new Promise((res) => { let i = 0; const f = () => (++i >= n ? res() : requestAnimationFrame(f)); requestAnimationFrame(f); }), n);
