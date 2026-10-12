@@ -113,8 +113,9 @@ fi
 
 # A commit that says [build-apk] builds the APK even when nothing native
 # changed (re-run a build, or build from a hold branch where manual dispatch
-# is unavailable). It never skips the runtime-bump guard above.
-if git log -1 --format=%B "$HEAD_SHA" | grep -qF '[build-apk]'; then
+# is unavailable). It never skips the runtime-bump guard above. The OTA release
+# workflow sets ROUTE_IGNORE_MARKER=1: a marker is a build request, not a native change.
+if [ -z "${ROUTE_IGNORE_MARKER:-}" ] && git log -1 --format=%B "$HEAD_SHA" | grep -qF '[build-apk]'; then
   emit true "forced by [build-apk] in the commit message"
   exit 0
 fi

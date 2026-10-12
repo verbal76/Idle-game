@@ -157,7 +157,7 @@ describe('the policy is durable and discoverable', () => {
     for (const f of ['.github/workflows/eas-build.yml', '.github/workflows/release-android.yml']) {
       const w = readFileSync(f, 'utf8');
       expect(w, f).toMatch(/fetch-depth: 0/);
-      expect(w, f).toMatch(/node scripts\/assert-release-source\.mjs/);
+      expect(w, f).toMatch(/node scripts\/(assert-release-source|verify-approved-source)\.mjs/);
       expect(w, f).toMatch(/make-release-manifest\.mjs/);
     }
   });

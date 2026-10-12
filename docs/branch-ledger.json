@@ -42,6 +42,12 @@
       "status": "intentional",
       "acceptedTip": "968e195d5dac1d6a6a339c89cafac1ddadd06d5d",
       "note": "Default branch, 82 commits behind the authoritative line. Its 3 own commits: workflow stubs (intentional, so a stale main cannot publish), the owner-uploaded canonical logo (carried into the candidate byte-identical), weekly prune (equivalent change is in the candidate). Integration of the authoritative line into main is an OWNER decision (see docs/branch-ledger.md)."
+    },
+    {
+      "branch": "claude/android-snowboarding-game-UHUPI",
+      "status": "intentional",
+      "acceptedTip": "dac4a1b9db519d7876f48e1e26cc39ca44d030de",
+      "note": "Single commit dac4a1b turns its OTA/APK workflows into disabled stubs: a push to this stale branch used to run an EAS cloud build and publish an OTA. Intentional; no other change."
     }
   ]
 }

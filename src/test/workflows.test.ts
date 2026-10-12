@@ -19,12 +19,14 @@ describe('release workflows (pre-release review)', () => {
     expect(update + build).not.toMatch(/Github-APK-Transition-snow/);
   });
 
-  it('GitHub Releases (public distribution) come from main only; other branches leave workflow artifacts', () => {
-    expect(build).toMatch(/if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'\n\s+uses: softprops\/action-gh-release/);
+  it('GitHub Releases (public distribution) only come from the owner-authorized release job, never from a push', () => {
+    expect(build).toMatch(/release:[^]*?if: github\.event_name == 'workflow_dispatch' && inputs\.publish_release && inputs\.confirm == 'publish-release'[^]*?environment: production-release/);
+    expect(build).toMatch(/uses: softprops\/action-gh-release/);
+    expect(build.match(/softprops\/action-gh-release/g)).toHaveLength(1);
   });
 
   it('refuses to publish code older than the live update', () => {
-    expect(update).toMatch(/merge-base --is-ancestor "\$LIVE" "\$GITHUB_SHA"/);
+    expect(update).toMatch(/merge-base --is-ancestor "\$LIVE" "\$APPROVED_SHA"/);
     expect(update).toMatch(/fetch-depth: 0/);
   });
 
@@ -38,8 +40,9 @@ describe('release workflows (pre-release review)', () => {
     expect(update).toMatch(/Verify the installed APK will receive this update/);
   });
 
-  it('a native change on a non-APK branch fails loudly instead of shipping nowhere', () => {
-    expect(update).toMatch(/native-change-not-built/);
+  it('a native change since the live update cannot ship as an OTA (checked against the live update, not a push range)', () => {
+    expect(update).toMatch(/release-route\.sh/);
+    expect(update).toMatch(/cannot ship as an OTA/);
   });
 
   it('installs are reproducible (npm ci from the committed lockfile) and lint gates the publish', () => {
@@ -53,9 +56,8 @@ describe('release workflows (pre-release review)', () => {
     expect(update).toMatch(/__PLACEHOLDER__/);
   });
 
-  it('Actions budget: docs never publish an OTA, branch builds need [build-apk], prune is weekly, release gates stay', () => {
-    for (const p of ["'docs/**'", "'CLAUDE.md'", "'**/*.md'", "'.github/**'"]) expect(update).toContain(p);
-    expect(build).toMatch(/route:[^]*?if: github\.ref == 'refs\/heads\/main' \|\| github\.event_name == 'workflow_dispatch' \|\| contains\(github\.event\.head_commit\.message, '\[build-apk\]'\)/);
+  it('Actions budget: builds need [build-apk] or a dispatch, prune is weekly, release gates stay', () => {
+    expect(build).toMatch(/route:[^]*?if: github\.event_name == 'workflow_dispatch' \|\| contains\(github\.event\.head_commit\.message, '\[build-apk\]'\)/);
     expect(build).not.toMatch(/\n {4}paths:/);                       // a path filter would let workflow/doc edits start runs
     expect(build).toContain("key: gradle-${{ hashFiles('package-lock.json') }}");
     const prune = readFileSync('.github/workflows/prune-artifacts.yml', 'utf8');

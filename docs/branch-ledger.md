@@ -7,7 +7,7 @@ Authoritative line: `claude/repo-gameplay-review-loq9rq` @ `41c8cfb` (OTA #83). 
 | Branch | Tip | Ahead | Behind | Unique | Classification |
 | --- | --- | --- | --- | --- | --- |
 | `Github-APK-Transition` | 5890e13 | 0 | 82 | 0 | Already integrated (ancestor) |
-| `claude/android-snowboarding-game-UHUPI` | 54de686 | 0 | 125 | 0 | Already integrated (ancestor; the EAS cloud-build era) |
+| `claude/android-snowboarding-game-UHUPI` | dac4a1b | 1 | 125 | 1 | Already integrated (everything older is an ancestor; the EAS cloud-build era). One intentional commit disables its auto-publishing workflows |
 | `claude/add-steering-obstacles-WCPxr` | 11c2966 | 0 | 127 | 0 | Already integrated (ancestor) |
 | `claude/identify-issues-2Hub5` | 9148bf5 | 0 | 161 | 0 | Already integrated (ancestor) |
 | `claude/fix-ota-updates-rBtFA` | 7e12a93 | 1 | 84 | 0 | Integrated through an equivalent patch (icon re-encode hotfix, PR #62) |

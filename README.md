@@ -97,19 +97,18 @@ the Back button bridge or update deferral does not need an APK.
 
 ### Release process (the rules the workflows enforce)
 
-**Authoritative release line.** OTAs publish only from
-`claude/repo-gameplay-review-loq9rq` (and, once the live line is merged,
-from `main`). `main` currently lags the live line; its publishing
-workflows are disabled stubs, and `Github-APK-Transition-snow` likewise
-(a stale branch that publishes would downgrade every installed player,
-because all APKs share one EAS channel). Other old branches still carry
-copies of the old workflows; never push to them or run their workflows.
-When PR #64 is merged, take the live line's `eas-update.yml` and
-`eas-build.yml`.
+**Publishing is never automatic.** No push, merge, pull request, tag, version
+bump or docs change can publish an OTA, a GitHub Release or a signed build.
+The owner authorizes each publication by running the workflow by hand with an
+exact source SHA and a confirmation word, then approving the
+`production-release` environment: see `docs/release-authorization.md`
+(procedure, exact-SHA verification, promotion order). Release sources must be
+integrated into the authoritative line, `claude/repo-gameplay-review-loq9rq`
+(`authoritative.json`). `main` lags it; its workflows are disabled stubs.
 
-**OTA route** (`.github/workflows/eas-update.yml`, the normal case, any
-change under `src/`, `App.tsx`, `index.html`, `scripts/`):
-route -> lint -> unit tests -> `web:build` -> smoke -> page-size budget
+**OTA route** (`.github/workflows/eas-update.yml`, run by hand with an
+approved SHA; the normal case for a change under `src/`, `App.tsx`,
+`index.html`, `scripts/`): verify source -> lint -> unit tests -> `web:build` -> smoke -> page-size budget
 (7.5 MB) -> **ancestry guard** (the live update's source commit must be
 an ancestor of this commit: no rollbacks) -> publish to EAS branch
 `preview` -> channel re-link -> **delivery check** (asks the update

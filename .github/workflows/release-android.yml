@@ -25,6 +25,10 @@ name: Release Android (signed AAB + APK, manual)
 on:
   workflow_dispatch:
     inputs:
+      source_sha:
+        description: 'Approved source commit (full 40-character SHA)'
+        required: true
+        type: string
       confirm:
         description: 'Type build-signed-release to confirm (owner authorization)'
         required: true
@@ -40,8 +44,12 @@ concurrency:
 jobs:
   release:
     name: Signed AAB + APK
+    # Skipped (0 minutes) unless the owner typed the confirmation; then waits for the environment.
+    if: inputs.confirm == 'build-signed-release'
+    environment: production-release
     runs-on: ubuntu-latest
     env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
       RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
       RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
       RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
@@ -54,8 +62,12 @@ jobs:
       - name: Decoded keystore location (runner temp, deleted at the end)
         run: echo "RELEASE_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
+      - name: Approved SHA is a full commit id
+        run: printf '%s' "$SOURCE_SHA" | grep -qE '^[0-9a-f]{40}$' || { echo "::error::source_sha must be a full 40-character lowercase commit SHA"; exit 1; }
+
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source_sha }}   # the exact immutable commit, not a branch
           fetch-depth: 0
 
       - uses: actions/setup-node@v4
@@ -69,8 +81,8 @@ jobs:
           java-version: '17'
 
       # Release builds come from the product's one history, never an abandoned/divergent branch.
-      - name: Refuse a source that does not contain the authoritative baseline
-        run: node scripts/assert-release-source.mjs
+      - name: Verify the approved source (exact SHA, authoritative line)
+        run: node scripts/verify-approved-source.mjs "$SOURCE_SHA"
 
       # Fails first, before anything expensive, when signing is not fully configured.
       - name: Validate the signing secrets and keystore (fail closed)

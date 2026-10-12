@@ -25,8 +25,13 @@ export function buildManifest({ platform, signing, artifacts, env = process.env,
   if (!artifacts.length) throw new Error('at least one artifact is required');
   const rel = releaseInfo();
   const app = JSON.parse(readFileSync('app.json', 'utf8')).expo;
-  const sha = env.GITHUB_SHA || git('rev-parse', 'HEAD');
+  // SOURCE_SHA (the workflow's approved commit) outranks GITHUB_SHA (the moving dispatch ref).
+  const sha = env.SOURCE_SHA || env.GITHUB_SHA || git('rev-parse', 'HEAD');
   if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error('could not determine the source SHA');
+  if (env.SOURCE_SHA) {                                   // fail closed if the checkout is not the approved commit
+    const head = git('rev-parse', 'HEAD');
+    if (head && head !== sha) throw new Error(`checked-out HEAD ${head.slice(0, 7)} disagrees with the approved source ${sha.slice(0, 7)}`);
+  }
   const runtime = typeof app.runtimeVersion === 'string' ? app.runtimeVersion : app.version;   // policy appVersion => app version
   return {
     product: rel.productName,

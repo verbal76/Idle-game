@@ -28,6 +28,20 @@ That has not been proven: the key lives in the owner's Expo account, and nothing
 which APK was installed. (About > Copy diagnostics reports versionCode 5 for the installed shell; `snow-build-106/107` also
 carry versionCode 5, so versionCode alone does not distinguish them.)
 
+## Refined evidence (versionCode timeline, read-only)
+
+`app.json` `android.versionCode` over time: 1 (2026-05-03 first EAS cloud build), 2 (05-04), 3 (through 05-07/08), 5 (05-08 16:21, commit `09e708d`). The installed shell reports versionCode **5**, so it was built from `09e708d` or later. The APK builds from that point on are:
+
+| Build | When | How | Key |
+| --- | --- | --- | --- |
+| Actions runs 101 and 102 (`09e708d`, `8827159`) | 2026-05-08 | `eas build` (EAS cloud, `eas-cli build --platform android`) | EAS-managed keystore |
+| Actions run 106 (`86b534d`) | 2026-05-08 | GitHub Gradle | debug key; no channel header, so it would never receive OTAs |
+| Actions run 107 (`bc1fb81`, release `snow-build-107`) | 2026-05-09 | GitHub Gradle | debug key, with the channel header |
+
+The installed app receives OTAs, which rules out build 106. That leaves the EAS cloud builds 101/102 (most likely: "Build 13" fits the EAS dashboard build counter, not any GitHub number) or build 107. Application ID (`com.hotatticgames.snow`), runtime (0.0.1) and channel (`preview`) are identical for all of them, so they prove nothing about the key. **The signing certificate of the installed app is still not proven.**
+
+The one decisive, risk-free fact is the owner's EAS Android keystore fingerprint (EAS dashboard > project > Credentials > Android > Keystore, or `eas credentials`; read-only, shows SHA-256, never the key). If it is NOT `fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c`, no GitHub-built APK can update the installed app. In that case the way to keep the installation and its saves is to build the migration APK with EAS cloud (`eas build`, which signs with that same keystore and costs EAS credits, not GitHub minutes) instead of the debug key. If it matches, the GitHub APK installs in place.
+
 ## Consequences
 
 - If the phone is EAS-signed: **every GitHub-built APK, including migration build 114 and the v85 candidate,
