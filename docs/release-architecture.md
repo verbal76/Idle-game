@@ -8,8 +8,10 @@ needs the owner is marked **OWNER**.
 - One EAS channel (`preview`) and one runtime (`0.0.1`) serve every install.
 - APKs are built by `.github/workflows/eas-build.yml` (`assembleRelease`)
   and signed with Expo's **public debug keystore**.
-- OTAs publish from the live branch through the gated `eas-update.yml`
-  (tests, smoke, size budget, ancestry guard, delivery check).
+- OTAs publish only when the owner runs the gated `eas-update.yml` by hand
+  with an exact approved SHA (verify source, tests, smoke, size budget,
+  ancestry guard, delivery check). Nothing publishes automatically:
+  docs/release-authorization.md.
 
 ## Target
 | Concern | Beta (now) | Release |
