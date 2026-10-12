@@ -1,5 +1,5 @@
-import { BUILD_INFO } from '../__generated__/build-info';
-import { buildInfoText, describeBuild, otaName } from '../shell/buildInfo';
+import { diagnosticsText, otaName } from '../shell/buildInfo';
+import { currentRows } from '../ui/BuildInfoPanel';
 import { getEntries, getPreviousRun, formatEntry } from './debug';
 
 // Bug-report / feature-request mailto composer for the in-WebView
@@ -15,7 +15,7 @@ import { getEntries, getPreviousRun, formatEntry } from './debug';
 const SUPPORT_EMAIL = 'hotatticgames@gmail.com';
 
 function diagnosticBlock(): string {
-  return `${buildInfoText(describeBuild(window.__OTA__, BUILD_INFO))}\nAgent: ${navigator.userAgent}`;
+  return `${diagnosticsText(currentRows())}\nAgent: ${navigator.userAgent}`;
 }
 
 function buildLabel(): string {

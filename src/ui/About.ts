@@ -1,7 +1,5 @@
-import { BUILD_INFO } from '../__generated__/build-info';
-import { describeBuild } from '../shell/buildInfo';
 import { escapeHtml } from '../util/escapeHtml';
-import { buildInfoHtml, wireBuildInfo } from './BuildInfoPanel';
+import { buildInfoHtml, currentRows, wireBuildInfo, wireCopyDiagnostics } from './BuildInfoPanel';
 
 /**
  * About: the player sees the game name and version; the build and update
@@ -12,10 +10,10 @@ import { buildInfoHtml, wireBuildInfo } from './BuildInfoPanel';
 export function showAbout(root: HTMLElement): Promise<void> {
   return new Promise<void>((resolve) => {
     let unwire: () => void = () => {};
-    const finish = () => { unwire(); window.removeEventListener('ota-info', render); resolve(); };
+    const finish = () => { unwire(); window.removeEventListener('ota-info', render); window.removeEventListener('update-status', render); resolve(); };
     function render() {
       unwire();
-      const rows = describeBuild(window.__OTA__, BUILD_INFO);
+      const rows = currentRows();
       const val = (id: string) => rows.find(r => r.id === id)?.full;
       const ver = val('app-version');
       const code = val('native-build');
@@ -30,6 +28,7 @@ export function showAbout(root: HTMLElement): Promise<void> {
             <div class="about-title">Where's the Bottom?</div>
             ${version ? `<div class="about-version">${version}</div>` : ''}
             <p class="muted">A snowboarding game made by Hot Attic Games.</p>
+            <button id="about-copy" class="toggle about-copy">Copy diagnostics</button>
           </div>
           <details class="build-details"${open ? ' open' : ''}>
             <summary>Build &amp; update details</summary>
@@ -39,10 +38,12 @@ export function showAbout(root: HTMLElement): Promise<void> {
         </div>
       `;
       unwire = wireBuildInfo(root);
+      wireCopyDiagnostics(root.querySelector<HTMLButtonElement>('#about-copy')!, root.querySelector<HTMLElement>('.about-card')!, 'Copy diagnostics');
       root.querySelector<HTMLButtonElement>('#about-back')!.addEventListener('click', finish);
     }
     // Late native metadata: repaint with the real values.
     window.addEventListener('ota-info', render);
+    window.addEventListener('update-status', render);
     render();
   });
 }

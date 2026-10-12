@@ -29,43 +29,69 @@ name: APK Build (GitHub-hosted)
 # key, so OTAs land on the debug-signed APK identically to how
 # they landed on the EAS-signed cloud builds.
 
+# COORDINATED BUILD (studio standard v2.0 section 9). Nothing here publishes automatically: a push
+# (including a merge into main) can at most produce an Android workflow artifact, and only when the
+# commit message says [build-apk]. The owner runs this workflow by hand with:
+#   platform      android | windows | linux | all   (all = ONE source SHA for all three)
+#   source_sha    the exact approved commit (full 40 characters)
+#   build_number  the coordinated build number (must equal release.json)
+#   destination   local_only (workflow artifacts) | github_releases (also needs `confirm`)
+#   confirm       publish-release (only for github_releases)
+# github_releases publishes ONE GitHub Release "<Title> Build NN" with the selected platforms,
+# build-manifest.json and checksums.sha256, after the `production-release` environment approval.
+# A GitHub Release never publishes an OTA, Steam or Google Play. docs/release-authorization.md
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform(s) to build'
+        required: true
+        default: android
+        type: choice
+        options: [android, windows, linux, all]
+      source_sha:
+        description: 'Exact source commit (full 40-character SHA). Required for destination github_releases.'
+        required: false
+        type: string
+      build_number:
+        description: 'Coordinated build number (must equal release.json)'
+        required: false
+        type: string
+      destination:
+        description: 'Where the result goes'
+        required: true
+        default: local_only
+        type: choice
+        options: [local_only, github_releases]
+      confirm:
+        description: 'Type publish-release to authorize the GitHub Release (destination github_releases)'
+        required: false
+        type: string
   push:
     branches:
       - main
-    paths:
-      - 'package.json'
-      - 'package-lock.json'
-      - 'app.json'
-      - 'app.config.js'
-      - 'eas.json'
-      - 'babel.config.js'
-      - 'metro.config.js'
-      - 'android/**'
-      - 'ios/**'
-      # Source PNG for the icon — assets/icon.png + adaptive-icon.png
-      # are .gitignored generated outputs, so listing menu-bg here
-      # is the only way an icon-art change triggers a rebuild.
-      - 'src/assets/menu-bg.png'
-      - '.github/workflows/eas-build.yml'
+      - claude/hold-api36-migration
+      - claude/hold-candidate-next
+    # No `paths:` filter: every push is gated by the job-level `if` below (a job skipped by `if`
+    # uses no runner minutes), so editing docs or this workflow costs nothing.
 
 permissions:
-  # softprops/action-gh-release needs write access to publish the
-  # release + upload the APK as an asset.
-  contents: write
+  contents: read
 
-# Never cancelled: a later push that routes OTA-only would otherwise
-# drop a native change that was still building.
+# main: never cancelled (a later OTA-only push must not drop a native change that was still
+# building). Hold / candidate branches: a newer [build-apk] push supersedes the older run.
 concurrency:
-  group: apk-build
-  cancel-in-progress: false
+  group: apk-build-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   route:
     # One-at-a-time rule: decides whether this push is native (APK) or
     # JS-only (OTA). eas-build.yml and eas-update.yml run the same script
     # on the same commit range, so a push can never start both.
+    # Budget + safety rule (docs/actions-budget.md): a build happens only when the commit message
+    # says [build-apk] or the owner dispatches it; otherwise this job (and the build) is skipped.
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build-apk]')
     runs-on: ubuntu-latest
     outputs:
       native: ${{ steps.route.outputs.native }}
@@ -81,13 +107,50 @@ jobs:
   build:
     needs: route
     # Only pushes that change the native build (not e.g. devDependencies).
-    if: needs.route.outputs.native != 'false'
+    if: needs.route.outputs.native != 'false' && needs.route.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.platform == 'android' || inputs.platform == 'all')
     name: Build Android APK
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+    outputs:
+      apk: ${{ steps.apk.outputs.name }}
+      tag: ${{ steps.apk.outputs.tag }}
+      title: ${{ steps.apk.outputs.title }}
+      version: ${{ steps.apk.outputs.version }}
+      sha256: ${{ steps.sha.outputs.sha256 }}
+      source_sha: ${{ env.SOURCE_SHA }}
     steps:
+      - name: Release publication needs its confirmation word (before anything expensive)
+        if: inputs.destination == 'github_releases'
+        run: |
+          [ "${{ inputs.confirm }}" = "publish-release" ] || { echo "::error::destination github_releases needs confirm = publish-release"; exit 1; }
+          printf '%s' "${{ inputs.source_sha }}" | grep -qE '^[0-9a-f]{40}$' || { echo "::error::destination github_releases needs source_sha (full 40-character SHA)"; exit 1; }
+
       - name: Check out repo
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}   # an exact immutable commit, never a moving branch
+          fetch-depth: 0   # ancestry check against the authoritative baseline
+
+      - name: The checked-out commit is the selected source
+        run: '[ "$(git rev-parse HEAD)" = "$SOURCE_SHA" ] || { echo "::error::checked-out HEAD does not match $SOURCE_SHA"; exit 1; }'
+
+      # A release must be exactly the approved, integrated commit.
+      - name: Verify the approved source (exact SHA, authoritative line)
+        if: inputs.destination == 'github_releases'
+        run: node scripts/verify-approved-source.mjs "$SOURCE_SHA"
+
+      - name: The build number is release.json's and has never been used
+        if: inputs.destination == 'github_releases'
+        run: |
+          [ "${{ inputs.build_number }}" = "$(node -p "require('./release.json').publicVersion")" ] || { echo "::error::build_number does not match release.json"; exit 1; }
+          TAG="$(node scripts/release-info.mjs --github | sed -n 's/^tag=//p')"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then echo "::error::tag $TAG already exists: a build number is never reused"; exit 1; fi
+
+      # Release builds come from the product's one history, never an abandoned/divergent branch.
+      - name: Refuse a source that does not contain the authoritative baseline
+        run: node scripts/assert-release-source.mjs
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -101,8 +164,14 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      # The runner image already has the Android SDK (ANDROID_HOME). The action's
+      # default package list asks for the retired 'tools' package, which current
+      # cmdline-tools reject ("Failed to find package 'tools'"), so install nothing
+      # here; the exact components are installed after prebuild, below.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: ''
 
       - name: Install dependencies (exactly package-lock.json)
         run: npm ci --no-audit --no-fund
@@ -112,16 +181,47 @@ jobs:
       # (read by expo prebuild via app.json). Both (and src/__generated__)
       # are .gitignored generated outputs; we materialise them on the runner here
       # so prebuild + Gradle find them in the workspace.
+      # The versionCode is this workflow's run number: monotonically
+      # increasing and never reused. It is INTERNAL metadata (About shows it
+      # as "Android build (versionCode)"); the public name and file name come
+      # from release.json (v<number>, docs/release-naming.md).
+      # Done before the web build so the bundle's own build stamp matches.
+      - name: Stamp versionCode = run number (not committed)
+        run: |
+          node -e "
+            const fs = require('fs');
+            const app = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+            app.expo.android.versionCode = ${{ github.run_number }};
+            fs.writeFileSync('app.json', JSON.stringify(app, null, 2) + '\n');
+          "
+          grep -n '"versionCode"\|"version"\|"package"' app.json
+
       - name: Unit tests (block the APK on any failure)
-        run: npm test
+        run: |
+          npm test
+          python3 -m unittest discover -s scripts/tests
 
       - name: Build web bundle + icons
         run: npm run web:build
+
+      # The WebView receives the whole game as one HTML string; the Android Binder
+      # channel that carries it fails (black screen) somewhere above ~10 MB.
+      - name: Page size budget
+        run: |
+          SIZE=$(wc -c < dist/index.html)
+          echo "dist/index.html: $SIZE bytes (budget 7500000)"
+          if [ "$SIZE" -gt 7500000 ]; then echo "::error::Page bundle $SIZE bytes is over the 7.5 MB budget"; exit 1; fi
 
       - name: Generate android/ project (expo prebuild)
         run: npx expo prebuild --platform android --clean
         env:
           EXPO_NO_TELEMETRY: '1'
+
+      # Exactly the platform / build-tools / NDK the generated project asks for
+      # (read from android/), plus accepted licences, so Gradle never stalls on a
+      # download prompt and a newer compileSdk than the image carries still works.
+      - name: Install the Android SDK components this build needs
+        run: bash .github/scripts/install-android-components.sh
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -129,7 +229,10 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          # Keyed on the dependency lock, NOT on the generated android/ files: those contain the
+          # per-run versionCode, so the old key changed every run, never hit, and saved a new
+          # ~1.5 GB cache every time (billed upload time + cache-quota churn).
+          key: gradle-${{ hashFiles('package-lock.json') }}
           restore-keys: |
             gradle-
 
@@ -150,43 +253,180 @@ jobs:
             exit 1
           fi
           echo "path=$APK" >> "$GITHUB_OUTPUT"
-          echo "name=where-is-the-bottom-build-${{ github.run_number }}.apk" >> "$GITHUB_OUTPUT"
+          # Public names come only from release.json (docs/release-naming.md).
+          node scripts/release-info.mjs --github >> "$GITHUB_OUTPUT"
+          echo "name=$(node scripts/release-info.mjs --github | sed -n 's/^apk=//p')" >> "$GITHUB_OUTPUT"
 
-      - name: Read OTA version label
+      - name: Describe this build
         id: ver
         run: |
-          OTA=$(grep -oE "OTA #[0-9]+[^']*" src/version.ts | head -1 || echo "unknown")
-          echo "ota=$OTA" >> "$GITHUB_OUTPUT"
+          echo "ota=source ${SOURCE_SHA::7} (selected ref ${GITHUB_REF_NAME}), versionCode ${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
-      - name: Rename APK for upload
-        run: cp "${{ steps.apk.outputs.path }}" "${{ steps.apk.outputs.name }}"
+      # The release GATE (scripts/inspect-apk.py): fails the build, and so blocks
+      # the artifact and any release, when a 64-bit native library is not 16 KB
+      # aligned, zipalign -P 16 rejects the APK, targetSdk < 36, the package id is
+      # not com.hotatticgames.snow, or a blocked permission is present. The report
+      # is uploaded even on failure.
+      - name: Gate the APK (16 KB alignment, target SDK, package id, permissions)
+        run: |
+          set -o pipefail
+          MANIFEST=$(find android/app/build/intermediates -name AndroidManifest.xml -path '*release*' -path '*merged_manifest*' -print -quit || true)
+          python3 scripts/inspect-apk.py "${{ steps.apk.outputs.path }}" "$MANIFEST" | tee apk-report.txt
+
+      # A public version number is never reused for a different binary:
+      # bump release.json before shipping a new playable build.
+      - name: Rename APK for upload and write its SHA-256
+        id: sha
+        run: |
+          cp "${{ steps.apk.outputs.path }}" "${{ steps.apk.outputs.name }}"
+          sha256sum "${{ steps.apk.outputs.name }}" | tee "${{ steps.apk.outputs.name }}.sha256"
+          echo "sha256=$(cut -d' ' -f1 "${{ steps.apk.outputs.name }}.sha256")" >> "$GITHUB_OUTPUT"
+          VERSION_CODE=${{ github.run_number }} node scripts/make-release-manifest.mjs --platform android --signing debug \
+            --out "${{ steps.apk.outputs.name }}.manifest.json" "${{ steps.apk.outputs.name }}"
 
       - name: Upload APK as workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.apk.outputs.name }}
-          path: ${{ steps.apk.outputs.name }}
+          path: |
+            ${{ steps.apk.outputs.name }}
+            ${{ steps.apk.outputs.name }}.sha256
+            ${{ steps.apk.outputs.name }}.manifest.json
           if-no-files-found: error
 
-      # Auto-publish a GitHub Release on every push so testers
-      # always have a stable URL for the latest build. Manual
-      # (workflow_dispatch) runs skip this and just leave the APK
-      # as a workflow artifact you can download from the run page.
-      - name: Publish GitHub Release
-        if: github.event_name == 'push'
+      - name: Upload the APK inspection report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-report-${{ github.run_number }}
+          path: apk-report.txt
+
+  desktop:
+    # Windows x86-64 (ZIP) and native Linux x86-64 (TAR.GZ) from the SAME source as Android: the game
+    # bundle hosted in the Electron shell (desktop/). Owner dispatch only; both targets are packaged
+    # on a Linux runner (no Windows runner is needed to produce the ZIP).
+    if: github.event_name == 'workflow_dispatch' && inputs.platform != 'android'
+    name: Desktop ${{ matrix.platform }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(inputs.platform == 'all' && '["windows","linux"]' || format('["{0}"]', inputs.platform)) }}
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - name: Source must be an exact SHA
+        run: printf '%s' "$SOURCE_SHA" | grep -qE '^[0-9a-f]{40}$' || { echo "::error::desktop builds need source_sha (full 40-character SHA)"; exit 1; }
+      - name: Release publication needs its confirmation word
+        if: inputs.destination == 'github_releases'
+        run: '[ "${{ inputs.confirm }}" = "publish-release" ] || { echo "::error::destination github_releases needs confirm = publish-release"; exit 1; }'
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+      - name: The checked-out commit is the selected source
+        run: '[ "$(git rev-parse HEAD)" = "$SOURCE_SHA" ] || { echo "::error::checked-out HEAD does not match $SOURCE_SHA"; exit 1; }'
+      # A release must be the integrated commit; a local_only playtest build may come from a branch
+      # that still contains the authoritative baseline.
+      - name: Verify the source (exact SHA; on the authoritative line for a release)
+        run: |
+          if [ "${{ inputs.destination }}" = "github_releases" ]; then node scripts/verify-approved-source.mjs "$SOURCE_SHA"; else node scripts/assert-release-source.mjs; fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm ci --prefix desktop --no-audit --no-fund
+      - name: Build, package, manifest and verify (tests + web build + page budget included)
+        run: node scripts/build.mjs --platform "${{ matrix.platform }}" --source-sha "$SOURCE_SHA" --build-number "${{ inputs.build_number }}"
+      - name: Packaged Linux executable boots the game (headless, software GL)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get install -y --no-install-recommends xvfb libasound2t64 >/dev/null 2>&1 || sudo apt-get install -y --no-install-recommends xvfb libasound2 >/dev/null
+          mkdir smoke && tar -xzf build-out/*Linux.tar.gz -C smoke
+          cd smoke/*/ && WTB_SMOKE=1 xvfb-run -a ./"Wheres the Bottom" --no-sandbox --disable-gpu --user-data-dir="$RUNNER_TEMP/ud" 2>&1 | tee "$RUNNER_TEMP/smoke.log"
+          grep -q '"ok":true' "$RUNNER_TEMP/smoke.log"
+      - name: Per-platform manifest name
+        run: cp build-out/build-manifest.json "build-out/${{ matrix.platform }}.manifest.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: |
+            build-out/*.zip
+            build-out/*.tar.gz
+            build-out/${{ matrix.platform }}.manifest.json
+          if-no-files-found: error
+
+  release:
+    # ONE GitHub Release per coordinated build (public distribution). Never automatic: owner dispatch +
+    # destination github_releases + confirmation word + environment approval, and every selected
+    # platform must have built (never a partial release).
+    needs: [build, desktop]
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.destination == 'github_releases' && inputs.confirm == 'publish-release'
+    environment: production-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - name: Every selected platform built (a partial build is never a release)
+        env:
+          PLATFORM: ${{ inputs.platform }}
+          BUILD: ${{ needs.build.result }}
+          DESKTOP: ${{ needs.desktop.result }}
+        run: |
+          case "$PLATFORM" in android|all) [ "$BUILD" = success ] || { echo "::error::Android did not build ($BUILD)"; exit 1; };; esac
+          case "$PLATFORM" in windows|linux|all) [ "$DESKTOP" = success ] || { echo "::error::Desktop did not build ($DESKTOP)"; exit 1; };; esac
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+      - name: Re-verify the approved source before publishing
+        run: node scripts/verify-approved-source.mjs "$SOURCE_SHA"
+      - uses: actions/download-artifact@v4
+        with:
+          path: dl
+      - name: Gather, merge manifests (one SHA, one build number), checksum and verify
+        id: gather
+        run: |
+          mkdir out
+          find dl -type f -exec cp {} out/ \;
+          rm -f out/*.apk.sha256
+          node scripts/make-release-manifest.mjs --merge out/build-manifest.json out/*.manifest.json
+          node scripts/make-release-manifest.mjs --checksums out/build-manifest.json out/checksums.sha256
+          rm -f out/*.manifest.json
+          (cd out && sha256sum -c checksums.sha256)
+          node -e "const m=require('./out/build-manifest.json'); if (m.sourceSha!==process.env.SOURCE_SHA) { console.error('manifest source SHA disagrees with the approved SHA'); process.exit(1); }"
+          node scripts/release-info.mjs --github >> "$GITHUB_OUTPUT"
+          TAG="$(node scripts/release-info.mjs --github | sed -n 's/^tag=//p')"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then echo "::error::tag $TAG already exists"; exit 1; fi
+          ls -la out
+      - name: Publish the GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: snow-build-${{ github.run_number }}
-          name: "Where's the Bottom? APK build #${{ github.run_number }}"
+          tag_name: ${{ steps.gather.outputs.tag }}
+          target_commitish: ${{ inputs.source_sha }}   # the tag points at the built commit
+          name: ${{ steps.gather.outputs.title }}
           body: |
-            Auto-built from commit `${{ github.sha }}`.
+            ## Download
 
-            **${{ steps.ver.outputs.ota }}**
+            | Platform | File |
+            | --- | --- |
+            | Android | `${{ steps.gather.outputs.apk }}` |
+            | Windows x86-64 | `${{ steps.gather.outputs.exe }}` (unzip, run the .exe) |
+            | Linux x86-64 | `${{ steps.gather.outputs.linux }}` (extract, run the executable) |
 
-            Standalone sideload APK (release variant, JS bundled). Install via:
-            1. Download the APK below.
-            2. On your Android device, allow "install from unknown sources" for your browser / file manager.
-            3. **First install of this build line:** uninstall the previous version first (different keystore — Android won't update over it). Local saves will be lost on this one-time reinstall.
-            4. Open the downloaded APK to install.
-          files: ${{ steps.apk.outputs.name }}
+            Only the platforms selected for this build are attached. Android: if the system refuses to update over an existing install (a different signing key), nothing was changed: do NOT uninstall without a backup (Settings > Back up). Windows and Linux builds are unsigned.
+
+            ### Provenance
+            - Build: ${{ steps.gather.outputs.version }}
+            - Source commit: `${{ inputs.source_sha }}`
+            - `build-manifest.json` lists every artifact's SHA-256, size, runtime and toolchain; `checksums.sha256` verifies them.
+            - CI run: #${{ github.run_number }}
+          files: |
+            out/*
+          fail_on_unmatched_files: true
           token: ${{ secrets.GITHUB_TOKEN }}
