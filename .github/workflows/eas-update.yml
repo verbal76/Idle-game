@@ -1,94 +1,65 @@
 name: EAS Update (OTA)
 
+# EXPLICITLY AUTHORIZED PUBLISHING ONLY.
+#
+# No push, pull request, merge, tag, version bump or documentation change can publish an
+# OTA: this workflow has NO automatic trigger. An OTA is published only when the owner
+# runs it by hand (Actions > EAS Update (OTA) > Run workflow) with:
+#   source_sha  the exact 40-character commit approved for release
+#   confirm     the word  publish-ota
+# and the job then waits for the `production-release` environment (add required reviewers
+# and restrict deployment branches there: Settings > Environments; docs/release-authorization.md).
+#
+# Source integrity: the job checks out that exact immutable SHA, confirms HEAD == the approved
+# SHA, that it is on the authoritative line and contains the authoritative baseline, and every
+# later step uses the approved SHA (never the moving branch). Existing safeguards are kept:
+# lint, unit tests, smoke, page-size budget, placeholder refusal, "never go backwards",
+# channel re-link and the delivery verification. docs/release-authorization.md
+
 on:
   workflow_dispatch:
-  push:
-    # The only lines allowed to publish to the live channel. (Other
-    # branches still carrying an old copy of this workflow can publish
-    # with that copy; see the 'never go backwards' guard below, which
-    # this copy enforces, and the README release section.)
-    branches:
-      - main
-      # Gameplay-review series (authorized by the repo owner): every
-      # step ships as its own OTA checkpoint; tests still gate it.
-      - claude/repo-gameplay-review-loq9rq
-    paths-ignore:
-      - 'package.json'
-      - 'package-lock.json'
-      - 'app.json'
-      - 'eas.json'
-      - 'babel.config.js'
-      - 'metro.config.js'
-      - 'android/**'
-      - 'ios/**'
-      - 'assets/icon.png'
-      - 'assets/adaptive-icon.png'
-      - 'assets/splash-icon.png'
-      - '.github/workflows/**'
-      - '.github/scripts/**'
-      - 'README.md'
-      - 'MOBILE_GAME_DEV_RULES.md'
-      - '.gitignore'
-      # Documentation / agent instructions / release tooling that is not in the page bundle.
-      # (docs-only pushes used to run lint+tests+smoke AND publish an OTA.)
-      - 'docs/**'
-      - 'CLAUDE.md'
-      - '**/*.md'
-      - '.claude/**'
-      - '.github/**'
-      - 'scripts/tests/**'
-      - 'scripts/inspect-apk.py'
-      - 'scripts/release-signing.mjs'
-      - 'scripts/make-studio-logo.mjs'
+    inputs:
+      source_sha:
+        description: 'Approved source commit (full 40-character SHA)'
+        required: true
+        type: string
+      confirm:
+        description: 'Type publish-ota to authorize publishing this commit as an OTA'
+        required: true
+        type: string
+      ota_label:
+        description: 'Optional OTA label, e.g. "OTA #84" (default: taken from the commit subject)'
+        required: false
+        type: string
 
 permissions:
   contents: read
 
-# One publish at a time across ALL branches (they share the live
-# channel), and never cancelled: a cancelled run would drop a release.
+# One publish at a time across ALL sources (they share the live channel), and never
+# cancelled: a cancelled run would drop a release.
 concurrency:
   group: eas-update-preview
   cancel-in-progress: false
 
 jobs:
-  route:
-    # One-at-a-time rule: decides whether this push is native (APK) or
-    # JS-only (OTA). eas-build.yml and eas-update.yml run the same script
-    # on the same commit range, so a push can never start both.
-    runs-on: ubuntu-latest
-    outputs:
-      native: ${{ steps.route.outputs.native }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - id: route
-        run: bash .github/scripts/release-route.sh
-        env:
-          BEFORE: ${{ github.event.before }}
-
-  native-change-not-built:
-    # A native change on a branch the APK workflow doesn't build would
-    # otherwise ship nowhere with a green run. Say so loudly.
-    needs: route
-    if: needs.route.outputs.native == 'true' && github.ref != 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          echo "::error::This push changes the native build, so no OTA was published, and APKs are only built from main. Merge to main (APK build), then publish the matching OTA."
-          exit 1
-
   update:
-    needs: route
-    # JS-only pushes publish; a push that changes the native build leaves
-    # it to the APK workflow (publish an OTA by hand after the APK is out).
-    if: needs.route.outputs.native != 'true'
+    # Skipped (0 runner minutes) unless the owner typed the confirmation.
+    if: github.event_name == 'workflow_dispatch' && inputs.confirm == 'publish-ota'
+    environment: production-release
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      APPROVED_SHA: ${{ inputs.source_sha }}
     steps:
+      - name: Approved SHA is a full commit id
+        run: |
+          printf '%s' "$APPROVED_SHA" | grep -qE '^[0-9a-f]{40}$' || { echo "::error::source_sha must be a full 40-character lowercase commit SHA"; exit 1; }
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # full history for the 'never go backwards' guard
+          ref: ${{ inputs.source_sha }}   # the exact immutable commit, not a branch
+          fetch-depth: 0                  # full history for the source and 'never go backwards' guards
+      - name: Verify the approved source (exact SHA, authoritative history)
+        run: node scripts/verify-approved-source.mjs "$APPROVED_SHA"
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -139,8 +110,15 @@ jobs:
           LIVE="$(grep -oE '"commit":"[0-9a-f]{40}"' "$RUNNER_TEMP/live.txt" | head -1 | grep -oE '[0-9a-f]{40}' || true)"
           if [ -z "$LIVE" ]; then echo "No commit stamped on the live update; nothing to compare."; exit 0; fi
           echo "Live update was built from $LIVE"
-          if ! git cat-file -e "$LIVE^{commit}" 2>/dev/null || ! git merge-base --is-ancestor "$LIVE" "$GITHUB_SHA"; then
-            echo "::error::$GITHUB_SHA does not contain the live update's commit $LIVE; publishing would roll players back. Merge the live line first."
+          if ! git cat-file -e "$LIVE^{commit}" 2>/dev/null || ! git merge-base --is-ancestor "$LIVE" "$APPROVED_SHA"; then
+            echo "::error::$APPROVED_SHA does not contain the live update's commit $LIVE; publishing would roll players back. Merge the live line first."
+            exit 1
+          fi
+          # OTA compatibility: nothing between the live update and this commit may change the native
+          # build (the route script also demands a runtime bump for native-capability changes).
+          ROUTE_IGNORE_MARKER=1 GITHUB_EVENT_NAME=push GITHUB_SHA="$APPROVED_SHA" BEFORE="$LIVE" GITHUB_OUTPUT="$RUNNER_TEMP/route.out" bash .github/scripts/release-route.sh
+          if grep -q '^native=true' "$RUNNER_TEMP/route.out"; then
+            echo "::error::Changes since the live update ($LIVE) alter the native build: this cannot ship as an OTA. Build and install the APK first."
             exit 1
           fi
       - name: Publish OTA update
@@ -149,14 +127,16 @@ jobs:
         # can show the source commit and OTA name it is running.
         run: |
           set -o pipefail   # a failed publish must fail the step despite | tee
-          SUBJECT="$(git log -1 --pretty=%s)"
+          SUBJECT="$(git log -1 --pretty=%s "$APPROVED_SHA")"
           # Cut by characters (not bytes, which can split a character).
           MSG="$(printf '%s' "$SUBJECT" | node -e 'const a=[...require("fs").readFileSync(0,"utf8").trim()];process.stdout.write(a.length>100?a.slice(0,99).join("")+"…":a.join(""))')"
-          export OTA_COMMIT="$GITHUB_SHA"
+          export OTA_COMMIT="$APPROVED_SHA"
           export OTA_MESSAGE="$SUBJECT"
-          export OTA_LABEL="$(git log -1 --pretty=%s | grep -oE 'OTA #[0-9]+' | tail -1 || true)"
+          export OTA_LABEL="${{ inputs.ota_label }}"
+          [ -n "$OTA_LABEL" ] || OTA_LABEL="$(git log -1 --pretty=%s "$APPROVED_SHA" | grep -oE 'OTA #[0-9]+' | tail -1 || true)"
+          export OTA_LABEL
           export OTA_RUN="$GITHUB_RUN_NUMBER"
-          export OTA_BRANCH="$GITHUB_REF_NAME"
+          export OTA_BRANCH="$(node -p "require('./authoritative.json').authoritativeLine")"
           npx eas-cli@24.10.0 update \
             --branch preview \
             --platform android \
@@ -196,8 +176,8 @@ jobs:
               -H "accept: multipart/mixed" -o "$RUNNER_TEMP/manifest.txt" || true
             SERVED="$(grep -oE '"id":"[0-9a-f-]{36}"' "$RUNNER_TEMP/manifest.txt" | head -1 | grep -oE '[0-9a-f-]{36}' || true)"
             echo "attempt $i: served update ${SERVED:-none}"
-            if [ "$SERVED" = "$ANDROID_UPDATE_ID" ] && grep -q "$GITHUB_SHA" "$RUNNER_TEMP/manifest.txt"; then
-              echo "OK: runtime $RUNTIME / channel $CHANNEL now serves $ANDROID_UPDATE_ID (commit $GITHUB_SHA)"
+            if [ "$SERVED" = "$ANDROID_UPDATE_ID" ] && grep -q "$APPROVED_SHA" "$RUNNER_TEMP/manifest.txt"; then
+              echo "OK: runtime $RUNTIME / channel $CHANNEL now serves $ANDROID_UPDATE_ID (commit $APPROVED_SHA)"
               grep -oE '"(runtimeVersion|createdAt)":"[^"]*"' "$RUNNER_TEMP/manifest.txt" | head -2
               exit 0
             fi

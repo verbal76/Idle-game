@@ -1,0 +1,7 @@
+{
+  "product": "Where's the Bottom?",
+  "authoritativeLine": "claude/repo-gameplay-review-loq9rq",
+  "baselineSha": "41c8cfbbe8d747e6fce072c9e2164d0d2e7ade77",
+  "baselineNote": "Source of the live OTA #83. Every release build (APK, AAB, OTA) must contain this commit. Advance it only when a newer line has actually shipped. docs/architecture.md",
+  "platforms": ["android"]
+}

@@ -29,43 +29,52 @@ name: APK Build (GitHub-hosted)
 # key, so OTAs land on the debug-signed APK identically to how
 # they landed on the EAS-signed cloud builds.
 
+# BUILD GENERATION ONLY. Nothing here publishes automatically: a push (including a merge into main)
+# can at most produce a workflow artifact, and only when the commit message says [build-apk]. A
+# GitHub Release is created ONLY by the separate `release` job, which needs the owner to run this
+# workflow by hand with publish_release=true, the exact source_sha and the confirmation word, and
+# then waits for the `production-release` environment. docs/release-authorization.md
 on:
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Exact source commit (full 40-character SHA). Required to publish a release.'
+        required: false
+        type: string
+      publish_release:
+        description: 'Also publish a GitHub Release from this build (needs confirm + environment approval)'
+        required: false
+        default: false
+        type: boolean
+      confirm:
+        description: 'Type publish-release to authorize the GitHub Release'
+        required: false
+        type: string
   push:
     branches:
       - main
-    paths:
-      - 'package.json'
-      - 'package-lock.json'
-      - 'app.json'
-      - 'app.config.js'
-      - 'eas.json'
-      - 'babel.config.js'
-      - 'metro.config.js'
-      - 'android/**'
-      - 'ios/**'
-      # Source PNG for the icon — assets/icon.png + adaptive-icon.png
-      # are .gitignored generated outputs, so listing menu-bg here
-      # is the only way an icon-art change triggers a rebuild.
-      - 'src/assets/menu-bg.png'
-      # (Editing this workflow or the route script does NOT start a build: run it by hand to try a change.)
+      - claude/hold-api36-migration
+      - claude/hold-candidate-next
+    # No `paths:` filter: every push is gated by the job-level `if` below (a job skipped by `if`
+    # uses no runner minutes), so editing docs or this workflow costs nothing.
 
 permissions:
-  # softprops/action-gh-release needs write access to publish the
-  # release + upload the APK as an asset.
-  contents: write
+  contents: read
 
-# Never cancelled: a later push that routes OTA-only would otherwise
-# drop a native change that was still building.
+# main: never cancelled (a later OTA-only push must not drop a native change that was still
+# building). Hold / candidate branches: a newer [build-apk] push supersedes the older run.
 concurrency:
-  group: apk-build
-  cancel-in-progress: false
+  group: apk-build-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   route:
     # One-at-a-time rule: decides whether this push is native (APK) or
     # JS-only (OTA). eas-build.yml and eas-update.yml run the same script
     # on the same commit range, so a push can never start both.
+    # Budget + safety rule (docs/actions-budget.md): a build happens only when the commit message
+    # says [build-apk] or the owner dispatches it; otherwise this job (and the build) is skipped.
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build-apk]')
     runs-on: ubuntu-latest
     outputs:
       native: ${{ steps.route.outputs.native }}
@@ -81,13 +90,43 @@ jobs:
   build:
     needs: route
     # Only pushes that change the native build (not e.g. devDependencies).
-    if: needs.route.outputs.native != 'false'
+    if: needs.route.outputs.native != 'false' && needs.route.result == 'success'
     name: Build Android APK
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+    outputs:
+      apk: ${{ steps.apk.outputs.name }}
+      tag: ${{ steps.apk.outputs.tag }}
+      title: ${{ steps.apk.outputs.title }}
+      version: ${{ steps.apk.outputs.version }}
+      sha256: ${{ steps.sha.outputs.sha256 }}
+      source_sha: ${{ env.SOURCE_SHA }}
     steps:
+      - name: Release publication needs its confirmation word (before anything expensive)
+        if: inputs.publish_release
+        run: |
+          [ "${{ inputs.confirm }}" = "publish-release" ] || { echo "::error::publish_release needs confirm = publish-release"; exit 1; }
+          printf '%s' "${{ inputs.source_sha }}" | grep -qE '^[0-9a-f]{40}$' || { echo "::error::publish_release needs source_sha (full 40-character SHA)"; exit 1; }
+
       - name: Check out repo
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}   # an exact immutable commit, never a moving branch
+          fetch-depth: 0   # ancestry check against the authoritative baseline
+
+      - name: The checked-out commit is the selected source
+        run: '[ "$(git rev-parse HEAD)" = "$SOURCE_SHA" ] || { echo "::error::checked-out HEAD does not match $SOURCE_SHA"; exit 1; }'
+
+      # A release must be exactly the approved, integrated commit.
+      - name: Verify the approved source (exact SHA, authoritative line)
+        if: inputs.publish_release
+        run: node scripts/verify-approved-source.mjs "$SOURCE_SHA"
+
+      # Release builds come from the product's one history, never an abandoned/divergent branch.
+      - name: Refuse a source that does not contain the authoritative baseline
+        run: node scripts/assert-release-source.mjs
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -101,8 +140,14 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      # The runner image already has the Android SDK (ANDROID_HOME). The action's
+      # default package list asks for the retired 'tools' package, which current
+      # cmdline-tools reject ("Failed to find package 'tools'"), so install nothing
+      # here; the exact components are installed after prebuild, below.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: ''
 
       - name: Install dependencies (exactly package-lock.json)
         run: npm ci --no-audit --no-fund
@@ -112,16 +157,47 @@ jobs:
       # (read by expo prebuild via app.json). Both (and src/__generated__)
       # are .gitignored generated outputs; we materialise them on the runner here
       # so prebuild + Gradle find them in the workspace.
+      # The versionCode is this workflow's run number: monotonically
+      # increasing and never reused. It is INTERNAL metadata (About shows it
+      # as "Android build (versionCode)"); the public name and file name come
+      # from release.json (v<number>, docs/release-naming.md).
+      # Done before the web build so the bundle's own build stamp matches.
+      - name: Stamp versionCode = run number (not committed)
+        run: |
+          node -e "
+            const fs = require('fs');
+            const app = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+            app.expo.android.versionCode = ${{ github.run_number }};
+            fs.writeFileSync('app.json', JSON.stringify(app, null, 2) + '\n');
+          "
+          grep -n '"versionCode"\|"version"\|"package"' app.json
+
       - name: Unit tests (block the APK on any failure)
-        run: npm test
+        run: |
+          npm test
+          python3 -m unittest discover -s scripts/tests
 
       - name: Build web bundle + icons
         run: npm run web:build
+
+      # The WebView receives the whole game as one HTML string; the Android Binder
+      # channel that carries it fails (black screen) somewhere above ~10 MB.
+      - name: Page size budget
+        run: |
+          SIZE=$(wc -c < dist/index.html)
+          echo "dist/index.html: $SIZE bytes (budget 7500000)"
+          if [ "$SIZE" -gt 7500000 ]; then echo "::error::Page bundle $SIZE bytes is over the 7.5 MB budget"; exit 1; fi
 
       - name: Generate android/ project (expo prebuild)
         run: npx expo prebuild --platform android --clean
         env:
           EXPO_NO_TELEMETRY: '1'
+
+      # Exactly the platform / build-tools / NDK the generated project asks for
+      # (read from android/), plus accepted licences, so Gradle never stalls on a
+      # download prompt and a newer compileSdk than the image carries still works.
+      - name: Install the Android SDK components this build needs
+        run: bash .github/scripts/install-android-components.sh
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -157,16 +233,26 @@ jobs:
           node scripts/release-info.mjs --github >> "$GITHUB_OUTPUT"
           echo "name=$(node scripts/release-info.mjs --github | sed -n 's/^apk=//p')" >> "$GITHUB_OUTPUT"
 
-      - name: Read OTA version label
+      - name: Describe this build
         id: ver
         run: |
-          OTA=$(grep -oE "OTA #[0-9]+[^']*" src/version.ts | head -1 || echo "unknown")
-          echo "ota=$OTA" >> "$GITHUB_OUTPUT"
+          echo "ota=source ${SOURCE_SHA::7} (selected ref ${GITHUB_REF_NAME}), versionCode ${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      # The release GATE (scripts/inspect-apk.py): fails the build, and so blocks
+      # the artifact and any release, when a 64-bit native library is not 16 KB
+      # aligned, zipalign -P 16 rejects the APK, targetSdk < 36, the package id is
+      # not com.hotatticgames.snow, or a blocked permission is present. The report
+      # is uploaded even on failure.
+      - name: Gate the APK (16 KB alignment, target SDK, package id, permissions)
+        run: |
+          set -o pipefail
+          MANIFEST=$(find android/app/build/intermediates -name AndroidManifest.xml -path '*release*' -path '*merged_manifest*' -print -quit || true)
+          python3 scripts/inspect-apk.py "${{ steps.apk.outputs.path }}" "$MANIFEST" | tee apk-report.txt
 
       # A public version number is never reused for a different binary:
       # bump release.json before shipping a new playable build.
       - name: Refuse to reuse a public version
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           TAG="${{ steps.apk.outputs.tag }}"
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
@@ -174,41 +260,79 @@ jobs:
             exit 1
           fi
 
-      - name: Rename APK for upload
-        run: cp "${{ steps.apk.outputs.path }}" "${{ steps.apk.outputs.name }}"
+      - name: Rename APK for upload and write its SHA-256
+        id: sha
+        run: |
+          cp "${{ steps.apk.outputs.path }}" "${{ steps.apk.outputs.name }}"
+          sha256sum "${{ steps.apk.outputs.name }}" | tee "${{ steps.apk.outputs.name }}.sha256"
+          echo "sha256=$(cut -d' ' -f1 "${{ steps.apk.outputs.name }}.sha256")" >> "$GITHUB_OUTPUT"
+          VERSION_CODE=${{ github.run_number }} node scripts/make-release-manifest.mjs --platform android --signing debug \
+            --out "${{ steps.apk.outputs.name }}.manifest.json" "${{ steps.apk.outputs.name }}"
 
       - name: Upload APK as workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.apk.outputs.name }}
-          path: ${{ steps.apk.outputs.name }}
+          path: |
+            ${{ steps.apk.outputs.name }}
+            ${{ steps.apk.outputs.name }}.sha256
+            ${{ steps.apk.outputs.name }}.manifest.json
           if-no-files-found: error
 
-      # Auto-publish a GitHub Release on every push so testers
-      # always have a stable URL for the latest build. Manual
-      # (workflow_dispatch) runs skip this and just leave the APK
-      # as a workflow artifact you can download from the run page.
+      - name: Upload the APK inspection report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-report-${{ github.run_number }}
+          path: apk-report.txt
+
+  release:
+    # GitHub Release (public distribution). Never automatic: owner dispatch + confirmation + environment.
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release && inputs.confirm == 'publish-release'
+    environment: production-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.build.outputs.source_sha }}
+          fetch-depth: 0
+      - name: Re-verify the approved source before publishing
+        run: node scripts/verify-approved-source.mjs "${{ needs.build.outputs.source_sha }}"
+      - name: Download the build (the exact artifact that was inspected)
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.apk }}
+      - name: The artifact is the inspected one
+        run: |
+          echo "${{ needs.build.outputs.sha256 }}  ${{ needs.build.outputs.apk }}" | sha256sum -c -
+          node -e "const m=require('./${{ needs.build.outputs.apk }}.manifest.json'); if (m.sourceSha!=='${{ needs.build.outputs.source_sha }}') { console.error('manifest source SHA disagrees'); process.exit(1); }"
       - name: Publish GitHub Release
-        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.apk.outputs.tag }}
-          name: ${{ steps.apk.outputs.title }}
+          tag_name: ${{ needs.build.outputs.tag }}
+          target_commitish: ${{ needs.build.outputs.source_sha }}   # the tag points at the built commit
+          name: ${{ needs.build.outputs.title }}
           body: |
-            ## Install: download `${{ steps.apk.outputs.name }}` below
+            ## Install: download `${{ needs.build.outputs.apk }}` below
 
             1. Download the APK.
             2. On your Android device, allow "install from unknown sources" for your browser / file manager.
             3. Open the downloaded APK to install.
-            4. If Android refuses to update over an existing install (different signing key), uninstall first. Use Settings > Back up first: an uninstall erases local saves.
+            4. If Android refuses the update (a different signing key), nothing was changed: do NOT uninstall without a backup (Settings > Back up), because an uninstall erases local saves.
 
             After installing, the app keeps itself current over the air; the public version shown in About can stay the same while the OTA revision advances.
 
             ### Provenance (internal)
-            - Public version: ${{ steps.apk.outputs.version }}
-            - Source commit: `${{ github.sha }}`
-            - OTA revision at build: **${{ steps.ver.outputs.ota }}**
-            - Android versionCode: from `app.json` (see About > Copy diagnostics)
-            - CI run: #${{ github.run_number }}
-          files: ${{ steps.apk.outputs.name }}
+            - Public version: ${{ needs.build.outputs.version }}
+            - SHA-256: `${{ needs.build.outputs.sha256 }}`
+            - Source commit: `${{ needs.build.outputs.source_sha }}`
+            - CI run: #${{ github.run_number }} (manifest attached)
+          files: |
+            ${{ needs.build.outputs.apk }}
+            ${{ needs.build.outputs.apk }}.sha256
+            ${{ needs.build.outputs.apk }}.manifest.json
           token: ${{ secrets.GITHUB_TOKEN }}
