@@ -1,56 +1,24 @@
 name: EAS Update (OTA)
 
+# DISABLED ON THIS BRANCH ON PURPOSE.
+#
+# main is behind the live release line (claude/repo-gameplay-review-loq9rq,
+# draft PR #64). Every installed APK listens to the single "preview" EAS
+# channel, so publishing from this branch would roll every player back to
+# old code. The real publishing workflow (tests, smoke, size budget,
+# "never go backwards" ancestry guard, delivery check) lives on the live
+# line and takes over when that line is merged here.
+#
+# When merging the live line into main, take the live line's version of
+# .github/workflows/eas-update.yml and eas-build.yml.
+
 on:
-  push:
-    branches:
-      - main
-      - 'claude/android-snowboarding-game-UHUPI'
   workflow_dispatch:
 
-permissions:
-  contents: read
-
-concurrency:
-  group: eas-update-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  update:
+  disabled:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - run: npm install -g eas-cli
-      - run: npm install
-      - run: npm run web:build
-        env:
-          NODE_ENV: production
-      - name: Publish OTA update
-        # Publish to the EAS branch literally named "preview" so the
-        # channel "preview" (declared in eas.json's preview build profile)
-        # picks up the update on the installed APK.
-        #
-        # Was previously --auto, which uses the current git branch as the
-        # EAS branch name. That meant updates landed on a branch named
-        # "claude/android-snowboarding-game-UHUPI" while the installed APK
-        # was subscribed to channel "preview" -> branch "preview", so the
-        # OTA was published but never delivered.
-        #
-        # --platform android: app.json only declares android.
-        run: |
-          eas update \
-            --branch preview \
-            --platform android \
-            --non-interactive \
-            --message "OTA from ${GITHUB_SHA::7} on ${GITHUB_REF_NAME}"
-        # Token name flexibility: prefer EXPO_TOKEN, fall back to the
-        # SNOWBOARD / SNOW secret names already in this repo. NODE_ENV
-        # set so eas-cli's underlying Metro bundling runs in production
-        # mode (minified + dead-code-stripped) — keeps the OTA payload
-        # as small as possible so it has time to fetch on short
-        # cellular sessions.
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.SNOWBOARD || secrets.SNOW }}
-          NODE_ENV: production
+      - run: |
+          echo "::error::OTA publishing is disabled on this branch: it is older than the live release line and would downgrade installed players. Publish from claude/repo-gameplay-review-loq9rq (or from main after that line is merged)."
+          exit 1
